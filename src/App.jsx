@@ -178,8 +178,8 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
-      name: 'khoa.tt2611758',
-      email: 'khoa.tt2611758@sis.hust.edu.vn'
+      name: 'Khách',
+      email: 'guest@cuber.vn'
     };
   });
 
@@ -222,14 +222,15 @@ export default function App() {
 
   // Xóa sạch dữ liệu mẫu/cheat cũ nếu người dùng đã lưu trong trình duyệt
   useEffect(() => {
-    const cleanFlag = localStorage.getItem('rubik_clean_anti_cheat_v3');
+    const cleanFlag = localStorage.getItem('rubik_clean_anti_cheat_v4');
     if (!cleanFlag) {
       localStorage.removeItem('rubik_multi_leaderboards_v2');
       localStorage.removeItem('rubik_multi_leaderboards_v3');
       localStorage.removeItem('rubik_multi_leaderboards_v4');
       localStorage.removeItem('rubik_multi_leaderboards_v5');
       localStorage.removeItem('rubik_solves_hcc');
-      localStorage.setItem('rubik_clean_anti_cheat_v3', 'true');
+      localStorage.removeItem('rubik_auth_user'); // Trả về khách mặc định, không tự gán email Khoa
+      localStorage.setItem('rubik_clean_anti_cheat_v4', 'true');
     }
   }, []);
 
@@ -1140,7 +1141,7 @@ export default function App() {
 
               <div
                 onClick={() => setShowAuthModal(true)}
-                title="Bấm để đổi tài khoản"
+                title="Bấm để quản lý tài khoản hoặc Đăng xuất"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1148,12 +1149,12 @@ export default function App() {
                   background: '#111c34',
                   padding: '5px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #1a2a4c',
+                  border: '1px solid #f59e0b',
                   cursor: 'pointer'
                 }}
               >
-                <span style={{ fontSize: '0.8rem' }}>👤</span>
-                <span style={{ fontSize: '0.78rem', color: '#e2e8f0', fontWeight: '600' }}>
+                <span style={{ fontSize: '0.8rem' }}>👑</span>
+                <span style={{ fontSize: '0.78rem', color: '#fbbf24', fontWeight: '700' }}>
                   {currentUser.name}
                 </span>
               </div>
@@ -1162,13 +1163,13 @@ export default function App() {
             /* NGƯỜI DÙNG THÔNG THƯỜNG — HOÀN TOÀN KHÔNG THẤY MỤC ADMIN NÀO */
             <div
               onClick={() => setShowAuthModal(true)}
-              title="Bấm để đăng nhập hoặc đổi tài khoản"
+              title="Bấm để đăng nhập tài khoản của bạn"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
                 background: '#111c34',
-                padding: '5px 10px',
+                padding: '6px 12px',
                 borderRadius: '6px',
                 border: '1px solid #1a2a4c',
                 cursor: 'pointer'
@@ -1176,7 +1177,7 @@ export default function App() {
             >
               <span style={{ fontSize: '0.8rem' }}>👤</span>
               <span style={{ fontSize: '0.78rem', color: '#e2e8f0', fontWeight: '600' }}>
-                {currentUser.name}
+                {currentUser.email === 'guest@cuber.vn' ? 'Đăng nhập' : currentUser.name}
               </span>
             </div>
           )}
@@ -2180,13 +2181,55 @@ export default function App() {
               ✕
             </button>
 
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
+              Đăng Nhập Tài Khoản
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
+              Nhập tên và email để lưu kỷ lục của bạn lên bảng xếp hạng.
+            </p>
+
+            {currentUser.email !== 'guest@cuber.vn' && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: isKhoaAdmin ? 'rgba(245, 158, 11, 0.1)' : 'rgba(56, 189, 248, 0.1)',
+                border: isKhoaAdmin ? '1px solid #f59e0b' : '1px solid #38bdf8',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '0.85rem', color: isKhoaAdmin ? '#fbbf24' : '#38bdf8' }}>
+                    {isKhoaAdmin ? '👑 Quản Trị Viên Khoa' : currentUser.name}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                    {currentUser.email}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleLogout();
+                    setShowAuthModal(false);
+                  }}
+                  style={{
+                    background: '#ef4444',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '5px 12px',
+                    borderRadius: '5px',
+                    fontSize: '0.75rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleLoginSubmit}>
-              <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
-                Đăng Nhập Tài Khoản
-              </h3>
-              <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
-                Nhập tên và email để lưu kỷ lục của bạn lên bảng xếp hạng.
-              </p>
 
               <div style={{ marginBottom: '14px' }}>
                 <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
