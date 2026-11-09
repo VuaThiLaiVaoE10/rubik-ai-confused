@@ -40,7 +40,8 @@ const COLOR_DEFINITIONS = {
   red:    { code: 'R', name: 'Đỏ', hex: '#ef4444', bg: '#ef4444', textColor: '#ffffff' },
   orange: { code: 'L', name: 'Cam', hex: '#f97316', bg: '#f97316', textColor: '#ffffff' },
   green:  { code: 'F', name: 'Xanh lá', hex: '#22c55e', bg: '#22c55e', textColor: '#ffffff' },
-  blue:   { code: 'B', name: 'Xanh dương', hex: '#3b82f6', bg: '#3b82f6', textColor: '#ffffff' }
+  blue:   { code: 'B', name: 'Xanh dương', hex: '#3b82f6', bg: '#3b82f6', textColor: '#ffffff' },
+  invalid:{ code: '?', name: 'Không rõ', hex: '#334155', bg: '#334155', textColor: '#94a3b8' }
 };
 
 // RGB to HSV Conversion
@@ -62,25 +63,29 @@ function rgbToHsv(r, g, b) {
   return { h, s, v };
 }
 
-// Color classifier based on HSV
-function classifyHsvColor(h, s, v) {
-  if (s < 0.22 && v > 0.45) return 'white';
-  if (h >= 340 || h < 14) {
-    return s > 0.35 ? 'red' : 'white';
+// Strict Rubik color classifier with noise & dark-frame rejection
+function classifyHsvColor(h, s, v, rawBrightness) {
+  // 1. Phán quyết cảm biến hỏng / camera tối đen / nhiễu hạt đen
+  if (rawBrightness < 35 || v < 0.20) {
+    return 'invalid'; // Tối om hoặc camera hỏng -> Không xếp vào màu Rubik nào!
   }
-  if (h >= 14 && h < 38) {
-    return s > 0.35 ? 'orange' : 'white';
+
+  // 2. Màu trắng (Độ sáng cao, độ bão hòa rất thấp)
+  if (s < 0.22 && v > 0.55 && rawBrightness > 100) {
+    return 'white';
   }
-  if (h >= 38 && h < 75) {
-    return s > 0.30 ? 'yellow' : 'white';
+
+  // 3. Các màu có sắc độ (Cần độ bão hòa thực tế > 0.30 để tránh nhiễu camera)
+  if (s > 0.30) {
+    if (h >= 345 || h < 14) return 'red';
+    if (h >= 14 && h < 38) return 'orange';
+    if (h >= 38 && h < 75) return 'yellow';
+    if (h >= 75 && h < 165) return 'green';
+    if (h >= 165 && h < 260) return 'blue';
   }
-  if (h >= 75 && h < 165) {
-    return s > 0.25 ? 'green' : 'white';
-  }
-  if (h >= 165 && h < 260) {
-    return s > 0.25 ? 'blue' : 'white';
-  }
-  return v > 0.5 ? 'white' : 'red';
+
+  // Không đạt chuẩn màu Rubik thực tế
+  return 'invalid';
 }
 
 export default function App() {
@@ -115,16 +120,22 @@ export default function App() {
 
   // Camera & AI State
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
-  const [detectedColors, setDetectedColors] = useState(Array(9).fill('white'));
+  const [cameraHealth, setCameraHealth] = useState({
+    isHealthy: false,
+    reason: 'Camera chưa bật',
+    brightness: 0,
+    contrast: 0
+  });
+
+  const [detectedColors, setDetectedColors] = useState(Array(9).fill('invalid'));
   const [preCheckStatus, setPreCheckStatus] = useState({
     verified: false,
-    text: 'Chưa kết nối Camera AI',
+    text: 'Camera AI đang tắt (Chế độ thủ công chuẩn WCA)',
     isScrambled: false,
     centerFace: null
   });
 
-  // Tracked moves (ONLY non-empty when camera actively detects real moves during a solve)
+  // Tracked moves: 100% ZERO RANDOMNESS. Only populated when camera is healthy and valid physical moves occur
   const [trackedMoves, setTrackedMoves] = useState([]);
   const [lastMoveDetected, setLastMoveDetected] = useState('');
 
@@ -142,6 +153,7 @@ export default function App() {
   const lastMoveTimeRef = useRef(0);
   const trackedMovesRef = useRef([]);
   const cameraActiveRef = useRef(false);
+  const cameraHealthRef = useRef(false);
 
   useEffect(() => {
     timerStateRef.current = timerState;
@@ -169,13 +181,14 @@ export default function App() {
 
     const finalSec = (finalMs / 1000).toFixed(2);
     const movesRecorded = trackedMovesRef.current;
-    const isCameraVerified = cameraActiveRef.current && movesRecorded.length > 0;
+    // Chỉ được coi là AI Verified nếu camera hoạt động khỏe mạnh VÀ có ghi nhận nước đi thật
+    const isCameraVerified = cameraActiveRef.current && cameraHealthRef.current && movesRecorded.length > 0;
 
     const newSolve = {
       id: Date.now(),
       time: parseFloat(finalSec),
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
-      moves: movesRecorded.length > 0 ? movesRecorded.join(' ') : 'Giải thủ công (Không có cam)',
+      moves: isCameraVerified ? movesRecorded.join(' ') : 'Giải thủ công (Spacebar)',
       verified: isCameraVerified
     };
 
@@ -204,7 +217,7 @@ export default function App() {
     }, 10);
   }, []);
 
-  // Keep ref up to date so keyboard listener never gets stale functions
+  // Keep refs up to date
   const stopTimerRef = useRef(stopTimer);
   const startTimerRef = useRef(startTimer);
   useEffect(() => {
@@ -219,7 +232,6 @@ export default function App() {
     let holdTimeout = null;
 
     const handleKeyDown = (e) => {
-      // Ignore input elements
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 
       const currentState = timerStateRef.current;
@@ -227,19 +239,18 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
 
-        // If running, pressing Space immediately STOPS
+        // Đang chạy mà bấm phím bất kỳ -> Dừng ngay
         if (currentState === 'running') {
           stopTimerRef.current();
           return;
         }
 
-        // Prevent repeated keydown triggers when held down
         if (e.repeat) return;
 
         if (currentState === 'idle') {
           setTimerState('holding');
           clearTimeout(holdTimeout);
-          // Hold for 300ms to become READY (green)
+          // Giữ 280ms để READY (xanh lá)
           holdTimeout = setTimeout(() => {
             if (timerStateRef.current === 'holding') {
               setTimerState('ready');
@@ -247,7 +258,7 @@ export default function App() {
           }, 280);
         }
       } else {
-        // Any other key while running stops the timer
+        // Bất kỳ phím nào khi đang chạy đều dừng đồng hồ
         if (currentState === 'running') {
           stopTimerRef.current();
         }
@@ -263,7 +274,7 @@ export default function App() {
         if (currentState === 'ready') {
           startTimerRef.current();
         } else if (currentState === 'holding') {
-          // Released too early before green
+          // Thả phím quá sớm khi chưa xanh -> Về idle
           setTimerState('idle');
         }
       }
@@ -279,11 +290,11 @@ export default function App() {
   }, []);
 
   // ==========================================
-  // 4. CAMERA & COMPUTER VISION AI ENGINE
+  // 4. CAMERA & HEALTH SANITY ENGINE
   // ==========================================
   const toggleCamera = async () => {
     if (cameraActive) {
-      // Turn OFF camera
+      // Turn OFF
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
@@ -292,20 +303,19 @@ export default function App() {
         cancelAnimationFrame(animFrameRef.current);
       }
       setCameraActive(false);
-      setCameraError(null);
+      cameraHealthRef.current = false;
+      setCameraHealth({ isHealthy: false, reason: 'Camera đã tắt', brightness: 0, contrast: 0 });
       setPreCheckStatus({
         verified: false,
-        text: 'Camera đã tắt - Chế độ tính giờ thủ công',
+        text: 'Camera đã tắt — Chế độ tính giờ WCA thủ công',
         isScrambled: false,
         centerFace: null
       });
-      // Zero out any moves
       setTrackedMoves([]);
       setLastMoveDetected('');
     } else {
-      // Turn ON camera
+      // Turn ON
       try {
-        setCameraError(null);
         setPreCheckStatus(prev => ({ ...prev, text: 'Đang kết nối camera...' }));
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
@@ -317,10 +327,11 @@ export default function App() {
         setCameraActive(true);
       } catch (err) {
         setCameraActive(false);
-        setCameraError('Không thể mở Camera: ' + (err.message || 'Thiết bị từ chối truy cập'));
+        cameraHealthRef.current = false;
+        setCameraHealth({ isHealthy: false, reason: 'Không thể mở camera: ' + err.message, brightness: 0, contrast: 0 });
         setPreCheckStatus({
           verified: false,
-          text: 'Lỗi: Không tìm thấy Camera hoặc chưa cấp quyền',
+          text: 'Lỗi: Không tìm thấy camera hoặc bị lỗi phần cứng',
           isScrambled: false,
           centerFace: null
         });
@@ -328,7 +339,7 @@ export default function App() {
     }
   };
 
-  // Computer Vision Processing Loop
+  // Computer Vision Processing Loop with HARDWARE HEALTH CHECK
   useEffect(() => {
     if (!cameraActive) return;
 
@@ -347,18 +358,80 @@ export default function App() {
         canvas.width = w;
         canvas.height = h;
 
-        // Draw current frame to offscreen canvas
         ctx.drawImage(video, 0, 0, w, h);
 
-        // Define 3x3 sampling grid in center of video
-        const boxSize = Math.min(w, h) * 0.55;
+        const frameImg = ctx.getImageData(0, 0, w, h).data;
+
+        // ----------------------------------------------------
+        // A. HARDWARE SANITY CHECK (Chống camera hỏng / màn đen / nhiễu trắng)
+        // ----------------------------------------------------
+        let totalBrightness = 0;
+        const pixelStep = 16; // Sample every 16th pixel for speed
+        let sampledCount = 0;
+        let minVal = 255;
+        let maxVal = 0;
+
+        for (let i = 0; i < frameImg.length; i += pixelStep * 4) {
+          const lum = 0.299 * frameImg[i] + 0.587 * frameImg[i + 1] + 0.114 * frameImg[i + 2];
+          totalBrightness += lum;
+          if (lum < minVal) minVal = lum;
+          if (lum > maxVal) maxVal = lum;
+          sampledCount++;
+        }
+
+        const avgBrightness = totalBrightness / sampledCount;
+        const contrast = maxVal - minVal;
+
+        // ĐÁNH GIÁ PHẦN CỨNG CAMERA
+        let isHealthy = true;
+        let healthReason = 'Hoạt động tốt';
+
+        if (avgBrightness < 30) {
+          isHealthy = false;
+          healthReason = 'Camera bị hỏng / tối đen (Không có ánh sáng)';
+        } else if (contrast < 20) {
+          isHealthy = false;
+          healthReason = 'Camera bị mờ đơ / không có độ tương phản';
+        } else if (avgBrightness > 245) {
+          isHealthy = false;
+          healthReason = 'Camera bị chói sáng trắng toàn bộ';
+        }
+
+        cameraHealthRef.current = isHealthy;
+        setCameraHealth({
+          isHealthy,
+          reason: healthReason,
+          brightness: Math.round(avgBrightness),
+          contrast: Math.round(contrast)
+        });
+
+        // ----------------------------------------------------
+        // B. NẾU CAMERA HỎNG: TUYỆT ĐỐI KHÔNG CHẠY NƯỚC ĐI
+        // ----------------------------------------------------
+        if (!isHealthy) {
+          setPreCheckStatus({
+            verified: false,
+            text: `⚠️ ${healthReason}. Đã khóa nhận diện AI để tránh sai lệch!`,
+            isScrambled: false,
+            centerFace: null
+          });
+          setDetectedColors(Array(9).fill('invalid'));
+          prevColorsRef.current = null;
+          animFrameRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+
+        // ----------------------------------------------------
+        // C. SAMPLE 3X3 RUBIK GRID
+        // ----------------------------------------------------
+        const boxSize = Math.min(w, h) * 0.52;
         const startX = (w - boxSize) / 2;
         const startY = (h - boxSize) / 2;
         const cellSize = boxSize / 3;
-        const sampleRadius = Math.max(2, Math.floor(cellSize * 0.18));
+        const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
 
-        const frameImg = ctx.getImageData(0, 0, w, h).data;
         const current9Colors = [];
+        let validColorsCount = 0;
 
         for (let row = 0; row < 3; row++) {
           for (let col = 0; col < 3; col++) {
@@ -382,11 +455,17 @@ export default function App() {
             }
 
             if (count > 0) {
-              const hsv = rgbToHsv(rSum / count, gSum / count, bSum / count);
-              const colorKey = classifyHsvColor(hsv.h, hsv.s, hsv.v);
+              const avgR = rSum / count;
+              const avgG = gSum / count;
+              const avgB = bSum / count;
+              const rawB = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+              const hsv = rgbToHsv(avgR, avgG, avgB);
+              const colorKey = classifyHsvColor(hsv.h, hsv.s, hsv.v, rawB);
+
               current9Colors.push(colorKey);
+              if (colorKey !== 'invalid') validColorsCount++;
             } else {
-              current9Colors.push('white');
+              current9Colors.push('invalid');
             }
           }
         }
@@ -394,84 +473,110 @@ export default function App() {
         setDetectedColors(current9Colors);
 
         // ----------------------------------------------------
-        // AI INSPECTION / PRE-CHECK (Khi chưa bấm giờ)
+        // D. ZERO-ASSUMPTION CUBE GROUNDING GATE
+        // (Nếu số ô màu hợp lệ < 6 -> Khẳng định KHÔNG PHẢI KHỐI RUBIK)
         // ----------------------------------------------------
-        const centerColor = current9Colors[4]; // Center sticker determines face
-        const centerName = COLOR_DEFINITIONS[centerColor]?.name || centerColor;
-        const uniqueColorsCount = new Set(current9Colors).size;
-        const isSolvedFace = uniqueColorsCount === 1;
+        if (validColorsCount < 6) {
+          setPreCheckStatus({
+            verified: false,
+            text: '🔍 Đang đợi khối Rubik trước camera... (Hãy đưa Rubik vào khung vuông)',
+            isScrambled: false,
+            centerFace: null
+          });
+          prevColorsRef.current = null;
+          animFrameRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+
+        // ----------------------------------------------------
+        // E. AI PRE-CHECK / INSPECTION (Khi chưa bấm giờ)
+        // ----------------------------------------------------
+        const centerColor = current9Colors[4];
+        const centerDef = COLOR_DEFINITIONS[centerColor];
+        const centerName = centerDef ? centerDef.name : 'Không rõ';
+
+        const validColorsOnly = current9Colors.filter(c => c !== 'invalid');
+        const uniqueColorsCount = new Set(validColorsOnly).size;
+        const isAllSameColor = validColorsCount === 9 && uniqueColorsCount === 1;
 
         if (timerStateRef.current === 'idle') {
-          if (uniqueColorsCount >= 2) {
+          if (centerColor !== 'invalid' && uniqueColorsCount >= 2) {
             setPreCheckStatus({
               verified: true,
-              text: `✓ AI Check: Mặt tâm ${centerName} — Đã xáo trộn hợp lệ, sẵn sàng bấm giờ!`,
+              text: `🟢 ĐÃ CHECK KHỐI RUBIK: Mặt tâm ${centerName} — Đã xáo trộn hợp lệ! Sẵn sàng bấm giờ.`,
               isScrambled: true,
+              centerFace: centerName
+            });
+          } else if (isAllSameColor) {
+            setPreCheckStatus({
+              verified: false,
+              text: `⚠️ Khối Rubik đang ở trạng thái hoàn thành (Tâm ${centerName} - Chưa xáo trộn)`,
+              isScrambled: false,
               centerFace: centerName
             });
           } else {
             setPreCheckStatus({
               verified: false,
-              text: `⚠️ AI Check: Mặt tâm ${centerName} đang đồng màu hoàn chỉnh (Chưa xáo trộn)`,
+              text: 'Đang định hình mặt Rubik...',
               isScrambled: false,
-              centerFace: centerName
+              centerFace: null
             });
           }
         }
 
         // ----------------------------------------------------
-        // REAL-TIME AI MOVE DETECTION (CHỈ KHI ĐANG GIẢI)
+        // F. ZERO-HALLUCINATION REAL MOVE DETECTION
+        // (CHỈ CHẠY KHI ĐANG GIẢI VÀ ĐỦ 9 Ô HỢP LỆ VÀ KHỚP 100% CHU TRÌNH TOÁN HỌC)
+        // TUYỆT ĐỐI KHÔNG DÙNG Math.random()!
         // ----------------------------------------------------
         const now = performance.now();
-        if (timerStateRef.current === 'running' && prevColorsRef.current && (now - lastMoveTimeRef.current > 350)) {
+        if (
+          timerStateRef.current === 'running' &&
+          prevColorsRef.current &&
+          validColorsCount === 9 &&
+          (now - lastMoveTimeRef.current > 400)
+        ) {
           const prev = prevColorsRef.current;
           let detectedMove = null;
 
-          // 1. Detect Front face rotation (F or F')
-          // Clockwise rotation of 8 border stickers around center
+          // 1. Phép xoay mặt trước F (Xoay 90 độ cùng chiều kim đồng hồ của 8 ô viền)
+          // Chu trình: 0->2, 1->5, 2->8, 5->7, 8->6, 7->3, 6->0, 3->1
           const isClockwiseF =
             current9Colors[2] === prev[0] &&
+            current9Colors[5] === prev[1] &&
             current9Colors[8] === prev[2] &&
+            current9Colors[7] === prev[5] &&
             current9Colors[6] === prev[8] &&
-            current9Colors[0] === prev[6];
+            current9Colors[3] === prev[7] &&
+            current9Colors[0] === prev[6] &&
+            current9Colors[1] === prev[3];
 
+          // 2. Phép xoay mặt trước F' (Xoay 90 độ ngược chiều kim đồng hồ)
           const isCounterF =
             current9Colors[0] === prev[2] &&
+            current9Colors[1] === prev[5] &&
             current9Colors[2] === prev[8] &&
+            current9Colors[5] === prev[7] &&
             current9Colors[8] === prev[6] &&
-            current9Colors[6] === prev[0];
+            current9Colors[7] === prev[3] &&
+            current9Colors[6] === prev[0] &&
+            current9Colors[3] === prev[1];
 
           if (isClockwiseF) {
             detectedMove = 'F';
           } else if (isCounterF) {
             detectedMove = "F'";
-          } else {
-            // 2. Detect Row 0 shift (U or U')
-            const topChanged = current9Colors[0] !== prev[0] || current9Colors[1] !== prev[1] || current9Colors[2] !== prev[2];
-            const bottomUnchanged = current9Colors[6] === prev[6] && current9Colors[7] === prev[7] && current9Colors[8] === prev[8];
-
-            if (topChanged && bottomUnchanged) {
-              detectedMove = (Math.random() > 0.5) ? 'U' : "U'";
-            } else {
-              // 3. Detect Column 2 shift (R or R')
-              const rightChanged = current9Colors[2] !== prev[2] || current9Colors[5] !== prev[5] || current9Colors[8] !== prev[8];
-              const leftUnchanged = current9Colors[0] === prev[0] && current9Colors[3] === prev[3] && current9Colors[6] === prev[6];
-
-              if (rightChanged && leftUnchanged) {
-                detectedMove = (Math.random() > 0.5) ? 'R' : "R'";
-              }
-            }
           }
 
+          // Ghi nhận nước đi NẾU VÀ CHỈ NẾU đã xác thực chính xác
           if (detectedMove) {
             lastMoveTimeRef.current = now;
             setLastMoveDetected(detectedMove);
             setTrackedMoves(moves => [...moves, detectedMove]);
           }
 
-          // 4. Auto-detect Solved state if all 9 stickers match center
-          if (isSolvedFace && (now - startTimeRef.current > 1500) && trackedMovesRef.current.length >= 3) {
-            // Face reached solved state!
+          // 3. Tự động xác minh giải xong khi cả 9 ô đồng màu với tâm sau khi giải
+          if (isAllSameColor && (now - startTimeRef.current > 2000) && trackedMovesRef.current.length >= 1) {
             stopTimerRef.current();
           }
         }
@@ -490,7 +595,7 @@ export default function App() {
     };
   }, [cameraActive]);
 
-  // Cleanup stream on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -499,13 +604,11 @@ export default function App() {
     };
   }, []);
 
-  // Format mm:ss.xx
   const formatTime = (ms) => {
     const totalSec = ms / 1000;
     return totalSec.toFixed(2);
   };
 
-  // Best & Mean calculations
   const bestTime = solves.length > 0 ? Math.min(...solves.map(s => s.time)).toFixed(2) : '--';
   const meanTime = solves.length > 0 
     ? (solves.reduce((acc, s) => acc + s.time, 0) / solves.length).toFixed(2) 
@@ -531,7 +634,6 @@ export default function App() {
       overflow: 'hidden',
       userSelect: 'none'
     }}>
-      {/* Offscreen sampling canvas */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ==========================================
@@ -569,16 +671,22 @@ export default function App() {
           </div>
         </div>
 
-        {/* Camera toggle button & User identifier */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        {/* Camera Toggle Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
             onClick={toggleCamera}
             style={{
               padding: '7px 16px',
               borderRadius: '6px',
-              border: cameraActive ? '1px solid #22c55e' : '1px solid #334155',
-              background: cameraActive ? '#14532d55' : '#1e293b',
-              color: cameraActive ? '#4ade80' : '#94a3b8',
+              border: cameraActive 
+                ? (cameraHealth.isHealthy ? '1px solid #22c55e' : '1px solid #ef4444') 
+                : '1px solid #334155',
+              background: cameraActive 
+                ? (cameraHealth.isHealthy ? '#14532d55' : '#7f1d1d44') 
+                : '#1e293b',
+              color: cameraActive 
+                ? (cameraHealth.isHealthy ? '#4ade80' : '#f87171') 
+                : '#94a3b8',
               fontWeight: '600',
               fontSize: '0.82rem',
               cursor: 'pointer',
@@ -588,8 +696,12 @@ export default function App() {
               transition: 'all 0.2s'
             }}
           >
-            <span>{cameraActive ? '🟢' : '📷'}</span>
-            <span>{cameraActive ? 'Tắt Camera AI' : 'Bật Camera AI Soi Rubik'}</span>
+            <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
+            <span>
+              {cameraActive 
+                ? (cameraHealth.isHealthy ? 'Tắt Camera AI' : 'Camera Bị Lỗi (Bấm để tắt)') 
+                : 'Bật Camera AI'}
+            </span>
           </button>
 
           <span style={{ fontSize: '0.85rem', color: '#94a3b8', background: '#111c34', padding: '5px 10px', borderRadius: '6px', border: '1px solid #1a2a4c' }}>
@@ -760,7 +872,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center-Top: Live Camera & AI Pre-check Grid */}
+          {/* Center-Top: Live Camera Diagnostics & Pre-check Grid */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
@@ -770,7 +882,7 @@ export default function App() {
               padding: '10px 16px',
               background: '#090f1d',
               borderRadius: '12px',
-              border: '1px solid #192642'
+              border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
             }}>
               {/* Webcam view */}
               <div style={{
@@ -779,7 +891,7 @@ export default function App() {
                 borderRadius: '8px',
                 overflow: 'hidden',
                 background: '#020617',
-                border: '1px solid #334155',
+                border: cameraHealth.isHealthy ? '1px solid #334155' : '1px solid #ef4444',
                 position: 'relative'
               }}>
                 <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -791,16 +903,16 @@ export default function App() {
                   padding: '1px 5px',
                   borderRadius: '3px',
                   fontSize: '0.62rem',
-                  color: '#4ade80'
+                  color: cameraHealth.isHealthy ? '#4ade80' : '#f87171'
                 }}>
-                  ● LIVE
+                  {cameraHealth.isHealthy ? '● LIVE' : '⚠️ LỖI CAM'}
                 </div>
               </div>
 
               {/* 3x3 Rubik Sticker Grid Color Scanner */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600' }}>
-                  Quét 9 Sticker Mặt Trước
+                  {cameraHealth.isHealthy ? 'Quét 9 Sticker' : 'Camera Bị Hỏng'}
                 </div>
                 <div style={{
                   display: 'grid',
@@ -814,12 +926,12 @@ export default function App() {
                   {detectedColors.map((colorKey, i) => (
                     <div
                       key={i}
-                      title={`Ô ${i + 1}: ${COLOR_DEFINITIONS[colorKey]?.name}`}
+                      title={`Ô ${i + 1}: ${COLOR_DEFINITIONS[colorKey]?.name || 'Không rõ'}`}
                       style={{
                         width: '22px',
                         height: '22px',
                         borderRadius: '3px',
-                        backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#64748b',
+                        backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155',
                         border: i === 4 ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.4)',
                         boxShadow: i === 4 ? '0 0 6px rgba(255,255,255,0.6)' : 'none'
                       }}
@@ -828,18 +940,34 @@ export default function App() {
                 </div>
               </div>
 
-              {/* AI Pre-check status badge */}
+              {/* Status / Health reason */}
               <div style={{ maxWidth: '240px', fontSize: '0.75rem', lineHeight: 1.4 }}>
                 <div style={{
-                  color: preCheckStatus.verified ? '#4ade80' : (preCheckStatus.isScrambled ? '#38bdf8' : '#f59e0b'),
+                  color: !cameraHealth.isHealthy 
+                    ? '#f87171' 
+                    : (preCheckStatus.verified ? '#4ade80' : '#f59e0b'),
                   fontWeight: '600',
                   marginBottom: '2px'
                 }}>
                   {preCheckStatus.text}
                 </div>
-                <div style={{ color: '#64748b', fontSize: '0.7rem' }}>
-                  {timerState === 'running' ? 'AI đang theo dõi nước đi xoay...' : 'Đưa khối Rubik vào khung để AI kiểm tra'}
-                </div>
+                {!cameraHealth.isHealthy && (
+                  <button
+                    onClick={toggleCamera}
+                    style={{
+                      marginTop: '4px',
+                      background: '#7f1d1d',
+                      border: '1px solid #ef4444',
+                      color: '#ffffff',
+                      fontSize: '0.7rem',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Tắt cam hỏng để bấm giờ chuẩn
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -848,18 +976,18 @@ export default function App() {
               margin: '8px 0',
               padding: '8px 16px',
               borderRadius: '8px',
-              background: 'rgba(234, 179, 8, 0.08)',
-              border: '1px solid rgba(234, 179, 8, 0.25)',
-              color: '#facc15',
+              background: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              color: '#38bdf8',
               fontSize: '0.78rem',
               textAlign: 'center',
               display: 'flex',
               alignItems: 'center',
               gap: '8px'
             }}>
-              <span>⚠️</span>
+              <span>⏱️</span>
               <span>
-                <strong>Camera AI chưa bật:</strong> Ứng dụng chạy tính giờ Spacebar thủ công. Bật Camera nếu muốn AI tự động soi Rubik và xác minh nước đi!
+                <strong>Chế độ WCA chuẩn:</strong> Camera đang tắt. Bạn có thể thoải mái bấm giờ bằng phím Spacebar mà không lo bị sinh nước đi ảo!
               </span>
             </div>
           )}
@@ -906,8 +1034,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Live Move Tracking Display (CHỈ HIỆN KHI CÓ CAMERA HOẶC VỪA GIẢI XONG) */}
-          {cameraActive && (
+          {/* Live Move Tracking Display (CHỈ HIỆN KHI CÓ CAMERA HOẠT ĐỘNG KHỎE MẠNH VÀ ĐÃ BẮT ĐẦU XOAY) */}
+          {cameraActive && cameraHealth.isHealthy && (
             <div style={{
               width: '100%',
               maxWidth: '540px',
@@ -923,7 +1051,7 @@ export default function App() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '140px' }}>
                 <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>
-                  Nước đi AI ghi nhận:
+                  Nước đi AI xác nhận:
                 </span>
                 {lastMoveDetected && (
                   <span style={{
@@ -949,14 +1077,14 @@ export default function App() {
                 whiteSpace: 'nowrap',
                 textAlign: 'right'
               }}>
-                {trackedMoves.length > 0 ? trackedMoves.join(' ') : '(Chưa xoay nước nào)'}
+                {trackedMoves.length > 0 ? trackedMoves.join(' ') : '(Chưa phát hiện nước xoay)'}
               </div>
             </div>
           )}
 
           {/* Bottom Instructions */}
           <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.8rem', lineHeight: 1.5 }}>
-            <div>Nhấn giữ Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
+            <div>Nhấn giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
             <div>Dừng bằng cách nhấn phím bất kỳ hoặc click vào đồng hồ</div>
           </div>
         </div>
