@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Rubik3DView from './components/Rubik3DView';
+import Solo1v1Arena from './components/Solo1v1Arena';
 
 // ==========================================
 // 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
@@ -17,7 +18,8 @@ const GAME_MODES = [
   { id: 'free', name: '🎯 Tự do', desc: 'Bấm Space là chạy ngay, luyện tập không giới hạn' },
   { id: 'wca', name: '🏆 WCA 15s', desc: '15 giây quan sát (Inspection) chuẩn thi đấu quốc tế' },
   { id: 'target', name: '⚡ Mục tiêu Sub-X', desc: 'Thử thách phá vỡ mốc thời gian mục tiêu' },
-  { id: 'ai', name: '🤖 Trọng tài AI', desc: 'Kiểm tra Rubik qua camera & tự động xác nhận giải xong' }
+  { id: 'ai', name: '🤖 Trọng tài AI', desc: 'Kiểm tra Rubik qua camera & tự động xác nhận giải xong' },
+  { id: 'solo', name: '⚔️ Solo 1v1', desc: 'Đấu thời gian thực 1v1 qua mạng P2P WebRTC với bạn bè' }
 ];
 
 function generateScramble(puzzleType = '3x3') {
@@ -174,13 +176,15 @@ export default function App() {
   // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     try {
+      if (localStorage.getItem('rubik_auth_user_v4_clean') !== 'true') {
+        localStorage.removeItem('rubik_auth_user');
+        localStorage.setItem('rubik_auth_user_v4_clean', 'true');
+        return { name: 'Khách', email: 'guest@cuber.vn' };
+      }
       const saved = localStorage.getItem('rubik_auth_user');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return {
-      name: 'Khách',
-      email: 'guest@cuber.vn'
-    };
+    return { name: 'Khách', email: 'guest@cuber.vn' };
   });
 
   // Kiểm tra xem tài khoản hiện tại có phải là Gmail của Khoa không
@@ -683,6 +687,7 @@ export default function App() {
 
       const currentState = timerStateRef.current;
       const currentMode = gameModeRef.current;
+      if (currentMode === 'solo') return;
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -1190,7 +1195,7 @@ export default function App() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '270px 1fr 380px',
+        gridTemplateColumns: gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px',
         padding: '12px 20px',
         gap: '16px',
         overflow: 'hidden'
@@ -1446,7 +1451,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Scramble text */}
+            {gameMode !== 'solo' && (
             <div style={{ width: '100%', textAlign: 'center' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                 <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
@@ -1476,9 +1481,22 @@ export default function App() {
                 {scramble}
               </div>
             </div>
+            )}
           </div>
 
-          {/* Center-Top: Camera view or 3D Model interactive visualization */}
+          {gameMode === 'solo' ? (
+            <Solo1v1Arena
+              currentUser={currentUser}
+              cameraActive={cameraActive}
+              cameraHealth={cameraHealth}
+              puzzleType={puzzleType}
+              generateScramble={generateScramble}
+              formatTime={formatTime}
+              onExitSolo={() => handleSelectGameMode('free')}
+            />
+          ) : (
+            <>
+            {/* Center-Top: Camera view or 3D Model interactive visualization */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
@@ -1692,9 +1710,12 @@ export default function App() {
             <div>Giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
             <div>Dừng bằng cách nhấn phím bất kỳ hoặc click chuột vào đồng hồ</div>
           </div>
+            </>
+          )}
         </div>
 
         {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
+        {gameMode !== 'solo' && (
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
@@ -1939,6 +1960,7 @@ export default function App() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* ==========================================
