@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import RubikCube from './components/RubikCube';
 import RubikScanner from './components/RubikScanner';
+import Leaderboard from './components/Leaderboard';
 import AuthModal from './components/AuthModal';
 import { generateScramble, solveScramble } from './utils/rubikSolver';
 
@@ -30,8 +31,11 @@ export default function App() {
     };
   });
 
-  // Leaderboard
-  const [leaderboard, setLeaderboard] = useState([
+  // Pass latest solve to Leaderboard
+  const [latestSolveForLeaderboard, setLatestSolveForLeaderboard] = useState(null);
+
+  // Quick 10 Leaderboard list on right sidebar
+  const [leaderboardList] = useState([
     { rank: 1, name: 'khoa.tt2611758', best: '0.71', avg: '1.02' },
     { rank: 2, name: 'tungtungvuadhur', best: '6.53', avg: '7.92' },
     { rank: 3, name: 'Người Tây Đồng Bằng', best: '6.55', avg: '11.57' },
@@ -47,6 +51,7 @@ export default function App() {
   // Modals
   const [show3DModal, setShow3DModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
   const [solutionSteps, setSolutionSteps] = useState([]);
   const [isSolving, setIsSolving] = useState(false);
 
@@ -55,17 +60,16 @@ export default function App() {
   const timerStateRef = useRef('idle');
   const rubikRef = useRef(null);
 
-  // Keep ref synchronized with state to avoid stale closures in event listeners
   useEffect(() => {
     timerStateRef.current = timerState;
   }, [timerState]);
 
-  // WCA Spacebar timer logic (Bulletproof with e.repeat handling)
+  // WCA Spacebar timer logic (Bulletproof)
   useEffect(() => {
     let holdTimeout = null;
 
     const handleKeyDown = (e) => {
-      if (show3DModal || showScannerModal || isAuthOpen) return;
+      if (show3DModal || showScannerModal || showLeaderboardModal || isAuthOpen) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 
       const currentState = timerStateRef.current;
@@ -73,13 +77,11 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
 
-        // When running, pressing Space stops immediately
         if (currentState === 'running') {
           stopTimer();
           return;
         }
 
-        // Ignore browser auto-repeat when holding key down
         if (e.repeat) return;
 
         if (currentState === 'idle') {
@@ -87,10 +89,9 @@ export default function App() {
           clearTimeout(holdTimeout);
           holdTimeout = setTimeout(() => {
             setTimerState('ready');
-          }, 350); // 350ms hold -> turns green / READY
+          }, 350);
         }
       } else {
-        // Any other key stops the timer if it's currently running
         if (currentState === 'running') {
           stopTimer();
         }
@@ -118,7 +119,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [show3DModal, showScannerModal, isAuthOpen]);
+  }, [show3DModal, showScannerModal, showLeaderboardModal, isAuthOpen]);
 
   const startTimer = () => {
     setTimeMs(0);
@@ -148,6 +149,14 @@ export default function App() {
       const updated = [newSolve, ...prev];
       localStorage.setItem('user_solves', JSON.stringify(updated));
       return updated;
+    });
+
+    // Pass to Leaderboard modal
+    setLatestSolveForLeaderboard({
+      id: Date.now(),
+      timeMs: finalMs,
+      formattedTime: `${finalSec}s`,
+      scramble: scramble
     });
 
     // Generate new scramble
@@ -242,6 +251,22 @@ export default function App() {
               {currentUser.email || currentUser.name}
             </span>
           )}
+
+          <button
+            onClick={() => setShowLeaderboardModal(true)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: '1px solid #eab30844',
+              background: '#131e36',
+              color: '#facc15',
+              fontSize: '0.82rem',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🏆 Bảng Vàng Chi Tiết
+          </button>
 
           <button
             onClick={() => setShow3DModal(true)}
@@ -538,10 +563,11 @@ export default function App() {
                 Avg ▾
               </span>
               <button
-                onClick={() => {}}
+                onClick={() => setShowLeaderboardModal(true)}
+                title="Mở xem bảng vàng chi tiết"
                 style={{ background: '#111c34', border: '1px solid #1a2a4c', color: '#cbd5e1', fontSize: '0.75rem', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
               >
-                Làm mới
+                Chi tiết
               </button>
             </div>
           </div>
@@ -568,7 +594,7 @@ export default function App() {
 
           {/* Table Rows */}
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px' }}>
-            {leaderboard.map((item) => (
+            {leaderboardList.map((item) => (
               <div
                 key={item.rank}
                 style={{
@@ -610,7 +636,54 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. MODAL: RUBIK 3D & AI GIẢI */}
+      {/* 3. MODAL: BẢNG VÀNG CHI TIẾT (Claude component) */}
+      {showLeaderboardModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(5, 10, 20, 0.88)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <div style={{
+            padding: '12px 24px',
+            background: '#0d1629',
+            borderBottom: '1px solid #192642',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <strong style={{ fontSize: '1rem', color: '#f8fafc' }}>🏆 Bảng Vàng Speedcubing Chi Tiết</strong>
+            <button
+              onClick={() => setShowLeaderboardModal(false)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: '1px solid #334155',
+                background: '#1e293b',
+                color: '#cbd5e1',
+                cursor: 'pointer'
+              }}
+            >
+              Đóng
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <Leaderboard
+              newSolve={latestSolveForLeaderboard}
+              onClose={() => setShowLeaderboardModal(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 4. MODAL: RUBIK 3D & AI GIẢI */}
       {show3DModal && (
         <div style={{
           position: 'fixed',
@@ -694,7 +767,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 4. MODAL: CAMERA SCANNER */}
+      {/* 5. MODAL: CAMERA SCANNER */}
       {showScannerModal && (
         <div style={{
           position: 'fixed',
@@ -742,7 +815,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. MODAL: AUTH */}
+      {/* 6. MODAL: AUTH */}
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
