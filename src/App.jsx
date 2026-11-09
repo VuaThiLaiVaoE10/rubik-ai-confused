@@ -10,6 +10,13 @@ const PUZZLE_CONFIGS = {
   '5x5': { id: '5x5', name: '5×5×5', label: "5×5 Professor's Cube", dim: 5, defaultMoves: 60 }
 };
 
+const GAME_MODES = [
+  { id: 'free', name: '🎯 Tự do', desc: 'Bấm Space là chạy ngay, luyện tập không giới hạn' },
+  { id: 'wca', name: '🏆 WCA 15s', desc: '15 giây quan sát (Inspection) chuẩn thi đấu quốc tế' },
+  { id: 'target', name: '⚡ Mục tiêu Sub-X', desc: 'Thử thách phá vỡ mốc thời gian mục tiêu' },
+  { id: 'ai', name: '🤖 Trọng tài AI', desc: 'Kiểm tra Rubik qua camera & tự động xác nhận giải xong' }
+];
+
 function generateScramble(puzzleType = '3x3') {
   const modifiers = ['', "'", '2'];
 
@@ -122,12 +129,8 @@ function rgbToHsv(r, g, b) {
 }
 
 function classifyHsvColor(h, s, v, rawBrightness) {
-  if (rawBrightness < 35 || v < 0.20) {
-    return 'invalid';
-  }
-  if (s < 0.22 && v > 0.55 && rawBrightness > 100) {
-    return 'white';
-  }
+  if (rawBrightness < 35 || v < 0.20) return 'invalid';
+  if (s < 0.22 && v > 0.55 && rawBrightness > 100) return 'white';
   if (s > 0.30) {
     if (h >= 345 || h < 14) return 'red';
     if (h >= 14 && h < 38) return 'orange';
@@ -136,6 +139,30 @@ function classifyHsvColor(h, s, v, rawBrightness) {
     if (h >= 165 && h < 260) return 'blue';
   }
   return 'invalid';
+}
+
+// Accurate WCA Average of N (removes 1 min and 1 max)
+function calculateAo(solvesList, count) {
+  if (!solvesList || solvesList.length < count) return '--';
+  const times = solvesList.slice(0, count).map(s => s.time);
+  const min = Math.min(...times);
+  const max = Math.max(...times);
+  let removedMin = false;
+  let removedMax = false;
+  const trimmed = [];
+  for (const t of times) {
+    if (!removedMin && t === min) {
+      removedMin = true;
+      continue;
+    }
+    if (!removedMax && t === max) {
+      removedMax = true;
+      continue;
+    }
+    trimmed.push(t);
+  }
+  const sum = trimmed.reduce((a, b) => a + b, 0);
+  return (sum / trimmed.length).toFixed(2);
 }
 
 export default function App() {
@@ -148,7 +175,7 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
-      role: 'user', // 'user' (Tuyển thủ) hoặc 'admin' (Quản trị viên)
+      role: 'user',
       name: 'khoa.tt2611758',
       email: 'khoa.tt2611758@sis.hust.edu.vn'
     };
@@ -167,27 +194,43 @@ export default function App() {
     };
   });
 
+  // Navigation Modals
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authTab, setAuthTab] = useState('user'); // 'user' | 'admin'
+  const [authTab, setAuthTab] = useState('user');
   const [inputUserName, setInputUserName] = useState('');
   const [inputUserEmail, setInputUserEmail] = useState('');
   const [inputAdminPassword, setInputAdminPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Admin Control Panel Modal
   const [showAdminPanelModal, setShowAdminPanelModal] = useState(false);
   const [editCompTitle, setEditCompTitle] = useState(adminSettings.competitionTitle);
   const [editCompSub, setEditCompSub] = useState(adminSettings.subTitle);
   const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs);
   const [editAdminPassword, setEditAdminPassword] = useState(adminSettings.adminPassword);
 
+  // DASHBOARD MODAL STATE
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+
   // ==========================================
-  // 2. STATE MANAGEMENT & PUZZLE TYPE
+  // 2. PUZZLE & GAME MODE STATE
   // ==========================================
   const [puzzleType, setPuzzleType] = useState(() => {
     return localStorage.getItem('rubik_puzzle_type') || '3x3';
   });
 
+  const [gameMode, setGameMode] = useState(() => {
+    return localStorage.getItem('rubik_game_mode') || 'free';
+  });
+
+  // Target Sub-X mode
+  const [targetSeconds, setTargetSeconds] = useState(15);
+  const [lastTargetResult, setLastTargetResult] = useState(null); // 'win' | 'loss'
+
+  // WCA 15s Inspection Phase
+  const [inspectionSeconds, setInspectionSeconds] = useState(15);
+  const [penaltyText, setPenaltyText] = useState(''); // '+2' | 'DNF' | ''
+
+  // Timer states: 'idle' | 'inspecting' | 'holding' | 'ready' | 'running'
   const [timerState, setTimerState] = useState('idle');
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
@@ -238,7 +281,7 @@ export default function App() {
 
   const [leaderboardFilter, setLeaderboardFilter] = useState('current');
 
-  // Modals
+  // Modals for Leaderboard
   const [showNewBoardModal, setShowNewBoardModal] = useState(false);
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [newBoardMode, setNewBoardMode] = useState('empty');
@@ -259,7 +302,6 @@ export default function App() {
     }
   };
 
-  // Change puzzle category
   const handleSelectPuzzle = (type) => {
     setPuzzleType(type);
     localStorage.setItem('rubik_puzzle_type', type);
@@ -268,12 +310,18 @@ export default function App() {
     setLastMoveDetected('');
   };
 
-  // Create new leaderboard
+  const handleSelectGameMode = (mode) => {
+    setGameMode(mode);
+    localStorage.setItem('rubik_game_mode', mode);
+    setTimerState('idle');
+    setPenaltyText('');
+    setLastTargetResult(null);
+  };
+
   const handleCreateNewBoard = (e) => {
     e.preventDefault();
     const title = newBoardTitle.trim() || `Bảng đấu #${Object.keys(leaderboards).length + 1}`;
     const newId = `board_${Date.now()}`;
-
     const newBoard = {
       id: newId,
       title: title,
@@ -281,28 +329,21 @@ export default function App() {
         ? JSON.parse(JSON.stringify(currentBoard.entries)) 
         : []
     };
-
     const updated = { ...leaderboards, [newId]: newBoard };
     saveLeaderboards(updated, newId);
     setNewBoardTitle('');
     setShowNewBoardModal(false);
   };
 
-  // Delete current board
   const handleDeleteCurrentBoard = () => {
     const boardKeys = Object.keys(leaderboards);
     if (boardKeys.length <= 1) {
       const reset = {
-        'board_1': {
-          id: 'board_1',
-          title: 'Bảng Xếp Hạng Mới',
-          entries: []
-        }
+        'board_1': { id: 'board_1', title: 'Bảng Xếp Hạng Mới', entries: [] }
       };
       saveLeaderboards(reset, 'board_1');
       return;
     }
-
     if (window.confirm(`Bạn có chắc muốn xóa bảng "${currentBoard.title}"?`)) {
       const remaining = { ...leaderboards };
       delete remaining[activeBoardId];
@@ -311,7 +352,6 @@ export default function App() {
     }
   };
 
-  // Add custom player to board
   const handleAddEntry = (e) => {
     e.preventDefault();
     if (!newPlayerName.trim() || !newPlayerBest) return;
@@ -325,20 +365,15 @@ export default function App() {
       name: newPlayerName.trim(),
       best: bestVal,
       avg: avgVal,
-      verified: currentUser.role === 'admin' // Admin thêm thì mặc định verify
+      verified: currentUser.role === 'admin'
     };
 
     const currentEntries = currentBoard?.entries || [];
     const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
-
     const updated = {
       ...leaderboards,
-      [activeBoardId]: {
-        ...currentBoard,
-        entries: sorted
-      }
+      [activeBoardId]: { ...currentBoard, entries: sorted }
     };
-
     saveLeaderboards(updated);
     setNewPlayerName('');
     setNewPlayerBest('');
@@ -346,21 +381,16 @@ export default function App() {
     setShowAddEntryModal(false);
   };
 
-  // Delete entry
   const handleDeleteEntry = (entryId) => {
     if (!currentBoard) return;
     const filtered = currentBoard.entries.filter(e => e.id !== entryId);
     const updated = {
       ...leaderboards,
-      [activeBoardId]: {
-        ...currentBoard,
-        entries: filtered
-      }
+      [activeBoardId]: { ...currentBoard, entries: filtered }
     };
     saveLeaderboards(updated);
   };
 
-  // Toggle Verify by Admin
   const handleToggleVerifyEntry = (entryId) => {
     if (currentUser.role !== 'admin' || !currentBoard) return;
     const updatedEntries = currentBoard.entries.map(e => {
@@ -369,27 +399,20 @@ export default function App() {
       }
       return e;
     });
-
     const updated = {
       ...leaderboards,
-      [activeBoardId]: {
-        ...currentBoard,
-        entries: updatedEntries
-      }
+      [activeBoardId]: { ...currentBoard, entries: updatedEntries }
     };
     saveLeaderboards(updated);
   };
 
-  // ==========================================
-  // AUTH LOGIN / LOGOUT HANDLERS
-  // ==========================================
+  // Auth Handlers
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     setAuthError('');
 
     if (authTab === 'user') {
-      // Login as regular player
-      const name = inputUserName.trim() || 'Người chơi ẩn danh';
+      const name = inputUserName.trim() || 'Người chơi';
       const email = inputUserEmail.trim() || `${name.toLowerCase()}@cuber.vn`;
       const userObj = { role: 'user', name, email };
       setCurrentUser(userObj);
@@ -398,18 +421,13 @@ export default function App() {
       setInputUserName('');
       setInputUserEmail('');
     } else {
-      // Login as Admin
       if (inputAdminPassword === adminSettings.adminPassword) {
-        const adminObj = {
-          role: 'admin',
-          name: 'Quản Trị Viên (Admin)',
-          email: 'admin@hust.edu.vn'
-        };
+        const adminObj = { role: 'admin', name: 'Quản Trị Viên (Admin)', email: 'admin@hust.edu.vn' };
         setCurrentUser(adminObj);
         localStorage.setItem('rubik_auth_user', JSON.stringify(adminObj));
         setShowAuthModal(false);
         setInputAdminPassword('');
-        alert('🎉 Đăng nhập Admin thành công! Bạn có toàn quyền cấu hình giải đấu và bảng xếp hạng.');
+        alert('🎉 Đăng nhập Admin thành công!');
       } else {
         setAuthError('Mật khẩu Admin không chính xác! (Mặc định: admin123)');
       }
@@ -417,16 +435,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    const defaultUser = {
-      role: 'user',
-      name: 'Khách',
-      email: 'guest@cuber.vn'
-    };
+    const defaultUser = { role: 'user', name: 'Khách', email: 'guest@cuber.vn' };
     setCurrentUser(defaultUser);
     localStorage.setItem('rubik_auth_user', JSON.stringify(defaultUser));
   };
 
-  // Save Admin settings
   const handleSaveAdminSettings = (e) => {
     e.preventDefault();
     const newSettings = {
@@ -439,47 +452,6 @@ export default function App() {
     localStorage.setItem('rubik_admin_settings', JSON.stringify(newSettings));
     setShowAdminPanelModal(false);
     alert('✅ Đã lưu cài đặt Quản trị thành công!');
-  };
-
-  // Export & Import backup JSON
-  const handleExportBackup = () => {
-    const backupData = {
-      leaderboards,
-      solves,
-      adminSettings,
-      exportDate: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rubik_backup_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportBackup = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target.result);
-        if (data.leaderboards) saveLeaderboards(data.leaderboards);
-        if (data.solves) {
-          setSolves(data.solves);
-          localStorage.setItem('rubik_solves_hcc', JSON.stringify(data.solves));
-        }
-        if (data.adminSettings) {
-          setAdminSettings(data.adminSettings);
-          localStorage.setItem('rubik_admin_settings', JSON.stringify(data.adminSettings));
-        }
-        alert('🎉 Phục hồi dữ liệu từ file backup thành công!');
-      } catch (err) {
-        alert('Lỗi: File JSON không đúng định dạng backup! ' + err.message);
-      }
-    };
-    reader.readAsText(file);
   };
 
   // Camera & AI State
@@ -503,10 +475,12 @@ export default function App() {
   const [trackedMoves, setTrackedMoves] = useState([]);
   const [lastMoveDetected, setLastMoveDetected] = useState('');
 
-  // Refs for synchronization
+  // Refs
   const timerStateRef = useRef('idle');
   const timerIntervalRef = useRef(null);
+  const inspectionIntervalRef = useRef(null);
   const startTimeRef = useRef(0);
+  const inspectionStartRef = useRef(0);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -517,40 +491,76 @@ export default function App() {
   const cameraActiveRef = useRef(false);
   const cameraHealthRef = useRef(false);
   const puzzleTypeRef = useRef(puzzleType);
+  const gameModeRef = useRef(gameMode);
   const adminSettingsRef = useRef(adminSettings);
 
-  useEffect(() => {
-    timerStateRef.current = timerState;
-  }, [timerState]);
-
-  useEffect(() => {
-    cameraActiveRef.current = cameraActive;
-  }, [cameraActive]);
-
-  useEffect(() => {
-    trackedMovesRef.current = trackedMoves;
-  }, [trackedMoves]);
-
+  useEffect(() => { timerStateRef.current = timerState; }, [timerState]);
+  useEffect(() => { cameraActiveRef.current = cameraActive; }, [cameraActive]);
+  useEffect(() => { trackedMovesRef.current = trackedMoves; }, [trackedMoves]);
   useEffect(() => {
     puzzleTypeRef.current = puzzleType;
     setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
   }, [puzzleType, currentDim]);
+  useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
+  useEffect(() => { adminSettingsRef.current = adminSettings; }, [adminSettings]);
 
-  useEffect(() => {
-    adminSettingsRef.current = adminSettings;
-  }, [adminSettings]);
+  // Inspection Timer Loop (WCA Mode)
+  const startInspection = useCallback(() => {
+    setTimerState('inspecting');
+    setInspectionSeconds(15);
+    setPenaltyText('');
+    inspectionStartRef.current = performance.now();
 
-  // Stop & Start Timer
+    if (inspectionIntervalRef.current) clearInterval(inspectionIntervalRef.current);
+    inspectionIntervalRef.current = setInterval(() => {
+      const elapsedSec = (performance.now() - inspectionStartRef.current) / 1000;
+      const remain = 15 - elapsedSec;
+
+      if (remain <= -2) {
+        // Exceeded 17s: DNF
+        setPenaltyText('DNF');
+        setInspectionSeconds(0);
+      } else if (remain <= 0) {
+        // Exceeded 15s to 17s: +2s penalty
+        setPenaltyText('+2');
+        setInspectionSeconds(0);
+      } else {
+        setInspectionSeconds(Math.ceil(remain));
+      }
+    }, 100);
+  }, []);
+
+  // Stop Timer
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
-    const finalMs = performance.now() - startTimeRef.current;
-    setTimeMs(finalMs);
+    if (inspectionIntervalRef.current) {
+      clearInterval(inspectionIntervalRef.current);
+      inspectionIntervalRef.current = null;
+    }
+
+    const finalRawMs = performance.now() - startTimeRef.current;
+    let finalSec = parseFloat((finalRawMs / 1000).toFixed(2));
+
+    // Handle penalties
+    if (penaltyText === '+2') {
+      finalSec = parseFloat((finalSec + 2.0).toFixed(2));
+    }
+
+    setTimeMs(finalSec * 1000);
     setTimerState('idle');
 
-    const finalSec = parseFloat((finalMs / 1000).toFixed(2));
+    // Check target mode
+    if (gameModeRef.current === 'target') {
+      if (finalSec <= targetSeconds) {
+        setLastTargetResult('win');
+      } else {
+        setLastTargetResult('loss');
+      }
+    }
+
     const movesRecorded = trackedMovesRef.current;
     const isCameraVerified = cameraActiveRef.current && cameraHealthRef.current && movesRecorded.length > 0;
     const currentP = puzzleTypeRef.current;
@@ -559,6 +569,7 @@ export default function App() {
       id: Date.now(),
       puzzleType: currentP,
       time: finalSec,
+      penalty: penaltyText,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
       moves: isCameraVerified ? movesRecorded.join(' ') : 'Giải thủ công (Spacebar)',
       verified: isCameraVerified
@@ -573,9 +584,15 @@ export default function App() {
     setTrackedMoves([]);
     setLastMoveDetected('');
     setScramble(generateScramble(currentP));
-  }, []);
+  }, [penaltyText, targetSeconds]);
 
+  // Start Solve Timer
   const startTimer = useCallback(() => {
+    if (inspectionIntervalRef.current) {
+      clearInterval(inspectionIntervalRef.current);
+      inspectionIntervalRef.current = null;
+    }
+
     setTimeMs(0);
     setTrackedMoves([]);
     setLastMoveDetected('');
@@ -590,12 +607,14 @@ export default function App() {
 
   const stopTimerRef = useRef(stopTimer);
   const startTimerRef = useRef(startTimer);
+  const startInspectionRef = useRef(startInspection);
   useEffect(() => {
     stopTimerRef.current = stopTimer;
     startTimerRef.current = startTimer;
-  }, [stopTimer, startTimer]);
+    startInspectionRef.current = startInspection;
+  }, [stopTimer, startTimer, startInspection]);
 
-  // WCA Keyboard Spacebar Controller (Custom hold duration from Admin settings)
+  // WCA Keyboard Spacebar Controller
   useEffect(() => {
     let holdTimeout = null;
 
@@ -603,6 +622,7 @@ export default function App() {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
 
       const currentState = timerStateRef.current;
+      const currentMode = gameModeRef.current;
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -614,7 +634,14 @@ export default function App() {
 
         if (e.repeat) return;
 
-        if (currentState === 'idle') {
+        // In WCA mode, if idle, pressing space begins 15s inspection first!
+        if (currentMode === 'wca' && currentState === 'idle') {
+          startInspectionRef.current();
+          return;
+        }
+
+        // Ready to solve (Holding space in idle or inspecting)
+        if (currentState === 'idle' || currentState === 'inspecting') {
           setTimerState('holding');
           clearTimeout(holdTimeout);
           const holdMs = adminSettingsRef.current?.spaceHoldMs || 280;
@@ -640,7 +667,12 @@ export default function App() {
         if (currentState === 'ready') {
           startTimerRef.current();
         } else if (currentState === 'holding') {
-          setTimerState('idle');
+          // If released early in WCA inspection, return to inspection
+          if (gameModeRef.current === 'wca') {
+            setTimerState('inspecting');
+          } else {
+            setTimerState('idle');
+          }
         }
       }
     };
@@ -654,16 +686,14 @@ export default function App() {
     };
   }, []);
 
-  // Camera Handler with Dynamic NxN Grid
+  // Camera Handler
   const toggleCamera = async () => {
     if (cameraActive) {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
       }
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       setCameraActive(false);
       cameraHealthRef.current = false;
       setCameraHealth({ isHealthy: false, reason: 'Camera đã tắt', brightness: 0, contrast: 0 });
@@ -682,9 +712,7 @@ export default function App() {
           video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
         });
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        if (videoRef.current) videoRef.current.srcObject = stream;
         setCameraActive(true);
       } catch (err) {
         setCameraActive(false);
@@ -721,7 +749,6 @@ export default function App() {
         ctx.drawImage(video, 0, 0, w, h);
         const frameImg = ctx.getImageData(0, 0, w, h).data;
 
-        // Check camera brightness & contrast
         let totalBrightness = 0;
         const pixelStep = 16;
         let sampledCount = 0;
@@ -771,7 +798,6 @@ export default function App() {
           return;
         }
 
-        // Sample Dynamic NxN Stickers
         const dim = currentDim;
         const boxSize = Math.min(w, h) * 0.54;
         const startX = (w - boxSize) / 2;
@@ -860,7 +886,6 @@ export default function App() {
           }
         }
 
-        // Auto-stop when completed
         const now = performance.now();
         if (
           timerStateRef.current === 'running' &&
@@ -884,12 +909,9 @@ export default function App() {
     };
   }, [cameraActive, currentDim]);
 
-  // Clean up
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
   }, []);
 
@@ -898,12 +920,15 @@ export default function App() {
     return totalSec.toFixed(2);
   };
 
+  // Stat calculations
   const bestTime = currentSolves.length > 0 
     ? Math.min(...currentSolves.map(s => s.time)).toFixed(2) 
     : '--';
   const meanTime = currentSolves.length > 0 
     ? (currentSolves.reduce((acc, s) => acc + s.time, 0) / currentSolves.length).toFixed(2) 
     : '--';
+  const ao5 = calculateAo(currentSolves, 5);
+  const ao12 = calculateAo(currentSolves, 12);
 
   const deleteSolve = (id) => {
     setSolves(prev => {
@@ -913,7 +938,6 @@ export default function App() {
     });
   };
 
-  // Add score to current board
   const handleAddMyScoreToBoard = () => {
     if (currentSolves.length === 0) {
       alert(`Bạn chưa có lượt giải ${puzzleType} nào để thêm vào bảng!`);
@@ -933,13 +957,9 @@ export default function App() {
 
     const currentEntries = currentBoard?.entries || [];
     const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
-
     const updated = {
       ...leaderboards,
-      [activeBoardId]: {
-        ...currentBoard,
-        entries: sorted
-      }
+      [activeBoardId]: { ...currentBoard, entries: sorted }
     };
     saveLeaderboards(updated);
   };
@@ -964,7 +984,7 @@ export default function App() {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ==========================================
-          HEADER BAR: AUTH + ADMIN CONTROLS
+          HEADER BAR: AUTH + DASHBOARD + ADMIN
       ========================================== */}
       <header style={{
         padding: '10px 24px',
@@ -1002,8 +1022,31 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right header: Camera Toggle + User / Admin Profile */}
+        {/* Right header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* NÚT MỞ DASHBOARD THỐNG KÊ */}
+          <button
+            onClick={() => setShowDashboardModal(true)}
+            style={{
+              padding: '6px 13px',
+              borderRadius: '6px',
+              border: '1px solid #38bdf844',
+              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(37, 99, 235, 0.2))',
+              color: '#38bdf8',
+              fontWeight: '700',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(56, 189, 248, 0.2)'
+            }}
+          >
+            <span>📊</span>
+            <span>Dashboard Thống Kê</span>
+          </button>
+
+          {/* Camera Button */}
           <button
             onClick={toggleCamera}
             style={{
@@ -1027,14 +1070,10 @@ export default function App() {
             }}
           >
             <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
-            <span>
-              {cameraActive 
-                ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') 
-                : 'Bật Cam'}
-            </span>
+            <span>{cameraActive ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') : 'Bật Cam'}</span>
           </button>
 
-          {/* ADMIN BADGE & DASHBOARD BUTTON */}
+          {/* User / Admin Controls */}
           {currentUser.role === 'admin' ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
@@ -1066,7 +1105,6 @@ export default function App() {
 
               <button
                 onClick={handleLogout}
-                title="Đăng xuất quyền Admin"
                 style={{
                   background: '#1e293b',
                   border: '1px solid #334155',
@@ -1081,11 +1119,10 @@ export default function App() {
               </button>
             </div>
           ) : (
-            /* REGULAR USER / LOGIN BUTTON */
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div
                 onClick={() => setShowAuthModal(true)}
-                title="Bấm để đổi tài khoản hoặc đăng nhập Admin"
+                title="Bấm để đổi tài khoản"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1107,11 +1144,7 @@ export default function App() {
               </div>
 
               <button
-                onClick={() => {
-                  setAuthTab('admin');
-                  setShowAuthModal(true);
-                }}
-                title="Cổng Đăng Nhập Dành Riêng Cho Quản Trị Viên (Admin)"
+                onClick={() => { setAuthTab('admin'); setShowAuthModal(true); }}
                 style={{
                   background: '#111c34',
                   border: '1px solid #f59e0b55',
@@ -1120,14 +1153,10 @@ export default function App() {
                   fontWeight: '700',
                   padding: '5px 10px',
                   borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
+                  cursor: 'pointer'
                 }}
               >
-                <span>👑</span>
-                <span>Admin Login</span>
+                👑 Admin Login
               </button>
             </div>
           )}
@@ -1141,12 +1170,12 @@ export default function App() {
         flex: 1,
         display: 'grid',
         gridTemplateColumns: '270px 1fr 380px',
-        padding: '14px 20px',
+        padding: '12px 20px',
         gap: '16px',
         overflow: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
           <div style={{
             backgroundColor: '#0d1629',
             border: '1px solid #192642',
@@ -1162,7 +1191,7 @@ export default function App() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Best</div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Best Single</div>
                 <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#38bdf8' }}>{bestTime}s</div>
               </div>
 
@@ -1172,13 +1201,17 @@ export default function App() {
               </div>
 
               <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>ao5</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#94a3b8' }}>--</div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Current ao5</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ao5 !== '--' ? '#4ade80' : '#94a3b8' }}>
+                  {ao5 !== '--' ? `${ao5}s` : '--'}
+                </div>
               </div>
 
               <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>ao12</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#94a3b8' }}>--</div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Current ao12</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ao12 !== '--' ? '#c084fc' : '#94a3b8' }}>
+                  {ao12 !== '--' ? `${ao12}s` : '--'}
+                </div>
               </div>
             </div>
           </div>
@@ -1222,7 +1255,16 @@ export default function App() {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ color: '#64748b', fontSize: '0.78rem' }}>#{currentSolves.length - index}</span>
-                      <strong style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.95rem' }}>{s.time}s</strong>
+                      <div>
+                        <strong style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                          {s.time}s
+                        </strong>
+                        {s.penalty && (
+                          <span style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: '700', marginLeft: '4px' }}>
+                            ({s.penalty})
+                          </span>
+                        )}
+                      </div>
                       <span style={{
                         fontSize: '0.65rem',
                         padding: '1px 5px',
@@ -1230,7 +1272,7 @@ export default function App() {
                         background: s.verified ? 'rgba(34, 197, 94, 0.15)' : 'rgba(100, 116, 139, 0.15)',
                         color: s.verified ? '#4ade80' : '#94a3b8'
                       }}>
-                        {s.verified ? '✓ AI Verified' : 'Thủ công'}
+                        {s.verified ? '✓ AI' : 'Thủ công'}
                       </span>
                       <button
                         onClick={() => deleteSolve(s.id)}
@@ -1239,19 +1281,6 @@ export default function App() {
                         ✕
                       </button>
                     </div>
-                    {s.moves && (
-                      <div style={{
-                        fontSize: '0.68rem',
-                        color: '#64748b',
-                        fontFamily: 'monospace',
-                        marginTop: '4px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {s.moves}
-                      </div>
-                    )}
                   </div>
                 ))
               )}
@@ -1259,25 +1288,85 @@ export default function App() {
           </div>
         </div>
 
-        {/* === CỘT GIỮA: PUZZLE TABS + SCRAMBLE + CAMERA + TIMER === */}
+        {/* === CỘT GIỮA: CHẾ ĐỘ CHƠI + PUZZLE TABS + SCRAMBLE + CAMERA + TIMER === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '18px 24px',
+          padding: '16px 22px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'space-between',
           position: 'relative'
         }}>
-          {/* Top: PUZZLE SELECTOR TABS (2x2, 3x3, 4x4, 5x5) */}
+          {/* Top Bar: GAME MODES + PUZZLE SELECTOR */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            {/* 1. GAME MODES TABS */}
+            <div style={{
+              display: 'flex',
+              background: '#090f1d',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid #16223b',
+              gap: '4px'
+            }}>
+              {GAME_MODES.map((m) => {
+                const isSelected = gameMode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => handleSelectGameMode(m.id)}
+                    title={m.desc}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: isSelected ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'transparent',
+                      color: isSelected ? '#ffffff' : '#64748b',
+                      fontWeight: isSelected ? '700' : '600',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    {m.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Target mode config if selected */}
+            {gameMode === 'target' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#94a3b8' }}>
+                <span>Mục tiêu Sub:</span>
+                {[10, 15, 20, 30].map(sec => (
+                  <button
+                    key={sec}
+                    onClick={() => setTargetSeconds(sec)}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: targetSeconds === sec ? '1px solid #38bdf8' : '1px solid #1e293b',
+                      background: targetSeconds === sec ? '#1e3a8a' : '#111c34',
+                      color: targetSeconds === sec ? '#ffffff' : '#94a3b8',
+                      fontSize: '0.72rem',
+                      cursor: 'pointer',
+                      fontWeight: '700'
+                    }}
+                  >
+                    Sub-{sec}s
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* 2. PUZZLE SELECTOR TABS (2x2, 3x3, 4x4, 5x5) */}
             <div style={{
               display: 'inline-flex',
               background: '#090f1d',
-              padding: '4px',
-              borderRadius: '10px',
+              padding: '3px',
+              borderRadius: '8px',
               border: '1px solid #16223b',
               gap: '4px'
             }}>
@@ -1288,16 +1377,15 @@ export default function App() {
                     key={p.id}
                     onClick={() => handleSelectPuzzle(p.id)}
                     style={{
-                      padding: '6px 16px',
-                      borderRadius: '7px',
+                      padding: '4px 14px',
+                      borderRadius: '6px',
                       border: 'none',
-                      background: isSelected ? 'linear-gradient(135deg, #2563eb, #38bdf8)' : 'transparent',
-                      color: isSelected ? '#ffffff' : '#64748b',
-                      fontWeight: isSelected ? '700' : '600',
-                      fontSize: '0.82rem',
+                      background: isSelected ? '#1e293b' : 'transparent',
+                      color: isSelected ? '#38bdf8' : '#64748b',
+                      fontWeight: isSelected ? '800' : '600',
+                      fontSize: '0.78rem',
                       cursor: 'pointer',
-                      boxShadow: isSelected ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none',
-                      transition: 'all 0.15s ease'
+                      borderBottom: isSelected ? '2px solid #38bdf8' : '2px solid transparent'
                     }}
                   >
                     {p.name}
@@ -1306,32 +1394,31 @@ export default function App() {
               })}
             </div>
 
-            {/* WCA Scramble text */}
+            {/* Scramble text */}
             <div style={{ width: '100%', textAlign: 'center' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700' }}>
-                  WCA SCRAMBLE {PUZZLE_CONFIGS[puzzleType]?.name}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                  SCRAMBLE {PUZZLE_CONFIGS[puzzleType]?.name}
                 </span>
                 <button
                   onClick={() => setScramble(generateScramble(puzzleType))}
-                  title="Đổi chuỗi xáo trộn mới"
-                  style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.8rem' }}
+                  style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.78rem' }}
                 >
-                  🔄 Đổi mới
+                  🔄 Đổi
                 </button>
               </div>
 
               <div style={{
-                fontSize: puzzleType === '5x5' ? '0.95rem' : (puzzleType === '4x4' ? '1.05rem' : '1.18rem'),
+                fontSize: puzzleType === '5x5' ? '0.9rem' : (puzzleType === '4x4' ? '1.02rem' : '1.15rem'),
                 fontWeight: '700',
-                lineHeight: 1.45,
+                lineHeight: 1.4,
                 color: '#cbd5e1',
                 fontFamily: 'monospace',
-                padding: '8px 14px',
+                padding: '8px 12px',
                 background: '#090f1d',
-                borderRadius: '10px',
+                borderRadius: '8px',
                 border: '1px solid #16223b',
-                maxHeight: '75px',
+                maxHeight: '65px',
                 overflowY: 'auto'
               }}>
                 {scramble}
@@ -1339,127 +1426,78 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center-Top: Live Camera Diagnostics with Adaptive Grid */}
+          {/* Center-Top: Camera view or Mode status banner */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '14px',
-              margin: '6px 0',
-              padding: '8px 14px',
+              gap: '12px',
+              padding: '6px 12px',
               background: '#090f1d',
-              borderRadius: '12px',
+              borderRadius: '10px',
               border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
             }}>
               <div style={{
-                width: '120px',
-                height: '85px',
-                borderRadius: '8px',
+                width: '110px',
+                height: '75px',
+                borderRadius: '6px',
                 overflow: 'hidden',
                 background: '#020617',
-                border: cameraHealth.isHealthy ? '1px solid #334155' : '1px solid #ef4444',
-                position: 'relative'
+                border: '1px solid #334155'
               }}>
                 <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                <div style={{
-                  position: 'absolute',
-                  bottom: '3px',
-                  left: '3px',
-                  background: 'rgba(0,0,0,0.7)',
-                  padding: '1px 5px',
-                  borderRadius: '3px',
-                  fontSize: '0.6rem',
-                  color: cameraHealth.isHealthy ? '#4ade80' : '#f87171'
-                }}>
-                  {cameraHealth.isHealthy ? '● LIVE' : '⚠️ LỖI CAM'}
-                </div>
               </div>
 
-              {/* Adaptive Sticker Grid for 2x2, 3x3, 4x4, 5x5 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '600' }}>
-                  Lưới Quét {currentDim}×{currentDim}
-                </div>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '16px' : '20px'})`,
-                  gap: '3px',
-                  background: '#020617',
-                  padding: '4px',
-                  borderRadius: '6px',
-                  border: '1px solid #1e293b'
-                }}>
-                  {detectedColors.map((colorKey, i) => (
-                    <div
-                      key={i}
-                      title={`Ô ${i + 1}: ${COLOR_DEFINITIONS[colorKey]?.name || 'Không rõ'}`}
-                      style={{
-                        width: currentDim >= 4 ? '16px' : '20px',
-                        height: currentDim >= 4 ? '16px' : '20px',
-                        borderRadius: '2px',
-                        backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155',
-                        border: '1px solid rgba(0,0,0,0.3)'
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ maxWidth: '220px', fontSize: '0.72rem', lineHeight: 1.35 }}>
-                <div style={{
-                  color: !cameraHealth.isHealthy 
-                    ? '#f87171' 
-                    : (preCheckStatus.verified ? '#4ade80' : '#f59e0b'),
-                  fontWeight: '600',
-                  marginBottom: '2px'
-                }}>
-                  {preCheckStatus.text}
-                </div>
-                {!cameraHealth.isHealthy && (
-                  <button
-                    onClick={toggleCamera}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '14px' : '18px'})`,
+                gap: '2px',
+                background: '#020617',
+                padding: '3px',
+                borderRadius: '5px'
+              }}>
+                {detectedColors.map((colorKey, i) => (
+                  <div
+                    key={i}
                     style={{
-                      marginTop: '3px',
-                      background: '#7f1d1d',
-                      border: '1px solid #ef4444',
-                      color: '#ffffff',
-                      fontSize: '0.68rem',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      cursor: 'pointer'
+                      width: currentDim >= 4 ? '14px' : '18px',
+                      height: currentDim >= 4 ? '14px' : '18px',
+                      borderRadius: '2px',
+                      backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155'
                     }}
-                  >
-                    Tắt cam hỏng
-                  </button>
-                )}
+                  />
+                ))}
+              </div>
+
+              <div style={{ maxWidth: '200px', fontSize: '0.7rem', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
+                {preCheckStatus.text}
               </div>
             </div>
           ) : (
             <div style={{
-              margin: '6px 0',
-              padding: '6px 14px',
-              borderRadius: '8px',
+              padding: '4px 12px',
+              borderRadius: '6px',
               background: 'rgba(56, 189, 248, 0.08)',
-              border: '1px solid rgba(56, 189, 248, 0.25)',
+              border: '1px solid rgba(56, 189, 248, 0.2)',
               color: '#38bdf8',
-              fontSize: '0.75rem',
-              textAlign: 'center',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
+              fontSize: '0.74rem'
             }}>
-              <span>⏱️</span>
-              <span>
-                <strong>{PUZZLE_CONFIGS[puzzleType]?.name}:</strong> Bấm giờ Spacebar WCA chuẩn. Thả Space để bắt đầu!
-              </span>
+              {gameMode === 'wca' && '🏆 Chế độ WCA: Bấm Space để bắt đầu 15s Inspection (quan sát)'}
+              {gameMode === 'target' && `⚡ Mục tiêu: Cố gắng hoàn thành trong Sub-${targetSeconds}s!`}
+              {gameMode === 'free' && '🎯 Chế độ Tự Do: Nhấn giữ Spacebar để sẵn sàng giải'}
+              {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI làm trọng tài xác minh'}
             </div>
           )}
 
-          {/* Center-Middle: GIANT WCA SPACEBAR TIMER */}
+          {/* Center-Middle: GIANT TIMER & INSPECTION DISPLAY */}
           <div
             onClick={() => {
               if (timerState === 'running') stopTimerRef.current();
-              else if (timerState === 'idle') startTimerRef.current();
+              else if (timerState === 'inspecting') startTimerRef.current();
+              else if (timerState === 'idle') {
+                if (gameMode === 'wca') startInspectionRef.current();
+                else startTimerRef.current();
+              }
             }}
             style={{
               cursor: 'pointer',
@@ -1469,37 +1507,62 @@ export default function App() {
               margin: 'auto 0'
             }}
           >
+            {/* Timer digits or Inspection seconds */}
             <div style={{
-              fontSize: '8.4rem',
+              fontSize: timerState === 'inspecting' ? '9rem' : '8.2rem',
               fontWeight: '900',
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
               letterSpacing: '-3px',
               lineHeight: 1,
-              color: timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#ffffff'),
+              color: timerState === 'inspecting' 
+                ? (inspectionSeconds <= 3 ? '#ef4444' : '#f59e0b')
+                : (timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#ffffff')),
               textShadow: timerState === 'ready' ? '0 0 45px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'color 0.1s ease'
             }}>
-              {formatTime(timeMs)}
+              {timerState === 'inspecting' ? inspectionSeconds : formatTime(timeMs)}
             </div>
 
+            {/* Subtitle / Status */}
             <div style={{
-              marginTop: '12px',
+              marginTop: '10px',
               fontSize: '0.95rem',
               fontWeight: '700',
-              letterSpacing: '0.5px',
-              color: timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b')
+              color: timerState === 'inspecting'
+                ? '#f59e0b'
+                : (timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b'))
             }}>
+              {timerState === 'inspecting' && '⏱️ ĐANG QUAN SÁT (15s WCA) — GIỮ SPACE ĐỂ SẴN SÀNG!'}
               {timerState === 'ready' && '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!'}
               {timerState === 'holding' && '○ Giữ thêm một chút...'}
               {timerState === 'running' && 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)'}
-              {timerState === 'idle' && `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`}
+              {timerState === 'idle' && (
+                gameMode === 'wca' 
+                  ? 'Nhấn Space để bắt đầu 15s quan sát (Inspection)' 
+                  : `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`
+              )}
             </div>
+
+            {/* Target mode celebration / fail badge */}
+            {lastTargetResult && timerState === 'idle' && (
+              <div style={{
+                marginTop: '8px',
+                padding: '4px 12px',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                fontWeight: '700',
+                background: lastTargetResult === 'win' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                color: lastTargetResult === 'win' ? '#4ade80' : '#ef4444'
+              }}>
+                {lastTargetResult === 'win' ? `🎉 CHIẾN THẮNG! Đạt mục tiêu Sub-${targetSeconds}s!` : `Chưa đạt Sub-${targetSeconds}s, cố lên!`}
+              </div>
+            )}
           </div>
 
           {/* Bottom Instructions */}
           <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.78rem', lineHeight: 1.5 }}>
-            <div>Nhấn giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
-            <div>Dừng bằng cách nhấn phím bất kỳ hoặc click vào đồng hồ</div>
+            <div>Giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
+            <div>Dừng bằng cách nhấn phím bất kỳ hoặc click chuột vào đồng hồ</div>
           </div>
         </div>
 
@@ -1516,37 +1579,32 @@ export default function App() {
         }}>
           {/* Header Bảng Xếp Hạng & Chọn Bảng */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <select
-                value={activeBoardId}
-                onChange={(e) => {
-                  setActiveBoardId(e.target.value);
-                  localStorage.setItem('rubik_active_board_id', e.target.value);
-                }}
-                style={{
-                  background: '#111c34',
-                  border: '1px solid #1a2a4c',
-                  color: '#f8fafc',
-                  fontSize: '0.9rem',
-                  fontWeight: '700',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  maxWidth: '190px'
-                }}
-              >
-                {Object.values(leaderboards).map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={activeBoardId}
+              onChange={(e) => {
+                setActiveBoardId(e.target.value);
+                localStorage.setItem('rubik_active_board_id', e.target.value);
+              }}
+              style={{
+                background: '#111c34',
+                border: '1px solid #1a2a4c',
+                color: '#f8fafc',
+                fontSize: '0.9rem',
+                fontWeight: '700',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                outline: 'none',
+                maxWidth: '190px'
+              }}
+            >
+              {Object.values(leaderboards).map(b => (
+                <option key={b.id} value={b.id}>{b.title}</option>
+              ))}
+            </select>
 
             <button
               onClick={() => setShowNewBoardModal(true)}
-              title="Lập một bảng xếp hạng mới hoàn toàn"
               style={{
                 background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                 border: 'none',
@@ -1555,15 +1613,10 @@ export default function App() {
                 fontWeight: '700',
                 padding: '6px 10px',
                 borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)'
+                cursor: 'pointer'
               }}
             >
-              <span>➕</span>
-              <span>Lập bảng mới</span>
+              ➕ Lập bảng mới
             </button>
           </div>
 
@@ -1588,7 +1641,6 @@ export default function App() {
 
               <button
                 onClick={handleAddMyScoreToBoard}
-                title="Lấy kỷ lục tốt nhất của bạn đưa vào bảng xếp hạng này"
                 style={{
                   background: '#111c34',
                   border: '1px solid #1e293b',
@@ -1604,7 +1656,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Filter Toggle */}
             <div style={{ display: 'flex', background: '#111c34', borderRadius: '4px', border: '1px solid #1e293b', padding: '2px' }}>
               <button
                 onClick={() => setLeaderboardFilter('current')}
@@ -1661,23 +1712,7 @@ export default function App() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {displayedEntries.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '36px' }}>
-                Chưa có kỷ lục nào cho {leaderboardFilter === 'current' ? puzzleType : 'bảng này'}.
-                <div style={{ marginTop: '8px' }}>
-                  <button
-                    onClick={() => setShowAddEntryModal(true)}
-                    style={{
-                      background: '#1e293b',
-                      border: '1px solid #334155',
-                      color: '#38bdf8',
-                      fontSize: '0.75rem',
-                      padding: '4px 10px',
-                      borderRadius: '5px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    + Thêm người đầu tiên
-                  </button>
-                </div>
+                Chưa có kỷ lục nào.
               </div>
             ) : (
               displayedEntries.map((item, index) => (
@@ -1726,7 +1761,6 @@ export default function App() {
                     {item.verified && (
                       <span
                         onClick={() => currentUser.role === 'admin' && handleToggleVerifyEntry(item.id)}
-                        title={currentUser.role === 'admin' ? "Bấm để đổi trạng thái xác minh" : "Kỷ lục đã được AI xác minh"}
                         style={{
                           flexShrink: 0,
                           fontSize: '0.6rem',
@@ -1750,18 +1784,15 @@ export default function App() {
                     {typeof item.avg === 'number' ? `${item.avg}s` : item.avg}
                   </span>
 
-                  {/* Nút xóa dành cho Admin hoặc User xóa người tự thêm */}
                   <button
                     onClick={() => handleDeleteEntry(item.id)}
-                    title="Xóa kỷ lục này"
                     style={{
                       background: 'none',
                       border: 'none',
                       color: currentUser.role === 'admin' ? '#ef4444' : '#475569',
                       fontSize: '0.72rem',
                       cursor: 'pointer',
-                      padding: 0,
-                      textAlign: 'center'
+                      padding: 0
                     }}
                   >
                     ✕
@@ -1774,7 +1805,208 @@ export default function App() {
       </div>
 
       {/* ==========================================
-          MODAL: ĐĂNG NHẬP RIÊNG (TUYỂN THỦ VS ADMIN)
+          MODAL: DASHBOARD THỐNG KÊ TOÀN DIỆN
+      ========================================== */}
+      {showDashboardModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 8, 16, 0.9)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999
+        }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '720px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #192642',
+            borderRadius: '16px',
+            padding: '24px 28px',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.8)',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setShowDashboardModal(false)}
+              style={{
+                position: 'absolute',
+                top: '18px',
+                right: '18px',
+                background: 'none',
+                border: 'none',
+                color: '#64748b',
+                fontSize: '1.3rem',
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+              <span style={{ fontSize: '1.6rem' }}>📊</span>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#f8fafc' }}>
+                  Dashboard Thống Kê & Phân Tích Kỷ Lục
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>
+                  Dữ liệu phân tích chi tiết tiến độ luyện tập speedcubing của bạn
+                </p>
+              </div>
+            </div>
+
+            {/* 1. KPI CARDS */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
+              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Best Single ({puzzleType})</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#38bdf8' }}>{bestTime}s</div>
+              </div>
+
+              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Current ao5</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: ao5 !== '--' ? '#4ade80' : '#94a3b8' }}>
+                  {ao5 !== '--' ? `${ao5}s` : '--'}
+                </div>
+              </div>
+
+              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Current ao12</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: ao12 !== '--' ? '#c084fc' : '#94a3b8' }}>
+                  {ao12 !== '--' ? `${ao12}s` : '--'}
+                </div>
+              </div>
+
+              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Tổng Lượt Giải</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#f8fafc' }}>
+                  {solves.length} lượt
+                </div>
+              </div>
+            </div>
+
+            {/* 2. BIỂU ĐỒ ĐƯỜNG TIẾN ĐỘ THỜI GIAN (SVG LINE CHART) */}
+            <div style={{ background: '#111c34', padding: '16px', borderRadius: '12px', border: '1px solid #1a2a4c', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#f8fafc' }}>
+                  📈 Xu Hướng Biến Thiên Thời Gian ({puzzleType})
+                </span>
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  {currentSolves.length} lượt giải gần nhất
+                </span>
+              </div>
+
+              {currentSolves.length < 2 ? (
+                <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: '0.8rem' }}>
+                  Cần tối thiểu 2 lượt giải {puzzleType} để vẽ biểu đồ tiến độ.
+                </div>
+              ) : (
+                <div style={{ width: '100%', height: '150px', position: 'relative' }}>
+                  {/* SVG Chart */}
+                  {(() => {
+                    const rev = [...currentSolves].reverse();
+                    const times = rev.map(s => s.time);
+                    const minT = Math.min(...times);
+                    const maxT = Math.max(...times);
+                    const range = Math.max(maxT - minT, 1);
+                    const chartW = 600;
+                    const chartH = 120;
+
+                    const points = times.map((t, idx) => {
+                      const x = (idx / (times.length - 1)) * chartW;
+                      const y = chartH - ((t - minT) / range) * (chartH - 20) - 10;
+                      return `${x},${y}`;
+                    }).join(' ');
+
+                    return (
+                      <svg viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                        {/* Horizontal grid lines */}
+                        <line x1="0" y1="10" x2={chartW} y2="10" stroke="#192642" strokeDasharray="4" />
+                        <line x1="0" y1={chartH / 2} x2={chartW} y2={chartH / 2} stroke="#192642" strokeDasharray="4" />
+                        <line x1="0" y1={chartH - 10} x2={chartW} y2={chartH - 10} stroke="#192642" strokeDasharray="4" />
+
+                        {/* Trend line */}
+                        <polyline
+                          fill="none"
+                          stroke="#38bdf8"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={points}
+                        />
+
+                        {/* Data dots */}
+                        {times.map((t, idx) => {
+                          const x = (idx / (times.length - 1)) * chartW;
+                          const y = chartH - ((t - minT) / range) * (chartH - 20) - 10;
+                          const isBest = t === minT;
+                          return (
+                            <circle
+                              key={idx}
+                              cx={x}
+                              cy={y}
+                              r={isBest ? 5 : 3.5}
+                              fill={isBest ? '#facc15' : '#2563eb'}
+                              stroke="#ffffff"
+                              strokeWidth={isBest ? 2 : 1}
+                            />
+                          );
+                        })}
+                      </svg>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* 3. BẢNG SO SÁNH CẢ 4 KHỐI (2x2, 3x3, 4x4, 5x5) */}
+            <div style={{ background: '#111c34', padding: '16px', borderRadius: '12px', border: '1px solid #1a2a4c' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#f8fafc', marginBottom: '12px' }}>
+                🏆 Tổng Kết Thành Tích Cả 4 Khối
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                {Object.values(PUZZLE_CONFIGS).map(p => {
+                  const pSolves = solves.filter(s => (s.puzzleType || '3x3') === p.id);
+                  const pBest = pSolves.length > 0 ? Math.min(...pSolves.map(s => s.time)).toFixed(2) : '--';
+                  const pAo5 = calculateAo(pSolves, 5);
+
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => { handleSelectPuzzle(p.id); setShowDashboardModal(false); }}
+                      style={{
+                        background: puzzleType === p.id ? 'rgba(37, 99, 235, 0.15)' : '#090f1d',
+                        border: puzzleType === p.id ? '1px solid #38bdf8' : '1px solid #192642',
+                        borderRadius: '8px',
+                        padding: '10px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#f8fafc' }}>{p.name}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{pSolves.length} lượt</div>
+                      <div style={{ marginTop: '6px', fontSize: '1.1rem', fontWeight: '800', color: '#38bdf8' }}>
+                        {pBest !== '--' ? `${pBest}s` : '--'}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                        ao5: {pAo5 !== '--' ? `${pAo5}s` : '--'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: ĐĂNG NHẬP RIÊNG (USER VS ADMIN)
       ========================================== */}
       {showAuthModal && (
         <div style={{
@@ -1816,7 +2048,6 @@ export default function App() {
               ✕
             </button>
 
-            {/* TAB SELECTOR: TUYỂN THỦ VS ADMIN */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
@@ -1836,15 +2067,10 @@ export default function App() {
                   color: authTab === 'user' ? '#ffffff' : '#94a3b8',
                   fontWeight: '700',
                   fontSize: '0.82rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
+                  cursor: 'pointer'
                 }}
               >
-                <span>👤</span>
-                <span>Tuyển Thủ (User)</span>
+                👤 Tuyển Thủ (User)
               </button>
 
               <button
@@ -1857,26 +2083,20 @@ export default function App() {
                   color: authTab === 'admin' ? '#ffffff' : '#94a3b8',
                   fontWeight: '700',
                   fontSize: '0.82rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
+                  cursor: 'pointer'
                 }}
               >
-                <span>👑</span>
-                <span>Quản Trị Viên (Admin)</span>
+                👑 Admin Quản Trị
               </button>
             </div>
 
-            {/* TAB CONTENT: USER */}
             {authTab === 'user' && (
               <form onSubmit={handleLoginSubmit}>
                 <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
                   Đăng Nhập Tuyển Thủ
                 </h3>
                 <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
-                  Nhập thông tin để lưu kỷ lục và đua top trên bảng xếp hạng.
+                  Lưu thành tích và đưa điểm của bạn vào bảng xếp hạng.
                 </p>
 
                 <div style={{ marginBottom: '14px' }}>
@@ -1896,15 +2116,14 @@ export default function App() {
                       background: '#111c34',
                       border: '1px solid #1a2a4c',
                       color: '#f8fafc',
-                      fontSize: '0.88rem',
-                      outline: 'none'
+                      fontSize: '0.88rem'
                     }}
                   />
                 </div>
 
                 <div style={{ marginBottom: '18px' }}>
                   <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
-                    Email sinh viên / Email cá nhân:
+                    Email:
                   </label>
                   <input
                     type="email"
@@ -1918,8 +2137,7 @@ export default function App() {
                       background: '#111c34',
                       border: '1px solid #1a2a4c',
                       color: '#f8fafc',
-                      fontSize: '0.88rem',
-                      outline: 'none'
+                      fontSize: '0.88rem'
                     }}
                   />
                 </div>
@@ -1943,26 +2161,22 @@ export default function App() {
               </form>
             )}
 
-            {/* TAB CONTENT: ADMIN */}
             {authTab === 'admin' && (
               <form onSubmit={handleLoginSubmit}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '1.2rem' }}>👑</span>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f59e0b' }}>
-                    Cổng Đăng Nhập Quản Trị Viên
-                  </h3>
-                </div>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f59e0b' }}>
+                  Cổng Đăng Nhập Quản Trị Viên
+                </h3>
                 <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
-                  Dành riêng cho bạn để tùy chỉnh hệ thống, chỉnh sửa bảng điểm và cài đặt giải đấu.
+                  Dành riêng cho bạn để tùy chỉnh hệ thống và bảng điểm.
                 </p>
 
                 <div style={{ marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
-                    Mật khẩu Admin bảo mật:
+                    Mật khẩu Admin:
                   </label>
                   <input
                     type="password"
-                    placeholder="Mật khẩu mặc định: admin123"
+                    placeholder="Mặc định: admin123"
                     value={inputAdminPassword}
                     onChange={(e) => setInputAdminPassword(e.target.value)}
                     required
@@ -1974,12 +2188,11 @@ export default function App() {
                       background: '#111c34',
                       border: '1px solid #f59e0b55',
                       color: '#f8fafc',
-                      fontSize: '0.88rem',
-                      outline: 'none'
+                      fontSize: '0.88rem'
                     }}
                   />
                   <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '4px' }}>
-                    * Mật khẩu quản trị ban đầu là: <strong>admin123</strong> (bạn có thể tự đổi sau)
+                    * Mật khẩu quản trị mặc định: <strong>admin123</strong>
                   </div>
                 </div>
 
@@ -2003,7 +2216,7 @@ export default function App() {
                     cursor: 'pointer'
                   }}
                 >
-                  Xác Thực & Mở Khóa Quyền Admin
+                  Mở Khóa Quyền Admin
                 </button>
               </form>
             )}
@@ -2012,7 +2225,7 @@ export default function App() {
       )}
 
       {/* ==========================================
-          MODAL: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN CONTROL PANEL)
+          MODAL: ADMIN CONTROL PANEL
       ========================================== */}
       {showAdminPanelModal && (
         <div style={{
@@ -2034,7 +2247,7 @@ export default function App() {
             backgroundColor: '#0d1629',
             border: '1px solid #f59e0b66',
             borderRadius: '16px',
-            padding: '26px',
+            padding: '24px 28px',
             boxShadow: '0 25px 50px rgba(0,0,0,0.8)',
             maxHeight: '90vh',
             overflowY: 'auto',
@@ -2063,16 +2276,15 @@ export default function App() {
                   Bảng Điều Khiển Quản Trị Viên (Admin)
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-                  Tùy chỉnh thông số toàn bộ hệ thống giải đấu và bảng xếp hạng
+                  Cấu hình hệ thống, phím Spacebar và bảo mật
                 </p>
               </div>
             </div>
 
             <form onSubmit={handleSaveAdminSettings}>
-              {/* PHẦN 1: TÙY CHỈNH GIẢI ĐẤU */}
               <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
-                  ⚙️ 1. Cấu hình tiêu đề ứng dụng
+                  ⚙️ 1. Cấu hình tiêu đề giải đấu
                 </h4>
 
                 <div style={{ marginBottom: '10px' }}>
@@ -2097,7 +2309,7 @@ export default function App() {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Tiêu đề phụ / Mô tả:
+                    Tiêu đề phụ:
                   </label>
                   <input
                     type="text"
@@ -2116,15 +2328,14 @@ export default function App() {
                 </div>
               </div>
 
-              {/* PHẦN 2: THÔNG SỐ BẤM GIỜ WCA */}
               <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#4ade80' }}>
-                  ⏱️ 2. Độ nhạy phím Spacebar WCA
+                  ⏱️ 2. Độ nhạy phím Spacebar
                 </h4>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Thời gian giữ phím Spacebar để đổi sang màu xanh (Ready):
+                    Thời gian giữ Space để đổi sang màu xanh (Ready):
                   </label>
                   <select
                     value={editSpaceHoldMs}
@@ -2140,28 +2351,23 @@ export default function App() {
                     }}
                   >
                     <option value={150}>150ms — Rất nhạy (Chạm nhanh là chạy)</option>
-                    <option value={280}>280ms — Tiêu chuẩn thi đấu cân bằng (Khuyên dùng)</option>
+                    <option value={280}>280ms — Tiêu chuẩn cân bằng (Khuyên dùng)</option>
                     <option value={350}>350ms — Chuẩn WCA quốc tế (csTimer)</option>
                     <option value={550}>550ms — Giữ chắc tay (Tránh bấm nhầm)</option>
                   </select>
                 </div>
               </div>
 
-              {/* PHẦN 3: ĐỔI MẬT KHẨU ADMIN */}
-              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid #1a2a4c' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#f59e0b' }}>
-                  🔒 3. Bảo mật tài khoản Quản Trị
+                  🔒 3. Đổi mật khẩu Admin mới
                 </h4>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Đổi mật khẩu Admin mới:
-                  </label>
                   <input
                     type="text"
                     value={editAdminPassword}
                     onChange={(e) => setEditAdminPassword(e.target.value)}
-                    placeholder="Nhập mật khẩu mới..."
                     style={{
                       width: '100%',
                       padding: '7px 10px',
@@ -2172,54 +2378,6 @@ export default function App() {
                       fontSize: '0.85rem'
                     }}
                   />
-                </div>
-              </div>
-
-              {/* PHẦN 4: SAO LƯU & PHỤC HỒI DỮ LIỆU */}
-              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid #1a2a4c' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#c084fc' }}>
-                  💾 4. Sao lưu & Phục hồi dữ liệu
-                </h4>
-
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={handleExportBackup}
-                    style={{
-                      flex: 1,
-                      padding: '8px',
-                      borderRadius: '6px',
-                      background: '#1e293b',
-                      border: '1px solid #334155',
-                      color: '#e2e8f0',
-                      fontSize: '0.78rem',
-                      fontWeight: '600',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    📥 Tải file Backup (.json)
-                  </button>
-
-                  <label style={{
-                    flex: 1,
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#38bdf8',
-                    fontSize: '0.78rem',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    textAlign: 'center'
-                  }}>
-                    📤 Phục hồi từ file
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={handleImportBackup}
-                      style={{ display: 'none' }}
-                    />
-                  </label>
                 </div>
               </div>
 
@@ -2253,7 +2411,7 @@ export default function App() {
                     cursor: 'pointer'
                   }}
                 >
-                  Lưu Tất Cả Cài Đặt
+                  Lưu Cài Đặt
                 </button>
               </div>
             </form>
@@ -2311,8 +2469,7 @@ export default function App() {
                     background: '#111c34',
                     border: '1px solid #1a2a4c',
                     color: '#f8fafc',
-                    fontSize: '0.88rem',
-                    outline: 'none'
+                    fontSize: '0.88rem'
                   }}
                 />
               </div>
@@ -2457,8 +2614,7 @@ export default function App() {
                     background: '#111c34',
                     border: '1px solid #1a2a4c',
                     color: '#f8fafc',
-                    fontSize: '0.85rem',
-                    outline: 'none'
+                    fontSize: '0.85rem'
                   }}
                 />
               </div>
@@ -2482,8 +2638,7 @@ export default function App() {
                       background: '#111c34',
                       border: '1px solid #1a2a4c',
                       color: '#f8fafc',
-                      fontSize: '0.85rem',
-                      outline: 'none'
+                      fontSize: '0.85rem'
                     }}
                   />
                 </div>
@@ -2505,8 +2660,7 @@ export default function App() {
                       background: '#111c34',
                       border: '1px solid #1a2a4c',
                       color: '#f8fafc',
-                      fontSize: '0.85rem',
-                      outline: 'none'
+                      fontSize: '0.85rem'
                     }}
                   />
                 </div>
