@@ -140,14 +140,54 @@ function classifyHsvColor(h, s, v, rawBrightness) {
 
 export default function App() {
   // ==========================================
-  // STATE MANAGEMENT
+  // 1. AUTHENTICATION & ADMIN ROLES
   // ==========================================
-  // Puzzle Category: '2x2' | '3x3' | '4x4' | '5x5'
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rubik_auth_user');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      role: 'user', // 'user' (Tuyển thủ) hoặc 'admin' (Quản trị viên)
+      name: 'khoa.tt2611758',
+      email: 'khoa.tt2611758@sis.hust.edu.vn'
+    };
+  });
+
+  const [adminSettings, setAdminSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rubik_admin_settings');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      adminPassword: 'admin123',
+      competitionTitle: 'Rubik Timer & AI Verification',
+      subTitle: 'HUST Speedcubing • 2×2, 3×3, 4×4, 5×5',
+      spaceHoldMs: 280
+    };
+  });
+
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authTab, setAuthTab] = useState('user'); // 'user' | 'admin'
+  const [inputUserName, setInputUserName] = useState('');
+  const [inputUserEmail, setInputUserEmail] = useState('');
+  const [inputAdminPassword, setInputAdminPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // Admin Control Panel Modal
+  const [showAdminPanelModal, setShowAdminPanelModal] = useState(false);
+  const [editCompTitle, setEditCompTitle] = useState(adminSettings.competitionTitle);
+  const [editCompSub, setEditCompSub] = useState(adminSettings.subTitle);
+  const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs);
+  const [editAdminPassword, setEditAdminPassword] = useState(adminSettings.adminPassword);
+
+  // ==========================================
+  // 2. STATE MANAGEMENT & PUZZLE TYPE
+  // ==========================================
   const [puzzleType, setPuzzleType] = useState(() => {
     return localStorage.getItem('rubik_puzzle_type') || '3x3';
   });
 
-  // Timer states: 'idle' | 'holding' | 'ready' | 'running'
   const [timerState, setTimerState] = useState('idle');
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
@@ -167,11 +207,10 @@ export default function App() {
     }
   });
 
-  // Filter solves for current puzzle
   const currentSolves = solves.filter(s => (s.puzzleType || '3x3') === puzzleType);
 
   // ==========================================
-  // MULTI-LEADERBOARD SYSTEM
+  // 3. MULTI-LEADERBOARD SYSTEM
   // ==========================================
   const [leaderboards, setLeaderboards] = useState(() => {
     try {
@@ -197,7 +236,7 @@ export default function App() {
     return localStorage.getItem('rubik_active_board_id') || 'board_1';
   });
 
-  const [leaderboardFilter, setLeaderboardFilter] = useState('current'); // 'current' or 'all'
+  const [leaderboardFilter, setLeaderboardFilter] = useState('current');
 
   // Modals
   const [showNewBoardModal, setShowNewBoardModal] = useState(false);
@@ -286,7 +325,7 @@ export default function App() {
       name: newPlayerName.trim(),
       best: bestVal,
       avg: avgVal,
-      verified: false
+      verified: currentUser.role === 'admin' // Admin thêm thì mặc định verify
     };
 
     const currentEntries = currentBoard?.entries || [];
@@ -319,6 +358,128 @@ export default function App() {
       }
     };
     saveLeaderboards(updated);
+  };
+
+  // Toggle Verify by Admin
+  const handleToggleVerifyEntry = (entryId) => {
+    if (currentUser.role !== 'admin' || !currentBoard) return;
+    const updatedEntries = currentBoard.entries.map(e => {
+      if (e.id === entryId) {
+        return { ...e, verified: !e.verified };
+      }
+      return e;
+    });
+
+    const updated = {
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: updatedEntries
+      }
+    };
+    saveLeaderboards(updated);
+  };
+
+  // ==========================================
+  // AUTH LOGIN / LOGOUT HANDLERS
+  // ==========================================
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    if (authTab === 'user') {
+      // Login as regular player
+      const name = inputUserName.trim() || 'Người chơi ẩn danh';
+      const email = inputUserEmail.trim() || `${name.toLowerCase()}@cuber.vn`;
+      const userObj = { role: 'user', name, email };
+      setCurrentUser(userObj);
+      localStorage.setItem('rubik_auth_user', JSON.stringify(userObj));
+      setShowAuthModal(false);
+      setInputUserName('');
+      setInputUserEmail('');
+    } else {
+      // Login as Admin
+      if (inputAdminPassword === adminSettings.adminPassword) {
+        const adminObj = {
+          role: 'admin',
+          name: 'Quản Trị Viên (Admin)',
+          email: 'admin@hust.edu.vn'
+        };
+        setCurrentUser(adminObj);
+        localStorage.setItem('rubik_auth_user', JSON.stringify(adminObj));
+        setShowAuthModal(false);
+        setInputAdminPassword('');
+        alert('🎉 Đăng nhập Admin thành công! Bạn có toàn quyền cấu hình giải đấu và bảng xếp hạng.');
+      } else {
+        setAuthError('Mật khẩu Admin không chính xác! (Mặc định: admin123)');
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    const defaultUser = {
+      role: 'user',
+      name: 'Khách',
+      email: 'guest@cuber.vn'
+    };
+    setCurrentUser(defaultUser);
+    localStorage.setItem('rubik_auth_user', JSON.stringify(defaultUser));
+  };
+
+  // Save Admin settings
+  const handleSaveAdminSettings = (e) => {
+    e.preventDefault();
+    const newSettings = {
+      adminPassword: editAdminPassword.trim() || 'admin123',
+      competitionTitle: editCompTitle.trim() || 'Rubik Timer & AI Verification',
+      subTitle: editCompSub.trim() || 'HUST Speedcubing',
+      spaceHoldMs: Number(editSpaceHoldMs) || 280
+    };
+    setAdminSettings(newSettings);
+    localStorage.setItem('rubik_admin_settings', JSON.stringify(newSettings));
+    setShowAdminPanelModal(false);
+    alert('✅ Đã lưu cài đặt Quản trị thành công!');
+  };
+
+  // Export & Import backup JSON
+  const handleExportBackup = () => {
+    const backupData = {
+      leaderboards,
+      solves,
+      adminSettings,
+      exportDate: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rubik_backup_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (data.leaderboards) saveLeaderboards(data.leaderboards);
+        if (data.solves) {
+          setSolves(data.solves);
+          localStorage.setItem('rubik_solves_hcc', JSON.stringify(data.solves));
+        }
+        if (data.adminSettings) {
+          setAdminSettings(data.adminSettings);
+          localStorage.setItem('rubik_admin_settings', JSON.stringify(data.adminSettings));
+        }
+        alert('🎉 Phục hồi dữ liệu từ file backup thành công!');
+      } catch (err) {
+        alert('Lỗi: File JSON không đúng định dạng backup! ' + err.message);
+      }
+    };
+    reader.readAsText(file);
   };
 
   // Camera & AI State
@@ -356,6 +517,7 @@ export default function App() {
   const cameraActiveRef = useRef(false);
   const cameraHealthRef = useRef(false);
   const puzzleTypeRef = useRef(puzzleType);
+  const adminSettingsRef = useRef(adminSettings);
 
   useEffect(() => {
     timerStateRef.current = timerState;
@@ -373,6 +535,10 @@ export default function App() {
     puzzleTypeRef.current = puzzleType;
     setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
   }, [puzzleType, currentDim]);
+
+  useEffect(() => {
+    adminSettingsRef.current = adminSettings;
+  }, [adminSettings]);
 
   // Stop & Start Timer
   const stopTimer = useCallback(() => {
@@ -429,12 +595,12 @@ export default function App() {
     startTimerRef.current = startTimer;
   }, [stopTimer, startTimer]);
 
-  // WCA Keyboard Spacebar Controller
+  // WCA Keyboard Spacebar Controller (Custom hold duration from Admin settings)
   useEffect(() => {
     let holdTimeout = null;
 
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
 
       const currentState = timerStateRef.current;
 
@@ -451,11 +617,12 @@ export default function App() {
         if (currentState === 'idle') {
           setTimerState('holding');
           clearTimeout(holdTimeout);
+          const holdMs = adminSettingsRef.current?.spaceHoldMs || 280;
           holdTimeout = setTimeout(() => {
             if (timerStateRef.current === 'holding') {
               setTimerState('ready');
             }
-          }, 280);
+          }, holdMs);
         }
       } else {
         if (currentState === 'running') {
@@ -604,7 +771,7 @@ export default function App() {
           return;
         }
 
-        // Sample Dynamic NxN Stickers (Adaptive for 2x2, 3x3, 4x4, 5x5)
+        // Sample Dynamic NxN Stickers
         const dim = currentDim;
         const boxSize = Math.min(w, h) * 0.54;
         const startX = (w - boxSize) / 2;
@@ -667,7 +834,6 @@ export default function App() {
           return;
         }
 
-        // Center / Representative sticker
         const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
         const centerColor = currentNxNColors[centerIdx];
         const centerDef = COLOR_DEFINITIONS[centerColor];
@@ -694,7 +860,7 @@ export default function App() {
           }
         }
 
-        // Auto-stop when completed (All stickers same color)
+        // Auto-stop when completed
         const now = performance.now();
         if (
           timerStateRef.current === 'running' &&
@@ -747,7 +913,7 @@ export default function App() {
     });
   };
 
-  // Add my best score to current board
+  // Add score to current board
   const handleAddMyScoreToBoard = () => {
     if (currentSolves.length === 0) {
       alert(`Bạn chưa có lượt giải ${puzzleType} nào để thêm vào bảng!`);
@@ -759,10 +925,10 @@ export default function App() {
     const newEntry = {
       id: Date.now(),
       puzzleType: puzzleType,
-      name: `khoa.tt2611758 (${puzzleType})`,
+      name: `${currentUser.name} (${puzzleType})`,
       best: myBest,
       avg: isNaN(myAvg) ? myBest : myAvg,
-      verified: true
+      verified: currentUser.role === 'admin'
     };
 
     const currentEntries = currentBoard?.entries || [];
@@ -778,7 +944,6 @@ export default function App() {
     saveLeaderboards(updated);
   };
 
-  // Filter leaderboard entries based on toggle
   const displayedEntries = (currentBoard?.entries || []).filter(e => {
     if (leaderboardFilter === 'all') return true;
     return (e.puzzleType || '3x3') === puzzleType;
@@ -799,7 +964,7 @@ export default function App() {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ==========================================
-          HEADER BAR
+          HEADER BAR: AUTH + ADMIN CONTROLS
       ========================================== */}
       <header style={{
         padding: '10px 24px',
@@ -814,31 +979,35 @@ export default function App() {
             width: '34px',
             height: '34px',
             borderRadius: '8px',
-            background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+            background: currentUser.role === 'admin' 
+              ? 'linear-gradient(135deg, #f59e0b, #ef4444)' 
+              : 'linear-gradient(135deg, #2563eb, #38bdf8)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '1.2rem',
-            boxShadow: '0 2px 10px rgba(37, 99, 235, 0.4)'
+            boxShadow: currentUser.role === 'admin' 
+              ? '0 2px 10px rgba(245, 158, 11, 0.4)' 
+              : '0 2px 10px rgba(37, 99, 235, 0.4)'
           }}>
-            ⏱️
+            {currentUser.role === 'admin' ? '👑' : '⏱️'}
           </div>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.02rem', fontWeight: '700', color: '#f8fafc' }}>
-              Rubik Timer & AI Verification
+              {adminSettings.competitionTitle}
             </h1>
             <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
-              HUST Speedcubing • 2×2, 3×3, 4×4, 5×5
+              {adminSettings.subTitle}
             </p>
           </div>
         </div>
 
-        {/* Camera Toggle Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Right header: Camera Toggle + User / Admin Profile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             onClick={toggleCamera}
             style={{
-              padding: '6px 14px',
+              padding: '6px 12px',
               borderRadius: '6px',
               border: cameraActive 
                 ? (cameraHealth.isHealthy ? '1px solid #22c55e' : '1px solid #ef4444') 
@@ -850,25 +1019,118 @@ export default function App() {
                 ? (cameraHealth.isHealthy ? '#4ade80' : '#f87171') 
                 : '#94a3b8',
               fontWeight: '600',
-              fontSize: '0.8rem',
+              fontSize: '0.78rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s'
+              gap: '6px'
             }}
           >
             <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
             <span>
               {cameraActive 
-                ? (cameraHealth.isHealthy ? 'Tắt Camera AI' : 'Camera Bị Lỗi (Tắt)') 
-                : 'Bật Camera AI'}
+                ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') 
+                : 'Bật Cam'}
             </span>
           </button>
 
-          <span style={{ fontSize: '0.82rem', color: '#94a3b8', background: '#111c34', padding: '4px 8px', borderRadius: '6px', border: '1px solid #1a2a4c' }}>
-            khoa.tt2611758@sis.hust.edu.vn
-          </span>
+          {/* ADMIN BADGE & DASHBOARD BUTTON */}
+          {currentUser.role === 'admin' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  setEditCompTitle(adminSettings.competitionTitle);
+                  setEditCompSub(adminSettings.subTitle);
+                  setEditSpaceHoldMs(adminSettings.spaceHoldMs);
+                  setEditAdminPassword(adminSettings.adminPassword);
+                  setShowAdminPanelModal(true);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: 'none',
+                  color: '#ffffff',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: '0 2px 8px rgba(245, 158, 11, 0.35)'
+                }}
+              >
+                <span>⚙️</span>
+                <span>Bảng Quản Trị Admin</span>
+              </button>
+
+              <button
+                onClick={handleLogout}
+                title="Đăng xuất quyền Admin"
+                style={{
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#94a3b8',
+                  fontSize: '0.75rem',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Thoát Admin
+              </button>
+            </div>
+          ) : (
+            /* REGULAR USER / LOGIN BUTTON */
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                onClick={() => setShowAuthModal(true)}
+                title="Bấm để đổi tài khoản hoặc đăng nhập Admin"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#111c34',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #1a2a4c',
+                  cursor: 'pointer'
+                }}
+              >
+                <span style={{ fontSize: '0.8rem' }}>👤</span>
+                <span style={{ fontSize: '0.78rem', color: '#e2e8f0', fontWeight: '600' }}>
+                  {currentUser.name}
+                </span>
+                <span style={{ fontSize: '0.68rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '1px 5px', borderRadius: '3px' }}>
+                  Tuyển thủ
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  setAuthTab('admin');
+                  setShowAuthModal(true);
+                }}
+                title="Cổng Đăng Nhập Dành Riêng Cho Quản Trị Viên (Admin)"
+                style={{
+                  background: '#111c34',
+                  border: '1px solid #f59e0b55',
+                  color: '#f59e0b',
+                  fontSize: '0.75rem',
+                  fontWeight: '700',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <span>👑</span>
+                <span>Admin Login</span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -997,7 +1259,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* === CỘT GIỮA: PUZZLE SELECTOR (3x3, 4x4, 5x5) + SCRAMBLE + CAMERA + TIMER === */}
+        {/* === CỘT GIỮA: PUZZLE TABS + SCRAMBLE + CAMERA + TIMER === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
@@ -1241,7 +1503,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* === CỘT PHẢI: BẢNG XẾP HẠNG (CÓ LỌC 2x2, 3x3, 4x4, 5x5) === */}
+        {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
@@ -1282,7 +1544,6 @@ export default function App() {
               </select>
             </div>
 
-            {/* Nút LẬP BẢNG MỚI */}
             <button
               onClick={() => setShowNewBoardModal(true)}
               title="Lập một bảng xếp hạng mới hoàn toàn"
@@ -1343,7 +1604,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Filter Toggle: Mục hiện tại vs Tất cả */}
+            {/* Filter Toggle */}
             <div style={{ display: 'flex', background: '#111c34', borderRadius: '4px', border: '1px solid #1e293b', padding: '2px' }}>
               <button
                 onClick={() => setLeaderboardFilter('current')}
@@ -1381,7 +1642,7 @@ export default function App() {
           {/* Table Header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '26px 42px 1fr 58px 58px 20px',
+            gridTemplateColumns: '26px 42px 1fr 58px 58px 24px',
             padding: '6px 6px',
             fontSize: '0.72rem',
             color: '#64748b',
@@ -1424,7 +1685,7 @@ export default function App() {
                   key={item.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '26px 42px 1fr 58px 58px 20px',
+                    gridTemplateColumns: '26px 42px 1fr 58px 58px 24px',
                     padding: '8px 6px',
                     borderBottom: '1px solid #111c34',
                     fontSize: '0.8rem',
@@ -1437,7 +1698,6 @@ export default function App() {
                     {index + 1}
                   </span>
 
-                  {/* Puzzle Type Badge */}
                   <span style={{
                     fontSize: '0.65rem',
                     fontWeight: '700',
@@ -1464,14 +1724,19 @@ export default function App() {
                       {item.name}
                     </span>
                     {item.verified && (
-                      <span style={{
-                        flexShrink: 0,
-                        fontSize: '0.6rem',
-                        color: '#4ade80',
-                        background: 'rgba(34, 197, 94, 0.1)',
-                        padding: '1px 3px',
-                        borderRadius: '3px'
-                      }}>
+                      <span
+                        onClick={() => currentUser.role === 'admin' && handleToggleVerifyEntry(item.id)}
+                        title={currentUser.role === 'admin' ? "Bấm để đổi trạng thái xác minh" : "Kỷ lục đã được AI xác minh"}
+                        style={{
+                          flexShrink: 0,
+                          fontSize: '0.6rem',
+                          color: '#4ade80',
+                          background: 'rgba(34, 197, 94, 0.1)',
+                          padding: '1px 3px',
+                          borderRadius: '3px',
+                          cursor: currentUser.role === 'admin' ? 'pointer' : 'default'
+                        }}
+                      >
                         ✓ AI
                       </span>
                     )}
@@ -1485,13 +1750,14 @@ export default function App() {
                     {typeof item.avg === 'number' ? `${item.avg}s` : item.avg}
                   </span>
 
+                  {/* Nút xóa dành cho Admin hoặc User xóa người tự thêm */}
                   <button
                     onClick={() => handleDeleteEntry(item.id)}
-                    title="Xóa tuyển thủ này"
+                    title="Xóa kỷ lục này"
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: '#475569',
+                      color: currentUser.role === 'admin' ? '#ef4444' : '#475569',
                       fontSize: '0.72rem',
                       cursor: 'pointer',
                       padding: 0,
@@ -1506,6 +1772,494 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* ==========================================
+          MODAL: ĐĂNG NHẬP RIÊNG (TUYỂN THỦ VS ADMIN)
+      ========================================== */}
+      {showAuthModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 8, 16, 0.85)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999
+        }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '430px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #192642',
+            borderRadius: '16px',
+            padding: '26px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.7)',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setShowAuthModal(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'none',
+                border: 'none',
+                color: '#64748b',
+                fontSize: '1.2rem',
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+
+            {/* TAB SELECTOR: TUYỂN THỦ VS ADMIN */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              background: '#090f1d',
+              borderRadius: '8px',
+              padding: '4px',
+              marginBottom: '20px',
+              border: '1px solid #16223b'
+            }}>
+              <button
+                onClick={() => { setAuthTab('user'); setAuthError(''); }}
+                style={{
+                  padding: '8px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: authTab === 'user' ? '#1e3a8a' : 'transparent',
+                  color: authTab === 'user' ? '#ffffff' : '#94a3b8',
+                  fontWeight: '700',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>👤</span>
+                <span>Tuyển Thủ (User)</span>
+              </button>
+
+              <button
+                onClick={() => { setAuthTab('admin'); setAuthError(''); }}
+                style={{
+                  padding: '8px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: authTab === 'admin' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'transparent',
+                  color: authTab === 'admin' ? '#ffffff' : '#94a3b8',
+                  fontWeight: '700',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>👑</span>
+                <span>Quản Trị Viên (Admin)</span>
+              </button>
+            </div>
+
+            {/* TAB CONTENT: USER */}
+            {authTab === 'user' && (
+              <form onSubmit={handleLoginSubmit}>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
+                  Đăng Nhập Tuyển Thủ
+                </h3>
+                <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
+                  Nhập thông tin để lưu kỷ lục và đua top trên bảng xếp hạng.
+                </p>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
+                    Tên hiển thị / Nickname:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: khoa.tt2611758"
+                    value={inputUserName}
+                    onChange={(e) => setInputUserName(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      background: '#111c34',
+                      border: '1px solid #1a2a4c',
+                      color: '#f8fafc',
+                      fontSize: '0.88rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
+                    Email sinh viên / Email cá nhân:
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="Ví dụ: khoa.tt@sis.hust.edu.vn"
+                    value={inputUserEmail}
+                    onChange={(e) => setInputUserEmail(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      background: '#111c34',
+                      border: '1px solid #1a2a4c',
+                      color: '#f8fafc',
+                      fontSize: '0.88rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '7px',
+                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Đăng Nhập Tuyển Thủ
+                </button>
+              </form>
+            )}
+
+            {/* TAB CONTENT: ADMIN */}
+            {authTab === 'admin' && (
+              <form onSubmit={handleLoginSubmit}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '1.2rem' }}>👑</span>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f59e0b' }}>
+                    Cổng Đăng Nhập Quản Trị Viên
+                  </h3>
+                </div>
+                <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
+                  Dành riêng cho bạn để tùy chỉnh hệ thống, chỉnh sửa bảng điểm và cài đặt giải đấu.
+                </p>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
+                    Mật khẩu Admin bảo mật:
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Mật khẩu mặc định: admin123"
+                    value={inputAdminPassword}
+                    onChange={(e) => setInputAdminPassword(e.target.value)}
+                    required
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '6px',
+                      background: '#111c34',
+                      border: '1px solid #f59e0b55',
+                      color: '#f8fafc',
+                      fontSize: '0.88rem',
+                      outline: 'none'
+                    }}
+                  />
+                  <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '4px' }}>
+                    * Mật khẩu quản trị ban đầu là: <strong>admin123</strong> (bạn có thể tự đổi sau)
+                  </div>
+                </div>
+
+                {authError && (
+                  <div style={{ color: '#ef4444', fontSize: '0.78rem', marginBottom: '14px', background: '#450a0a', padding: '6px 10px', borderRadius: '4px' }}>
+                    ⚠️ {authError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '7px',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Xác Thực & Mở Khóa Quyền Admin
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: BẢNG ĐIỀU KHIỂN QUẢN TRỊ VIÊN (ADMIN CONTROL PANEL)
+      ========================================== */}
+      {showAdminPanelModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 8, 16, 0.88)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999
+        }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '560px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #f59e0b66',
+            borderRadius: '16px',
+            padding: '26px',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.8)',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setShowAdminPanelModal(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'none',
+                border: 'none',
+                color: '#64748b',
+                fontSize: '1.2rem',
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '1.5rem' }}>👑</span>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#f59e0b' }}>
+                  Bảng Điều Khiển Quản Trị Viên (Admin)
+                </h2>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
+                  Tùy chỉnh thông số toàn bộ hệ thống giải đấu và bảng xếp hạng
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveAdminSettings}>
+              {/* PHẦN 1: TÙY CHỈNH GIẢI ĐẤU */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
+                  ⚙️ 1. Cấu hình tiêu đề ứng dụng
+                </h4>
+
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Tiêu đề chính:
+                  </label>
+                  <input
+                    type="text"
+                    value={editCompTitle}
+                    onChange={(e) => setEditCompTitle(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Tiêu đề phụ / Mô tả:
+                  </label>
+                  <input
+                    type="text"
+                    value={editCompSub}
+                    onChange={(e) => setEditCompSub(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* PHẦN 2: THÔNG SỐ BẤM GIỜ WCA */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#4ade80' }}>
+                  ⏱️ 2. Độ nhạy phím Spacebar WCA
+                </h4>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Thời gian giữ phím Spacebar để đổi sang màu xanh (Ready):
+                  </label>
+                  <select
+                    value={editSpaceHoldMs}
+                    onChange={(e) => setEditSpaceHoldMs(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <option value={150}>150ms — Rất nhạy (Chạm nhanh là chạy)</option>
+                    <option value={280}>280ms — Tiêu chuẩn thi đấu cân bằng (Khuyên dùng)</option>
+                    <option value={350}>350ms — Chuẩn WCA quốc tế (csTimer)</option>
+                    <option value={550}>550ms — Giữ chắc tay (Tránh bấm nhầm)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* PHẦN 3: ĐỔI MẬT KHẨU ADMIN */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#f59e0b' }}>
+                  🔒 3. Bảo mật tài khoản Quản Trị
+                </h4>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Đổi mật khẩu Admin mới:
+                  </label>
+                  <input
+                    type="text"
+                    value={editAdminPassword}
+                    onChange={(e) => setEditAdminPassword(e.target.value)}
+                    placeholder="Nhập mật khẩu mới..."
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* PHẦN 4: SAO LƯU & PHỤC HỒI DỮ LIỆU */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid #1a2a4c' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#c084fc' }}>
+                  💾 4. Sao lưu & Phục hồi dữ liệu
+                </h4>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={handleExportBackup}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#e2e8f0',
+                      fontSize: '0.78rem',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    📥 Tải file Backup (.json)
+                  </button>
+
+                  <label style={{
+                    flex: 1,
+                    padding: '8px',
+                    borderRadius: '6px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#38bdf8',
+                    fontSize: '0.78rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}>
+                    📤 Phục hồi từ file
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleImportBackup}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPanelModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#94a3b8',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Đóng
+                </button>
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Lưu Tất Cả Cài Đặt
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ==========================================
           MODAL: LẬP BẢNG MỚI
