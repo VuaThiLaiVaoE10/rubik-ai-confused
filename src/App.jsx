@@ -5,8 +5,8 @@ import AuthModal from './components/AuthModal';
 import { generateScramble, solveScramble } from './utils/rubikSolver';
 
 export default function App() {
-  // Timer State
-  const [timerState, setTimerState] = useState('idle'); // 'idle' | 'holding' | 'ready' | 'running'
+  // Timer State: 'idle' | 'holding' | 'ready' | 'running'
+  const [timerState, setTimerState] = useState('idle');
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(20));
   
@@ -44,47 +44,68 @@ export default function App() {
     { rank: 10, name: 'Nhan', best: '18.72', avg: '24.31' }
   ]);
 
-  // Modal features for 3D & Scanner
+  // Modals
   const [show3DModal, setShow3DModal] = useState(false);
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [solutionSteps, setSolutionSteps] = useState([]);
   const [isSolving, setIsSolving] = useState(false);
 
   const timerRef = useRef(null);
-  const holdTimeoutRef = useRef(null);
   const startTimeRef = useRef(0);
+  const timerStateRef = useRef('idle');
   const rubikRef = useRef(null);
 
-  // Key event listeners for Timer (WCA Spacebar logic)
+  // Keep ref synchronized with state to avoid stale closures in event listeners
   useEffect(() => {
+    timerStateRef.current = timerState;
+  }, [timerState]);
+
+  // WCA Spacebar timer logic (Bulletproof with e.repeat handling)
+  useEffect(() => {
+    let holdTimeout = null;
+
     const handleKeyDown = (e) => {
       if (show3DModal || showScannerModal || isAuthOpen) return;
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+
+      const currentState = timerStateRef.current;
 
       if (e.code === 'Space') {
         e.preventDefault();
-        if (timerState === 'running') {
-          // Stop timer
+
+        // When running, pressing Space stops immediately
+        if (currentState === 'running') {
           stopTimer();
-        } else if (timerState === 'idle') {
-          setTimerState('holding');
-          clearTimeout(holdTimeoutRef.current);
-          holdTimeoutRef.current = setTimeout(() => {
-            setTimerState('ready');
-          }, 400); // 400ms hold -> Ready (Green)
+          return;
         }
-      } else if (timerState === 'running') {
-        stopTimer();
+
+        // Ignore browser auto-repeat when holding key down
+        if (e.repeat) return;
+
+        if (currentState === 'idle') {
+          setTimerState('holding');
+          clearTimeout(holdTimeout);
+          holdTimeout = setTimeout(() => {
+            setTimerState('ready');
+          }, 350); // 350ms hold -> turns green / READY
+        }
+      } else {
+        // Any other key stops the timer if it's currently running
+        if (currentState === 'running') {
+          stopTimer();
+        }
       }
     };
 
     const handleKeyUp = (e) => {
       if (e.code === 'Space') {
         e.preventDefault();
-        clearTimeout(holdTimeoutRef.current);
-        if (timerState === 'ready') {
+        clearTimeout(holdTimeout);
+        const currentState = timerStateRef.current;
+
+        if (currentState === 'ready') {
           startTimer();
-        } else if (timerState === 'holding') {
+        } else if (currentState === 'holding') {
           setTimerState('idle');
         }
       }
@@ -93,15 +114,18 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
+      clearTimeout(holdTimeout);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [timerState, show3DModal, showScannerModal, isAuthOpen]);
+  }, [show3DModal, showScannerModal, isAuthOpen]);
 
   const startTimer = () => {
     setTimeMs(0);
     setTimerState('running');
     startTimeRef.current = performance.now();
+
+    clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setTimeMs(performance.now() - startTimeRef.current);
     }, 10);
@@ -126,15 +150,9 @@ export default function App() {
       return updated;
     });
 
-    // Generate new scramble for next solve
+    // Generate new scramble
     setScramble(generateScramble(20));
   };
-
-  // Stats Calculations
-  const bestTime = solves.length > 0 ? Math.min(...solves.map(s => s.time)).toFixed(2) : '--';
-  const meanTime = solves.length > 0 
-    ? (solves.reduce((acc, s) => acc + s.time, 0) / solves.length).toFixed(2) 
-    : '--';
 
   const formatDisplayTime = (ms) => {
     const totalSec = ms / 1000;
@@ -148,6 +166,12 @@ export default function App() {
       return filtered;
     });
   };
+
+  // Stats
+  const bestTime = solves.length > 0 ? Math.min(...solves.map(s => s.time)).toFixed(2) : '--';
+  const meanTime = solves.length > 0 
+    ? (solves.reduce((acc, s) => acc + s.time, 0) / solves.length).toFixed(2) 
+    : '--';
 
   const handleSolveWithAI = async () => {
     if (!scramble) return;
@@ -412,7 +436,7 @@ export default function App() {
           justifyContent: 'space-between',
           position: 'relative'
         }}>
-          {/* Top of Center: Solver info */}
+          {/* Top of Center */}
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.08em', color: '#64748b' }}>
               NGƯỜI GIẢI
