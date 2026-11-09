@@ -207,7 +207,30 @@ export default function App() {
   const [editCompTitle, setEditCompTitle] = useState(adminSettings.competitionTitle);
   const [editCompSub, setEditCompSub] = useState(adminSettings.subTitle);
   const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs);
-  const [pinTimeKhoa, setPinTimeKhoa] = useState('0.71');
+
+  // Thông báo nhận diện kỷ lục AI thời gian thực (Toast Banner)
+  const [lastNotice, setLastNotice] = useState(null);
+
+  // Tự động ẩn thông báo sau 6 giây
+  useEffect(() => {
+    if (lastNotice) {
+      const timer = setTimeout(() => setLastNotice(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastNotice]);
+
+  // Xóa sạch dữ liệu mẫu/cheat cũ nếu người dùng đã lưu trong trình duyệt
+  useEffect(() => {
+    const cleanFlag = localStorage.getItem('rubik_clean_anti_cheat_v3');
+    if (!cleanFlag) {
+      localStorage.removeItem('rubik_multi_leaderboards_v2');
+      localStorage.removeItem('rubik_multi_leaderboards_v3');
+      localStorage.removeItem('rubik_multi_leaderboards_v4');
+      localStorage.removeItem('rubik_multi_leaderboards_v5');
+      localStorage.removeItem('rubik_solves_hcc');
+      localStorage.setItem('rubik_clean_anti_cheat_v3', 'true');
+    }
+  }, []);
 
   // Dashboard modal
   const [showDashboardModal, setShowDashboardModal] = useState(false);
@@ -233,16 +256,11 @@ export default function App() {
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
 
-  // History & Solves
+  // History & Solves (Không lưu dữ liệu giả, bắt đầu hoàn toàn sạch)
   const [solves, setSolves] = useState(() => {
     try {
-      const saved = localStorage.getItem('rubik_solves_hcc');
-      return saved ? JSON.parse(saved) : [
-        { id: 1, puzzleType: '3x3', time: 14.52, date: '10/11', moves: 'Chưa dùng cam', verified: false },
-        { id: 2, puzzleType: '3x3', time: 12.80, date: '10/11', moves: 'Chưa dùng cam', verified: false },
-        { id: 3, puzzleType: '4x4', time: 54.20, date: '10/11', moves: 'Giải thủ công', verified: false },
-        { id: 4, puzzleType: '5x5', time: 112.45, date: '10/11', moves: 'Giải thủ công', verified: false }
-      ];
+      const saved = localStorage.getItem('rubik_solves_hcc_clean');
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -251,24 +269,18 @@ export default function App() {
   const currentSolves = solves.filter(s => (s.puzzleType || '3x3') === puzzleType);
 
   // ==========================================
-  // 3. MULTI-LEADERBOARD SYSTEM
+  // 3. MULTI-LEADERBOARD SYSTEM (CHỐNG GIAN LẬN - 100% TỰ ĐỘNG)
   // ==========================================
   const [leaderboards, setLeaderboards] = useState(() => {
     try {
-      const saved = localStorage.getItem('rubik_multi_leaderboards_v5');
+      const saved = localStorage.getItem('rubik_multi_leaderboards_clean');
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
       'board_1': {
         id: 'board_1',
-        title: 'Bảng Xếp Hạng HUST',
-        entries: [
-          { id: 1, puzzleType: '3x3', name: 'khoa.tt2611758 (Top 1 HUST)', best: 0.71, avg: 1.02, verified: true },
-          { id: 2, puzzleType: '3x3', name: 'tungtungvuadhur', best: 6.53, avg: 7.92, verified: true },
-          { id: 3, puzzleType: '3x3', name: 'Người Tây Đồng Bằng', best: 6.55, avg: 11.57, verified: true },
-          { id: 4, puzzleType: '3x3', name: 'tranduct757', best: 12.12, avg: 14.57, verified: false },
-          { id: 5, puzzleType: '3x3', name: 'Tiến Dũng newbie', best: 12.14, avg: 14.75, verified: false }
-        ]
+        title: 'Bảng Kỷ Lục AI Chính Thức',
+        entries: []
       }
     };
   });
@@ -283,16 +295,11 @@ export default function App() {
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [newBoardMode, setNewBoardMode] = useState('empty');
 
-  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
-  const [newPlayerName, setNewPlayerName] = useState('');
-  const [newPlayerBest, setNewPlayerBest] = useState('');
-  const [newPlayerAvg, setNewPlayerAvg] = useState('');
-
   const currentBoard = leaderboards[activeBoardId] || Object.values(leaderboards)[0];
 
   const saveLeaderboards = (newBoards, newActiveId = null) => {
     setLeaderboards(newBoards);
-    localStorage.setItem('rubik_multi_leaderboards_v5', JSON.stringify(newBoards));
+    localStorage.setItem('rubik_multi_leaderboards_clean', JSON.stringify(newBoards));
     if (newActiveId) {
       setActiveBoardId(newActiveId);
       localStorage.setItem('rubik_active_board_id', newActiveId);
@@ -349,35 +356,6 @@ export default function App() {
     }
   };
 
-  const handleAddEntry = (e) => {
-    e.preventDefault();
-    if (!newPlayerName.trim() || !newPlayerBest) return;
-
-    const bestVal = parseFloat(newPlayerBest);
-    const avgVal = newPlayerAvg ? parseFloat(newPlayerAvg) : bestVal;
-
-    const newEntry = {
-      id: Date.now(),
-      puzzleType: puzzleType,
-      name: newPlayerName.trim(),
-      best: bestVal,
-      avg: avgVal,
-      verified: isKhoaAdmin
-    };
-
-    const currentEntries = currentBoard?.entries || [];
-    const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
-    const updated = {
-      ...leaderboards,
-      [activeBoardId]: { ...currentBoard, entries: sorted }
-    };
-    saveLeaderboards(updated);
-    setNewPlayerName('');
-    setNewPlayerBest('');
-    setNewPlayerAvg('');
-    setShowAddEntryModal(false);
-  };
-
   const handleDeleteEntry = (entryId) => {
     if (!currentBoard) return;
     const filtered = currentBoard.entries.filter(e => e.id !== entryId);
@@ -403,49 +381,17 @@ export default function App() {
     saveLeaderboards(updated);
   };
 
-  // 1-Click Ghim Khoa lên Top #1 của Bảng Xếp Hạng
-  const handlePinKhoaTop1 = () => {
+  // Xóa sạch toàn bộ kỷ lục trong bảng hiện tại (Dành riêng cho Admin Khoa)
+  const handleClearCurrentBoard = () => {
     if (!isKhoaAdmin || !currentBoard) return;
-    const customTime = parseFloat(pinTimeKhoa) || 0.71;
-
-    const khoaEntry = {
-      id: Date.now(),
-      puzzleType: puzzleType,
-      name: 'khoa.tt2611758 (Top 1 HUST)',
-      best: customTime,
-      avg: parseFloat((customTime + 0.3).toFixed(2)),
-      verified: true
-    };
-
-    const remaining = currentBoard.entries.filter(e => !e.name.includes('khoa.tt2611758'));
-    const sorted = [khoaEntry, ...remaining].sort((a, b) => a.best - b.best);
-
-    const updated = {
-      ...leaderboards,
-      [activeBoardId]: { ...currentBoard, entries: sorted }
-    };
-    saveLeaderboards(updated);
-    alert(`👑 Đã ghim tài khoản Khoa lên Top 1 với kỷ lục ${customTime}s thành công!`);
-  };
-
-  // Khôi phục bảng xếp hạng chuẩn HUST theo nguyên bản
-  const handleResetToStandardLeaderboard = () => {
-    if (!isKhoaAdmin) return;
-    const standard = {
-      'board_1': {
-        id: 'board_1',
-        title: 'Bảng Xếp Hạng HUST',
-        entries: [
-          { id: 1, puzzleType: '3x3', name: 'khoa.tt2611758 (Top 1 HUST)', best: 0.71, avg: 1.02, verified: true },
-          { id: 2, puzzleType: '3x3', name: 'tungtungvuadhur', best: 6.53, avg: 7.92, verified: true },
-          { id: 3, puzzleType: '3x3', name: 'Người Tây Đồng Bằng', best: 6.55, avg: 11.57, verified: true },
-          { id: 4, puzzleType: '3x3', name: 'tranduct757', best: 12.12, avg: 14.57, verified: false },
-          { id: 5, puzzleType: '3x3', name: 'Tiến Dũng newbie', best: 12.14, avg: 14.75, verified: false }
-        ]
-      }
-    };
-    saveLeaderboards(standard, 'board_1');
-    alert('✅ Đã khôi phục dữ liệu Bảng Xếp Hạng HUST chuẩn thành công!');
+    if (window.confirm(`Bạn có chắc muốn xóa sạch toàn bộ tên và kỷ lục trong bảng "${currentBoard.title}" không?`)) {
+      const updated = {
+        ...leaderboards,
+        [activeBoardId]: { ...currentBoard, entries: [] }
+      };
+      saveLeaderboards(updated);
+      alert(`🧹 Đã xóa sạch toàn bộ dữ liệu trong "${currentBoard.title}"! Bảng đã trở về trạng thái trống.`);
+    }
   };
 
   // Đăng nhập bình thường (hoàn toàn ẩn Admin)
@@ -523,6 +469,9 @@ export default function App() {
   const puzzleTypeRef = useRef(puzzleType);
   const gameModeRef = useRef(gameMode);
   const adminSettingsRef = useRef(adminSettings);
+  const leaderboardsRef = useRef(leaderboards);
+  const activeBoardIdRef = useRef(activeBoardId);
+  const currentUserRef = useRef(currentUser);
 
   useEffect(() => { timerStateRef.current = timerState; }, [timerState]);
   useEffect(() => { cameraActiveRef.current = cameraActive; }, [cameraActive]);
@@ -533,6 +482,9 @@ export default function App() {
   }, [puzzleType, currentDim]);
   useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
   useEffect(() => { adminSettingsRef.current = adminSettings; }, [adminSettings]);
+  useEffect(() => { leaderboardsRef.current = leaderboards; }, [leaderboards]);
+  useEffect(() => { activeBoardIdRef.current = activeBoardId; }, [activeBoardId]);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   // Inspection Timer Loop (WCA Mode)
   const startInspection = useCallback(() => {
@@ -585,7 +537,8 @@ export default function App() {
     }
 
     const movesRecorded = trackedMovesRef.current;
-    const isCameraVerified = cameraActiveRef.current && cameraHealthRef.current && movesRecorded.length > 0;
+    // BẮT BUỘC BẬT CAMERA HOẠT ĐỘNG VÀ ĐỦ TIÊU CHUẨN SÁNG/TƯƠNG PHẢN
+    const isCameraVerified = Boolean(cameraActiveRef.current && cameraHealthRef.current);
     const currentP = puzzleTypeRef.current;
 
     const newSolve = {
@@ -594,15 +547,95 @@ export default function App() {
       time: finalSec,
       penalty: penaltyText,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
-      moves: isCameraVerified ? movesRecorded.join(' ') : 'Giải thủ công (Spacebar)',
+      moves: isCameraVerified 
+        ? (movesRecorded.length > 0 ? movesRecorded.join(' ') : 'Camera AI xác thực') 
+        : 'Không dùng Cam (Chưa xác minh)',
       verified: isCameraVerified
     };
 
     setSolves(prev => {
       const updated = [newSolve, ...prev];
-      localStorage.setItem('rubik_solves_hcc', JSON.stringify(updated));
+      localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
       return updated;
     });
+
+    // =========================================================================
+    // ANTI-CHEAT AUTOMATIC LEADERBOARD RECOGNITION (TỰ ĐỘNG NHẬN DIỆN KỶ LỤC)
+    // =========================================================================
+    if (isCameraVerified) {
+      const cUser = currentUserRef.current;
+      const playerName = cUser?.name?.trim() || 'Người chơi ẩn danh';
+      const curBoards = leaderboardsRef.current;
+      const bId = activeBoardIdRef.current;
+      const curBoard = curBoards[bId] || Object.values(curBoards)[0];
+
+      if (curBoard) {
+        const boardEntries = [...(curBoard.entries || [])];
+        const existingIdx = boardEntries.findIndex(
+          e => e.name.toLowerCase() === playerName.toLowerCase() && (e.puzzleType || '3x3') === currentP
+        );
+
+        let wasUpdated = false;
+        if (existingIdx !== -1) {
+          const oldEntry = boardEntries[existingIdx];
+          if (finalSec < oldEntry.best) {
+            // Lập kỷ lục cá nhân mới (Personal Best)
+            boardEntries[existingIdx] = {
+              ...oldEntry,
+              best: finalSec,
+              avg: parseFloat(((oldEntry.best + finalSec) / 2).toFixed(2)),
+              verified: true,
+              date: new Date().toLocaleDateString('vi-VN')
+            };
+            wasUpdated = true;
+            setLastNotice({
+              type: 'success',
+              text: `🎉 AI ĐÃ NHẬN DIỆN KỶ LỤC MỚI: ${playerName} vừa lập thành tích Best ${finalSec}s trên Bảng Kỷ Lục!`
+            });
+          } else {
+            setLastNotice({
+              type: 'success',
+              text: `🟢 AI Camera xác thực thành công lượt giải: ${finalSec}s (Kỷ lục hiện tại: ${oldEntry.best}s)`
+            });
+          }
+        } else {
+          // Lần đầu ghi danh vào Bảng Kỷ Lục
+          boardEntries.push({
+            id: Date.now(),
+            puzzleType: currentP,
+            name: playerName,
+            best: finalSec,
+            avg: finalSec,
+            verified: true,
+            date: new Date().toLocaleDateString('vi-VN')
+          });
+          wasUpdated = true;
+          setLastNotice({
+            type: 'success',
+            text: `🎉 AI ĐÃ XÁC THỰC KỶ LỤC: ${playerName} đã được tự động vinh danh với thành tích ${finalSec}s!`
+          });
+        }
+
+        if (wasUpdated) {
+          // Luôn tự động sắp xếp người có thời gian thấp nhất/nhanh nhất lên Top 1
+          boardEntries.sort((a, b) => a.best - b.best);
+          const updatedBoards = {
+            ...curBoards,
+            [bId]: {
+              ...curBoard,
+              entries: boardEntries
+            }
+          };
+          saveLeaderboards(updatedBoards);
+        }
+      }
+    } else {
+      // KHÔNG BẬT CAMERA -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
+      setLastNotice({
+        type: 'warning',
+        text: '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
+      });
+    }
 
     setTrackedMoves([]);
     setLastMoveDetected('');
@@ -952,35 +985,9 @@ export default function App() {
   const deleteSolve = (id) => {
     setSolves(prev => {
       const updated = prev.filter(s => s.id !== id);
-      localStorage.setItem('rubik_solves_hcc', JSON.stringify(updated));
+      localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
       return updated;
     });
-  };
-
-  const handleAddMyScoreToBoard = () => {
-    if (currentSolves.length === 0) {
-      alert(`Bạn chưa có lượt giải ${puzzleType} nào để thêm vào bảng!`);
-      return;
-    }
-    const myBest = Math.min(...currentSolves.map(s => s.time));
-    const myAvg = parseFloat(meanTime);
-
-    const newEntry = {
-      id: Date.now(),
-      puzzleType: puzzleType,
-      name: `${currentUser.name} (${puzzleType})`,
-      best: myBest,
-      avg: isNaN(myAvg) ? myBest : myAvg,
-      verified: isKhoaAdmin
-    };
-
-    const currentEntries = currentBoard?.entries || [];
-    const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
-    const updated = {
-      ...leaderboards,
-      [activeBoardId]: { ...currentBoard, entries: sorted }
-    };
-    saveLeaderboards(updated);
   };
 
   const displayedEntries = (currentBoard?.entries || []).filter(e => {
@@ -1401,6 +1408,40 @@ export default function App() {
               })}
             </div>
 
+            {/* THÔNG BÁO NHẬN DIỆN KỶ LỤC AI THỜI GIAN THỰC */}
+            {lastNotice && (
+              <div style={{
+                margin: '2px 0 6px 0',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                background: lastNotice.type === 'success' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                border: lastNotice.type === 'success' ? '1px solid #22c55e' : '1px solid #ef4444',
+                color: lastNotice.type === 'success' ? '#4ade80' : '#f87171',
+                fontSize: '0.82rem',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: lastNotice.type === 'success' ? '0 0 16px rgba(34, 197, 94, 0.2)' : '0 0 16px rgba(239, 68, 68, 0.2)'
+              }}>
+                <span>{lastNotice.text}</span>
+                <button
+                  onClick={() => setLastNotice(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    fontWeight: '700',
+                    padding: 0
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Scramble text */}
             <div style={{ width: '100%', textAlign: 'center' }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -1623,40 +1664,21 @@ export default function App() {
             </button>
           </div>
 
-          {/* Action Bar & Category Filter */}
+          {/* Trạng thái Chống Gian Lận (Anti-Cheat) & Bộ Lọc */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 8px 0' }}>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                onClick={() => setShowAddEntryModal(true)}
-                style={{
-                  background: '#111c34',
-                  border: '1px solid #1e293b',
-                  color: '#38bdf8',
-                  fontSize: '0.72rem',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                + Thêm kỷ lục
-              </button>
-
-              <button
-                onClick={handleAddMyScoreToBoard}
-                style={{
-                  background: '#111c34',
-                  border: '1px solid #1e293b',
-                  color: '#4ade80',
-                  fontSize: '0.72rem',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                + Ghi điểm tôi
-              </button>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: cameraActive && cameraHealth.isHealthy ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              border: cameraActive && cameraHealth.isHealthy ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '5px',
+              padding: '4px 8px',
+              fontSize: '0.72rem',
+              color: cameraActive && cameraHealth.isHealthy ? '#4ade80' : '#f87171',
+              fontWeight: '700'
+            }}>
+              <span>{cameraActive && cameraHealth.isHealthy ? '🟢 AI Cam: Tự động ghi nhận' : '🔴 Chưa Bật Cam: Không Lưu Kỷ Lục'}</span>
             </div>
 
             <div style={{ display: 'flex', background: '#111c34', borderRadius: '4px', border: '1px solid #1e293b', padding: '2px' }}>
@@ -1716,8 +1738,14 @@ export default function App() {
           {/* Table Body */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {displayedEntries.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '36px' }}>
-                Chưa có kỷ lục nào.
+              <div style={{ textAlign: 'center', padding: '36px 16px', color: '#64748b' }}>
+                <div style={{ fontSize: '2.4rem', marginBottom: '8px' }}>📹🏆</div>
+                <div style={{ color: '#f8fafc', fontWeight: '700', fontSize: '0.92rem', marginBottom: '6px' }}>
+                  Bảng Kỷ Lục AI Hoàn Toàn Sạch
+                </div>
+                <p style={{ margin: '0 auto', fontSize: '0.76rem', color: '#64748b', maxWidth: '280px', lineHeight: '1.4' }}>
+                  Không dùng tên mẫu, không cho phép thêm tay. Hãy <strong>Bật Camera AI</strong> và giải Rubik — hệ thống sẽ tự động nhận diện và vinh danh bạn lên Top 1!
+                </p>
               </div>
             ) : (
               displayedEntries.map((item, index) => (
@@ -2199,69 +2227,31 @@ export default function App() {
               </div>
             </div>
 
-            {/* MỤC ĐẶC QUYỀN: GHIM KHOA LÊN TOP #1 */}
-            <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #f59e0b55' }}>
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#f59e0b' }}>
-                🥇 1. Ghim Khoa lên Top #1 Bảng Xếp Hạng
+            {/* HỆ THỐNG QUẢN TRỊ CHỐNG GIAN LẬN */}
+            <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #38bdf844' }}>
+              <h4 style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
+                🛡️ 1. Quản Trị Hệ Thống Chống Gian Lận (Anti-Cheat)
               </h4>
-              <p style={{ margin: '0 0 10px 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                Tự động đưa tài khoản Khoa đứng đầu bảng với huy hiệu ✓ AI và thời gian tùy chỉnh.
+              <p style={{ margin: '0 0 10px 0', fontSize: '0.74rem', color: '#94a3b8', lineHeight: '1.4' }}>
+                Cơ chế bảo mật: Bắt buộc 100% người chơi phải <strong>Bật Camera AI</strong> và giải trực tiếp. Hệ thống tự động nhận diện và cập nhật người giải nhanh nhất lên Top 1, tuyệt đối không dùng dữ liệu giả hay thêm tay.
               </p>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={pinTimeKhoa}
-                  onChange={(e) => setPinTimeKhoa(e.target.value)}
-                  placeholder="Thời gian Best (ví dụ: 0.71)"
-                  style={{
-                    flex: 1,
-                    padding: '7px 10px',
-                    borderRadius: '5px',
-                    background: '#090f1d',
-                    border: '1px solid #192642',
-                    color: '#f8fafc',
-                    fontSize: '0.85rem'
-                  }}
-                />
                 <button
                   type="button"
-                  onClick={handlePinKhoaTop1}
+                  onClick={handleClearCurrentBoard}
                   style={{
-                    padding: '7px 14px',
+                    padding: '8px 14px',
                     borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                    border: 'none',
-                    color: '#ffffff',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid #ef4444',
+                    color: '#f87171',
                     fontWeight: '700',
                     fontSize: '0.8rem',
                     cursor: 'pointer'
                   }}
                 >
-                  Ghim Top #1 Ngay
-                </button>
-              </div>
-
-              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.74rem', color: '#94a3b8' }}>
-                  Đồng bộ bảng chuẩn (tungtung, Người Tây Đồng Bằng, tranduct, Tiến Dũng):
-                </span>
-                <button
-                  type="button"
-                  onClick={handleResetToStandardLeaderboard}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#38bdf8',
-                    fontSize: '0.74rem',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
-                >
-                  🔄 Đặt Lại Bảng Gốc
+                  🧹 Xóa Sạch Kỷ Lục Bảng "{currentBoard?.title}"
                 </button>
               </div>
             </div>
@@ -2491,171 +2481,6 @@ export default function App() {
                   }}
                 >
                   Tạo Bảng Mới
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ==========================================
-          MODAL: THÊM TUYỂN THỦ VÀO BẢNG
-      ========================================== */}
-      {showAddEntryModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          backgroundColor: 'rgba(0,0,0,0.7)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            width: '90%',
-            maxWidth: '380px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
-            borderRadius: '14px',
-            padding: '24px',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.6)'
-          }}>
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '1.05rem', color: '#f8fafc' }}>
-              ➕ Thêm Kỷ Lục Vào {currentBoard?.title}
-            </h3>
-
-            <form onSubmit={handleAddEntry}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
-                  Loại khối:
-                </label>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {Object.values(PUZZLE_CONFIGS).map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPuzzleType(p.id)}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: '5px',
-                        border: puzzleType === p.id ? '1px solid #38bdf8' : '1px solid #1e293b',
-                        background: puzzleType === p.id ? '#1e3a8a' : '#111c34',
-                        color: puzzleType === p.id ? '#ffffff' : '#94a3b8',
-                        fontSize: '0.75rem',
-                        cursor: 'pointer',
-                        fontWeight: '600'
-                      }}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
-                  Tên người chơi / Tài khoản:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: NguyenVanA..."
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  required
-                  autoFocus
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    background: '#111c34',
-                    border: '1px solid #1a2a4c',
-                    color: '#f8fafc',
-                    fontSize: '0.85rem'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Thời gian Best (giây):
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Ví dụ: 9.85"
-                    value={newPlayerBest}
-                    onChange={(e) => setNewPlayerBest(e.target.value)}
-                    required
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: '#111c34',
-                      border: '1px solid #1a2a4c',
-                      color: '#f8fafc',
-                      fontSize: '0.85rem'
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Thời gian Avg (giây):
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Ví dụ: 12.30"
-                    value={newPlayerAvg}
-                    onChange={(e) => setNewPlayerAvg(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: '#111c34',
-                      border: '1px solid #1a2a4c',
-                      color: '#f8fafc',
-                      fontSize: '0.85rem'
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowAddEntryModal(false)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: '6px',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#94a3b8',
-                    fontSize: '0.82rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Hủy
-                </button>
-
-                <button
-                  type="submit"
-                  style={{
-                    padding: '7px 16px',
-                    borderRadius: '6px',
-                    background: '#2563eb',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontWeight: '600',
-                    fontSize: '0.82rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Lưu Kỷ Lục
                 </button>
               </div>
             </form>
