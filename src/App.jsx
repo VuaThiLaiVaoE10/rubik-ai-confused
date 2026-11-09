@@ -65,17 +65,12 @@ function rgbToHsv(r, g, b) {
 
 // Strict Rubik color classifier with noise & dark-frame rejection
 function classifyHsvColor(h, s, v, rawBrightness) {
-  // 1. Phán quyết cảm biến hỏng / camera tối đen / nhiễu hạt đen
   if (rawBrightness < 35 || v < 0.20) {
-    return 'invalid'; // Tối om hoặc camera hỏng -> Không xếp vào màu Rubik nào!
+    return 'invalid';
   }
-
-  // 2. Màu trắng (Độ sáng cao, độ bão hòa rất thấp)
   if (s < 0.22 && v > 0.55 && rawBrightness > 100) {
     return 'white';
   }
-
-  // 3. Các màu có sắc độ (Cần độ bão hòa thực tế > 0.30 để tránh nhiễu camera)
   if (s > 0.30) {
     if (h >= 345 || h < 14) return 'red';
     if (h >= 14 && h < 38) return 'orange';
@@ -83,8 +78,6 @@ function classifyHsvColor(h, s, v, rawBrightness) {
     if (h >= 75 && h < 165) return 'green';
     if (h >= 165 && h < 260) return 'blue';
   }
-
-  // Không đạt chuẩn màu Rubik thực tế
   return 'invalid';
 }
 
@@ -97,7 +90,7 @@ export default function App() {
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(20));
 
-  // History & Solves
+  // History & Solves (Cột trái)
   const [solves, setSolves] = useState(() => {
     try {
       const saved = localStorage.getItem('rubik_solves_hcc');
@@ -110,13 +103,152 @@ export default function App() {
     }
   });
 
-  const [leaderboard] = useState([
-    { rank: 1, name: 'khoa.tt2611758', best: '0.71', avg: '1.02', verified: true },
-    { rank: 2, name: 'tungtungvuadhur', best: '6.53', avg: '7.92', verified: true },
-    { rank: 3, name: 'Người Tây Đồng Bằng', best: '6.55', avg: '11.57', verified: false },
-    { rank: 4, name: 'tranduct757', best: '12.12', avg: '14.57', verified: false },
-    { rank: 5, name: 'Tiến Dũng newbie', best: '12.14', avg: '14.75', verified: false }
-  ]);
+  // ==========================================
+  // MULTI-LEADERBOARD SYSTEM (LẬP BẢNG MỚI THEO Ý MUỐN)
+  // ==========================================
+  const [leaderboards, setLeaderboards] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rubik_multi_leaderboards');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      'board_1': {
+        id: 'board_1',
+        title: 'Bảng Xếp Hạng HUST',
+        entries: [
+          { id: 1, name: 'khoa.tt2611758', best: 0.71, avg: 1.02, verified: true },
+          { id: 2, name: 'tungtungvuadhur', best: 6.53, avg: 7.92, verified: true },
+          { id: 3, name: 'Người Tây Đồng Bằng', best: 6.55, avg: 11.57, verified: false },
+          { id: 4, name: 'tranduct757', best: 12.12, avg: 14.57, verified: false },
+          { id: 5, name: 'Tiến Dũng newbie', best: 12.14, avg: 14.75, verified: false }
+        ]
+      }
+    };
+  });
+
+  const [activeBoardId, setActiveBoardId] = useState(() => {
+    const saved = localStorage.getItem('rubik_active_board_id');
+    return saved || 'board_1';
+  });
+
+  // Modals for creating new board & adding players
+  const [showNewBoardModal, setShowNewBoardModal] = useState(false);
+  const [newBoardTitle, setNewBoardTitle] = useState('');
+  const [newBoardMode, setNewBoardMode] = useState('empty'); // 'empty' or 'clone'
+
+  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerBest, setNewPlayerBest] = useState('');
+  const [newPlayerAvg, setNewPlayerAvg] = useState('');
+
+  // Save leaderboards to localStorage
+  const saveLeaderboards = (newBoards, newActiveId = null) => {
+    setLeaderboards(newBoards);
+    localStorage.setItem('rubik_multi_leaderboards', JSON.stringify(newBoards));
+    if (newActiveId) {
+      setActiveBoardId(newActiveId);
+      localStorage.setItem('rubik_active_board_id', newActiveId);
+    }
+  };
+
+  // 1. TẠO BẢNG MỚI
+  const handleCreateNewBoard = (e) => {
+    e.preventDefault();
+    const title = newBoardTitle.trim() || `Bảng đấu #${Object.keys(leaderboards).length + 1}`;
+    const newId = `board_${Date.now()}`;
+
+    const newBoard = {
+      id: newId,
+      title: title,
+      entries: newBoardMode === 'clone' && currentBoard 
+        ? JSON.parse(JSON.stringify(currentBoard.entries)) 
+        : []
+    };
+
+    const updated = {
+      ...leaderboards,
+      [newId]: newBoard
+    };
+
+    saveLeaderboards(updated, newId);
+    setNewBoardTitle('');
+    setShowNewBoardModal(false);
+  };
+
+  // 2. XÓA BẢNG HIỆN TẠI
+  const handleDeleteCurrentBoard = () => {
+    const boardKeys = Object.keys(leaderboards);
+    if (boardKeys.length <= 1) {
+      // Nếu chỉ có 1 bảng, reset thành bảng rỗng
+      const reset = {
+        'board_1': {
+          id: 'board_1',
+          title: 'Bảng Xếp Hạng Mới',
+          entries: []
+        }
+      };
+      saveLeaderboards(reset, 'board_1');
+      return;
+    }
+
+    if (window.confirm(`Bạn có chắc muốn xóa bảng "${currentBoard.title}"?`)) {
+      const remaining = { ...leaderboards };
+      delete remaining[activeBoardId];
+      const nextKey = Object.keys(remaining)[0];
+      saveLeaderboards(remaining, nextKey);
+    }
+  };
+
+  // 3. THÊM TUYỂN THỦ MỚI VÀO BẢNG HIỆN TẠI
+  const handleAddEntry = (e) => {
+    e.preventDefault();
+    if (!newPlayerName.trim() || !newPlayerBest) return;
+
+    const bestVal = parseFloat(newPlayerBest);
+    const avgVal = newPlayerAvg ? parseFloat(newPlayerAvg) : bestVal;
+
+    const newEntry = {
+      id: Date.now(),
+      name: newPlayerName.trim(),
+      best: bestVal,
+      avg: avgVal,
+      verified: false
+    };
+
+    const currentEntries = currentBoard?.entries || [];
+    // Sort by best time ascending
+    const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
+
+    const updated = {
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: sorted
+      }
+    };
+
+    saveLeaderboards(updated);
+    setNewPlayerName('');
+    setNewPlayerBest('');
+    setNewPlayerAvg('');
+    setShowAddEntryModal(false);
+  };
+
+  // 4. XÓA 1 TUYỂN THỦ KHỎI BẢNG
+  const handleDeleteEntry = (entryId) => {
+    if (!currentBoard) return;
+    const filtered = currentBoard.entries.filter(e => e.id !== entryId);
+    const updated = {
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: filtered
+      }
+    };
+    saveLeaderboards(updated);
+  };
+
+  const currentBoard = leaderboards[activeBoardId] || Object.values(leaderboards)[0];
 
   // Camera & AI State
   const [cameraActive, setCameraActive] = useState(false);
@@ -135,7 +267,6 @@ export default function App() {
     centerFace: null
   });
 
-  // Tracked moves: 100% ZERO RANDOMNESS. Only populated when camera is healthy and valid physical moves occur
   const [trackedMoves, setTrackedMoves] = useState([]);
   const [lastMoveDetected, setLastMoveDetected] = useState('');
 
@@ -168,7 +299,7 @@ export default function App() {
   }, [trackedMoves]);
 
   // ==========================================
-  // 2. STOP & START TIMER HANDLERS
+  // STOP & START TIMER HANDLERS
   // ==========================================
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
@@ -179,14 +310,13 @@ export default function App() {
     setTimeMs(finalMs);
     setTimerState('idle');
 
-    const finalSec = (finalMs / 1000).toFixed(2);
+    const finalSec = parseFloat((finalMs / 1000).toFixed(2));
     const movesRecorded = trackedMovesRef.current;
-    // Chỉ được coi là AI Verified nếu camera hoạt động khỏe mạnh VÀ có ghi nhận nước đi thật
     const isCameraVerified = cameraActiveRef.current && cameraHealthRef.current && movesRecorded.length > 0;
 
     const newSolve = {
       id: Date.now(),
-      time: parseFloat(finalSec),
+      time: finalSec,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
       moves: isCameraVerified ? movesRecorded.join(' ') : 'Giải thủ công (Spacebar)',
       verified: isCameraVerified
@@ -198,7 +328,7 @@ export default function App() {
       return updated;
     });
 
-    // Reset tracked moves for next run & generate new scramble
+    // Reset moves & create new scramble
     setTrackedMoves([]);
     setLastMoveDetected('');
     setScramble(generateScramble(20));
@@ -217,7 +347,6 @@ export default function App() {
     }, 10);
   }, []);
 
-  // Keep refs up to date
   const stopTimerRef = useRef(stopTimer);
   const startTimerRef = useRef(startTimer);
   useEffect(() => {
@@ -226,7 +355,7 @@ export default function App() {
   }, [stopTimer, startTimer]);
 
   // ==========================================
-  // 3. WCA KEYBOARD SPACEBAR CONTROLLER
+  // WCA KEYBOARD SPACEBAR CONTROLLER
   // ==========================================
   useEffect(() => {
     let holdTimeout = null;
@@ -239,7 +368,6 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
 
-        // Đang chạy mà bấm phím bất kỳ -> Dừng ngay
         if (currentState === 'running') {
           stopTimerRef.current();
           return;
@@ -250,7 +378,6 @@ export default function App() {
         if (currentState === 'idle') {
           setTimerState('holding');
           clearTimeout(holdTimeout);
-          // Giữ 280ms để READY (xanh lá)
           holdTimeout = setTimeout(() => {
             if (timerStateRef.current === 'holding') {
               setTimerState('ready');
@@ -258,7 +385,6 @@ export default function App() {
           }, 280);
         }
       } else {
-        // Bất kỳ phím nào khi đang chạy đều dừng đồng hồ
         if (currentState === 'running') {
           stopTimerRef.current();
         }
@@ -274,7 +400,6 @@ export default function App() {
         if (currentState === 'ready') {
           startTimerRef.current();
         } else if (currentState === 'holding') {
-          // Thả phím quá sớm khi chưa xanh -> Về idle
           setTimerState('idle');
         }
       }
@@ -290,11 +415,10 @@ export default function App() {
   }, []);
 
   // ==========================================
-  // 4. CAMERA & HEALTH SANITY ENGINE
+  // CAMERA ENGINE WITH HARDWARE CHECK
   // ==========================================
   const toggleCamera = async () => {
     if (cameraActive) {
-      // Turn OFF
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
@@ -314,7 +438,6 @@ export default function App() {
       setTrackedMoves([]);
       setLastMoveDetected('');
     } else {
-      // Turn ON
       try {
         setPreCheckStatus(prev => ({ ...prev, text: 'Đang kết nối camera...' }));
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -339,7 +462,6 @@ export default function App() {
     }
   };
 
-  // Computer Vision Processing Loop with HARDWARE HEALTH CHECK
   useEffect(() => {
     if (!cameraActive) return;
 
@@ -359,14 +481,11 @@ export default function App() {
         canvas.height = h;
 
         ctx.drawImage(video, 0, 0, w, h);
-
         const frameImg = ctx.getImageData(0, 0, w, h).data;
 
-        // ----------------------------------------------------
-        // A. HARDWARE SANITY CHECK (Chống camera hỏng / màn đen / nhiễu trắng)
-        // ----------------------------------------------------
+        // Check camera brightness & contrast
         let totalBrightness = 0;
-        const pixelStep = 16; // Sample every 16th pixel for speed
+        const pixelStep = 16;
         let sampledCount = 0;
         let minVal = 255;
         let maxVal = 0;
@@ -382,19 +501,15 @@ export default function App() {
         const avgBrightness = totalBrightness / sampledCount;
         const contrast = maxVal - minVal;
 
-        // ĐÁNH GIÁ PHẦN CỨNG CAMERA
         let isHealthy = true;
         let healthReason = 'Hoạt động tốt';
 
         if (avgBrightness < 30) {
           isHealthy = false;
-          healthReason = 'Camera bị hỏng / tối đen (Không có ánh sáng)';
+          healthReason = 'Camera bị hỏng / tối đen';
         } else if (contrast < 20) {
           isHealthy = false;
-          healthReason = 'Camera bị mờ đơ / không có độ tương phản';
-        } else if (avgBrightness > 245) {
-          isHealthy = false;
-          healthReason = 'Camera bị chói sáng trắng toàn bộ';
+          healthReason = 'Camera bị mờ đơ / không tương phản';
         }
 
         cameraHealthRef.current = isHealthy;
@@ -405,13 +520,10 @@ export default function App() {
           contrast: Math.round(contrast)
         });
 
-        // ----------------------------------------------------
-        // B. NẾU CAMERA HỎNG: TUYỆT ĐỐI KHÔNG CHẠY NƯỚC ĐI
-        // ----------------------------------------------------
         if (!isHealthy) {
           setPreCheckStatus({
             verified: false,
-            text: `⚠️ ${healthReason}. Đã khóa nhận diện AI để tránh sai lệch!`,
+            text: `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`,
             isScrambled: false,
             centerFace: null
           });
@@ -421,9 +533,7 @@ export default function App() {
           return;
         }
 
-        // ----------------------------------------------------
-        // C. SAMPLE 3X3 RUBIK GRID
-        // ----------------------------------------------------
+        // Sample 9 stickers
         const boxSize = Math.min(w, h) * 0.52;
         const startX = (w - boxSize) / 2;
         const startY = (h - boxSize) / 2;
@@ -472,14 +582,10 @@ export default function App() {
 
         setDetectedColors(current9Colors);
 
-        // ----------------------------------------------------
-        // D. ZERO-ASSUMPTION CUBE GROUNDING GATE
-        // (Nếu số ô màu hợp lệ < 6 -> Khẳng định KHÔNG PHẢI KHỐI RUBIK)
-        // ----------------------------------------------------
         if (validColorsCount < 6) {
           setPreCheckStatus({
             verified: false,
-            text: '🔍 Đang đợi khối Rubik trước camera... (Hãy đưa Rubik vào khung vuông)',
+            text: '🔍 Đang đợi khối Rubik trước camera...',
             isScrambled: false,
             centerFace: null
           });
@@ -488,13 +594,10 @@ export default function App() {
           return;
         }
 
-        // ----------------------------------------------------
-        // E. AI PRE-CHECK / INSPECTION (Khi chưa bấm giờ)
-        // ----------------------------------------------------
+        // AI Inspection
         const centerColor = current9Colors[4];
         const centerDef = COLOR_DEFINITIONS[centerColor];
         const centerName = centerDef ? centerDef.name : 'Không rõ';
-
         const validColorsOnly = current9Colors.filter(c => c !== 'invalid');
         const uniqueColorsCount = new Set(validColorsOnly).size;
         const isAllSameColor = validColorsCount === 9 && uniqueColorsCount === 1;
@@ -503,32 +606,21 @@ export default function App() {
           if (centerColor !== 'invalid' && uniqueColorsCount >= 2) {
             setPreCheckStatus({
               verified: true,
-              text: `🟢 ĐÃ CHECK KHỐI RUBIK: Mặt tâm ${centerName} — Đã xáo trộn hợp lệ! Sẵn sàng bấm giờ.`,
+              text: `🟢 ĐÃ CHECK KHỐI RUBIK: Mặt tâm ${centerName} — Đã xáo trộn hợp lệ!`,
               isScrambled: true,
               centerFace: centerName
             });
           } else if (isAllSameColor) {
             setPreCheckStatus({
               verified: false,
-              text: `⚠️ Khối Rubik đang ở trạng thái hoàn thành (Tâm ${centerName} - Chưa xáo trộn)`,
+              text: `⚠️ Khối Rubik đang ở trạng thái hoàn thành (Tâm ${centerName})`,
               isScrambled: false,
               centerFace: centerName
-            });
-          } else {
-            setPreCheckStatus({
-              verified: false,
-              text: 'Đang định hình mặt Rubik...',
-              isScrambled: false,
-              centerFace: null
             });
           }
         }
 
-        // ----------------------------------------------------
-        // F. ZERO-HALLUCINATION REAL MOVE DETECTION
-        // (CHỈ CHẠY KHI ĐANG GIẢI VÀ ĐỦ 9 Ô HỢP LỆ VÀ KHỚP 100% CHU TRÌNH TOÁN HỌC)
-        // TUYỆT ĐỐI KHÔNG DÙNG Math.random()!
-        // ----------------------------------------------------
+        // Zero-Hallucination Move Detection (F and F' mathematical permutation only)
         const now = performance.now();
         if (
           timerStateRef.current === 'running' &&
@@ -539,8 +631,6 @@ export default function App() {
           const prev = prevColorsRef.current;
           let detectedMove = null;
 
-          // 1. Phép xoay mặt trước F (Xoay 90 độ cùng chiều kim đồng hồ của 8 ô viền)
-          // Chu trình: 0->2, 1->5, 2->8, 5->7, 8->6, 7->3, 6->0, 3->1
           const isClockwiseF =
             current9Colors[2] === prev[0] &&
             current9Colors[5] === prev[1] &&
@@ -551,7 +641,6 @@ export default function App() {
             current9Colors[0] === prev[6] &&
             current9Colors[1] === prev[3];
 
-          // 2. Phép xoay mặt trước F' (Xoay 90 độ ngược chiều kim đồng hồ)
           const isCounterF =
             current9Colors[0] === prev[2] &&
             current9Colors[1] === prev[5] &&
@@ -568,14 +657,12 @@ export default function App() {
             detectedMove = "F'";
           }
 
-          // Ghi nhận nước đi NẾU VÀ CHỈ NẾU đã xác thực chính xác
           if (detectedMove) {
             lastMoveTimeRef.current = now;
             setLastMoveDetected(detectedMove);
             setTrackedMoves(moves => [...moves, detectedMove]);
           }
 
-          // 3. Tự động xác minh giải xong khi cả 9 ô đồng màu với tâm sau khi giải
           if (isAllSameColor && (now - startTimeRef.current > 2000) && trackedMovesRef.current.length >= 1) {
             stopTimerRef.current();
           }
@@ -595,7 +682,7 @@ export default function App() {
     };
   }, [cameraActive]);
 
-  // Cleanup on unmount
+  // Clean up
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -622,6 +709,36 @@ export default function App() {
     });
   };
 
+  // Add my best score to current board
+  const handleAddMyScoreToBoard = () => {
+    if (solves.length === 0) {
+      alert('Bạn chưa có lượt giải nào để thêm vào bảng!');
+      return;
+    }
+    const myBest = Math.min(...solves.map(s => s.time));
+    const myAvg = parseFloat(meanTime);
+
+    const newEntry = {
+      id: Date.now(),
+      name: 'khoa.tt2611758 (Tôi)',
+      best: myBest,
+      avg: isNaN(myAvg) ? myBest : myAvg,
+      verified: true
+    };
+
+    const currentEntries = currentBoard?.entries || [];
+    const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
+
+    const updated = {
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: sorted
+      }
+    };
+    saveLeaderboards(updated);
+  };
+
   return (
     <div style={{
       width: '100vw',
@@ -637,7 +754,7 @@ export default function App() {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ==========================================
-          1. HEADER BAR
+          HEADER BAR
       ========================================== */}
       <header style={{
         padding: '12px 24px',
@@ -711,19 +828,18 @@ export default function App() {
       </header>
 
       {/* ==========================================
-          2. MAIN 3-COLUMN LAYOUT
+          MAIN 3-COLUMN WORKSPACE
       ========================================== */}
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '270px 1fr 340px',
+        gridTemplateColumns: '270px 1fr 380px',
         padding: '16px 20px',
         gap: '16px',
         overflow: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', overflow: 'hidden' }}>
-          {/* Card: Thành tích */}
           <div style={{
             backgroundColor: '#0d1629',
             border: '1px solid #192642',
@@ -758,7 +874,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Card: Lịch sử giải */}
+          {/* Lịch sử giải */}
           <div style={{
             backgroundColor: '#0d1629',
             border: '1px solid #192642',
@@ -872,7 +988,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center-Top: Live Camera Diagnostics & Pre-check Grid */}
+          {/* Center-Top: Live Camera Diagnostics */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
@@ -884,7 +1000,6 @@ export default function App() {
               borderRadius: '12px',
               border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
             }}>
-              {/* Webcam view */}
               <div style={{
                 width: '130px',
                 height: '95px',
@@ -909,7 +1024,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3x3 Rubik Sticker Grid Color Scanner */}
+              {/* 3x3 Rubik Sticker Grid Scanner */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600' }}>
                   {cameraHealth.isHealthy ? 'Quét 9 Sticker' : 'Camera Bị Hỏng'}
@@ -940,7 +1055,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Status / Health reason */}
               <div style={{ maxWidth: '240px', fontSize: '0.75rem', lineHeight: 1.4 }}>
                 <div style={{
                   color: !cameraHealth.isHealthy 
@@ -971,7 +1085,6 @@ export default function App() {
               </div>
             </div>
           ) : (
-            /* Warning banner when camera is NOT active */
             <div style={{
               margin: '8px 0',
               padding: '8px 16px',
@@ -1019,7 +1132,6 @@ export default function App() {
               {formatTime(timeMs)}
             </div>
 
-            {/* Subtitle Status */}
             <div style={{
               marginTop: '14px',
               fontSize: '1rem',
@@ -1034,7 +1146,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Live Move Tracking Display (CHỈ HIỆN KHI CÓ CAMERA HOẠT ĐỘNG KHỎE MẠNH VÀ ĐÃ BẮT ĐẦU XOAY) */}
+          {/* Live Move Tracking Display */}
           {cameraActive && cameraHealth.isHealthy && (
             <div style={{
               width: '100%',
@@ -1089,31 +1201,129 @@ export default function App() {
           </div>
         </div>
 
-        {/* === CỘT PHẢI: BẢNG XẾP HẠNG SPEEDCUBING === */}
+        {/* === CỘT PHẢI: HỆ THỐNG BẢNG XẾP HẠNG & LẬP BẢNG MỚI === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '18px',
+          padding: '16px 18px',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          position: 'relative'
         }}>
+          {/* Header Bảng Xếp Hạng & Chọn Bảng */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontWeight: '700', fontSize: '0.95rem', color: '#f8fafc' }}>Bảng xếp hạng HUST</span>
-            <span style={{ fontSize: '0.75rem', background: '#111c34', padding: '3px 8px', borderRadius: '4px', border: '1px solid #1a2a4c', color: '#94a3b8' }}>
-              Avg ▾
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <select
+                value={activeBoardId}
+                onChange={(e) => {
+                  setActiveBoardId(e.target.value);
+                  localStorage.setItem('rubik_active_board_id', e.target.value);
+                }}
+                style={{
+                  background: '#111c34',
+                  border: '1px solid #1a2a4c',
+                  color: '#f8fafc',
+                  fontSize: '0.9rem',
+                  fontWeight: '700',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  maxWidth: '190px'
+                }}
+              >
+                {Object.values(leaderboards).map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Nút LẬP BẢNG MỚI */}
+            <button
+              onClick={() => setShowNewBoardModal(true)}
+              title="Lập một bảng xếp hạng mới hoàn toàn"
+              style={{
+                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                border: 'none',
+                color: '#ffffff',
+                fontSize: '0.75rem',
+                fontWeight: '700',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)'
+              }}
+            >
+              <span>➕</span>
+              <span>Lập bảng mới</span>
+            </button>
           </div>
 
-          <p style={{ margin: '0 0 14px 0', fontSize: '0.75rem', color: '#64748b' }}>
-            Top thành tích được AI thẩm định & xác minh
-          </p>
+          {/* Action Bar (Thêm tuyển thủ, Ghi điểm tôi, Xóa bảng) */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 10px 0' }}>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={() => setShowAddEntryModal(true)}
+                style={{
+                  background: '#111c34',
+                  border: '1px solid #1e293b',
+                  color: '#38bdf8',
+                  fontSize: '0.72rem',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                + Thêm kỷ lục
+              </button>
 
+              <button
+                onClick={handleAddMyScoreToBoard}
+                title="Lấy kỷ lục tốt nhất của bạn đưa vào bảng xếp hạng này"
+                style={{
+                  background: '#111c34',
+                  border: '1px solid #1e293b',
+                  color: '#4ade80',
+                  fontSize: '0.72rem',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                + Ghi điểm tôi
+              </button>
+            </div>
+
+            <button
+              onClick={handleDeleteCurrentBoard}
+              title="Xóa bảng này hoặc đặt lại thành bảng rỗng"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#64748b',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                padding: '2px 4px'
+              }}
+            >
+              🗑️ Xóa bảng
+            </button>
+          </div>
+
+          {/* Table Header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '30px 1fr 65px 65px',
-            padding: '6px 10px',
+            gridTemplateColumns: '26px 1fr 60px 60px 24px',
+            padding: '6px 8px',
             fontSize: '0.75rem',
             color: '#64748b',
             borderBottom: '1px solid #192642',
@@ -1123,57 +1333,369 @@ export default function App() {
             <span>Tài khoản</span>
             <span style={{ textAlign: 'right' }}>Best</span>
             <span style={{ textAlign: 'right' }}>Avg</span>
+            <span style={{ textAlign: 'center' }}></span>
           </div>
 
+          {/* Table Body (Full name display, no truncation) */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {leaderboard.map((item) => (
-              <div
-                key={item.rank}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '30px 1fr 65px 65px',
-                  padding: '9px 10px',
-                  borderBottom: '1px solid #111c34',
-                  fontSize: '0.82rem',
-                  alignItems: 'center',
-                  background: item.rank === 1 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
-                  borderRadius: '6px'
-                }}
-              >
-                <span style={{ fontWeight: '700', color: item.rank <= 3 ? '#38bdf8' : '#64748b' }}>
-                  {item.rank}
-                </span>
-
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  <span style={{ color: '#e2e8f0', fontWeight: '600' }}>
-                    {item.name}
-                  </span>
-                  {item.verified && (
-                    <span style={{
-                      marginLeft: '6px',
-                      fontSize: '0.65rem',
-                      color: '#4ade80',
-                      background: 'rgba(34, 197, 94, 0.1)',
-                      padding: '1px 5px',
-                      borderRadius: '3px'
-                    }}>
-                      ✓ AI
-                    </span>
-                  )}
+            {(!currentBoard?.entries || currentBoard.entries.length === 0) ? (
+              <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '36px' }}>
+                Bảng này hiện chưa có ai.
+                <div style={{ marginTop: '8px' }}>
+                  <button
+                    onClick={() => setShowAddEntryModal(true)}
+                    style={{
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      color: '#38bdf8',
+                      fontSize: '0.75rem',
+                      padding: '4px 10px',
+                      borderRadius: '5px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    + Thêm người chơi đầu tiên
+                  </button>
                 </div>
-
-                <span style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: '700', color: '#f8fafc' }}>
-                  {item.best}s
-                </span>
-
-                <span style={{ textAlign: 'right', fontFamily: 'monospace', color: '#94a3b8' }}>
-                  {item.avg}s
-                </span>
               </div>
-            ))}
+            ) : (
+              currentBoard.entries.map((item, index) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '26px 1fr 60px 60px 24px',
+                    padding: '8px 8px',
+                    borderBottom: '1px solid #111c34',
+                    fontSize: '0.82rem',
+                    alignItems: 'center',
+                    background: index === 0 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                    borderRadius: '6px'
+                  }}
+                >
+                  <span style={{ fontWeight: '700', color: index < 3 ? '#38bdf8' : '#64748b' }}>
+                    {index + 1}
+                  </span>
+
+                  {/* Tên hiển thị đầy đủ, không bị cắt dấu ba chấm (...) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
+                    <span
+                      title={item.name}
+                      style={{
+                        color: '#e2e8f0',
+                        fontWeight: '600',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {item.name}
+                    </span>
+                    {item.verified && (
+                      <span style={{
+                        flexShrink: 0,
+                        fontSize: '0.62rem',
+                        color: '#4ade80',
+                        background: 'rgba(34, 197, 94, 0.1)',
+                        padding: '1px 4px',
+                        borderRadius: '3px'
+                      }}>
+                        ✓ AI
+                      </span>
+                    )}
+                  </div>
+
+                  <span style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: '700', color: '#f8fafc' }}>
+                    {typeof item.best === 'number' ? `${item.best}s` : item.best}
+                  </span>
+
+                  <span style={{ textAlign: 'right', fontFamily: 'monospace', color: '#94a3b8' }}>
+                    {typeof item.avg === 'number' ? `${item.avg}s` : item.avg}
+                  </span>
+
+                  <button
+                    onClick={() => handleDeleteEntry(item.id)}
+                    title="Xóa tuyển thủ này"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#475569',
+                      fontSize: '0.72rem',
+                      cursor: 'pointer',
+                      padding: 0,
+                      textAlign: 'center'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
+
+      {/* ==========================================
+          MODAL: LẬP BẢNG MỚI
+      ========================================== */}
+      {showNewBoardModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            width: '90%',
+            maxWidth: '400px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #192642',
+            borderRadius: '14px',
+            padding: '24px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)'
+          }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
+              ➕ Lập Bảng Xếp Hạng Mới
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: '#64748b' }}>
+              Tạo một bảng đấu riêng cho bạn bè, câu lạc bộ hoặc giải thi đấu của bạn.
+            </p>
+
+            <form onSubmit={handleCreateNewBoard}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
+                  Tên bảng xếp hạng:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Bảng Đấu Lớp CNTT, Cá Nhân 2026..."
+                  value={newBoardTitle}
+                  onChange={(e) => setNewBoardTitle(e.target.value)}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: '#111c34',
+                    border: '1px solid #1a2a4c',
+                    color: '#f8fafc',
+                    fontSize: '0.88rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
+                  Nội dung bảng ban đầu:
+                </label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <label style={{ fontSize: '0.82rem', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="boardMode"
+                      checked={newBoardMode === 'empty'}
+                      onChange={() => setNewBoardMode('empty')}
+                    />
+                    Bảng trống (Bắt đầu từ 0)
+                  </label>
+
+                  <label style={{ fontSize: '0.82rem', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="boardMode"
+                      checked={newBoardMode === 'clone'}
+                      onChange={() => setNewBoardMode('clone')}
+                    />
+                    Sao chép từ bảng hiện tại
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowNewBoardModal(false)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '6px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#94a3b8',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Hủy
+                </button>
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: '6px',
+                    background: '#2563eb',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '600',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Tạo Bảng Mới
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: THÊM TUYỂN THỦ VÀO BẢNG
+      ========================================== */}
+      {showAddEntryModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            width: '90%',
+            maxWidth: '380px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #192642',
+            borderRadius: '14px',
+            padding: '24px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)'
+          }}>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '1.05rem', color: '#f8fafc' }}>
+              ➕ Thêm Kỷ Lục Vào {currentBoard?.title}
+            </h3>
+
+            <form onSubmit={handleAddEntry}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
+                  Tên người chơi / Tài khoản:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: NguyenVanA..."
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  required
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: '#111c34',
+                    border: '1px solid #1a2a4c',
+                    color: '#f8fafc',
+                    fontSize: '0.85rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Thời gian Best (giây):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Ví dụ: 9.85"
+                    value={newPlayerBest}
+                    onChange={(e) => setNewPlayerBest(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      background: '#111c34',
+                      border: '1px solid #1a2a4c',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Thời gian Avg (giây):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Ví dụ: 12.30"
+                    value={newPlayerAvg}
+                    onChange={(e) => setNewPlayerAvg(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      background: '#111c34',
+                      border: '1px solid #1a2a4c',
+                      color: '#f8fafc',
+                      fontSize: '0.85rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddEntryModal(false)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '6px',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    color: '#94a3b8',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Hủy
+                </button>
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: '6px',
+                    background: '#2563eb',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '600',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Lưu Kỷ Lục
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
