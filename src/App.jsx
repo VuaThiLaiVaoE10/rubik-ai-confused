@@ -1,18 +1,76 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // ==========================================
-// 1. WCA SCRAMBLE GENERATOR
+// 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
 // ==========================================
-function generateScramble(length = 20) {
-  const faces = ['U', 'D', 'L', 'R', 'F', 'B'];
-  const modifiers = ['', "'", '2'];
-  const getAxis = (f) => Math.floor(f / 2);
+const PUZZLE_CONFIGS = {
+  '2x2': { id: '2x2', name: '2×2×2', label: '2×2 Pocket Cube', dim: 2, defaultMoves: 9 },
+  '3x3': { id: '3x3', name: '3×3×3', label: '3×3 Rubik Cube', dim: 3, defaultMoves: 20 },
+  '4x4': { id: '4x4', name: '4×4×4', label: "4×4 Rubik's Revenge", dim: 4, defaultMoves: 40 },
+  '5x5': { id: '5x5', name: '5×5×5', label: "5×5 Professor's Cube", dim: 5, defaultMoves: 60 }
+};
 
+function generateScramble(puzzleType = '3x3') {
+  const modifiers = ['', "'", '2'];
+
+  if (puzzleType === '2x2') {
+    const faces = ['U', 'R', 'F'];
+    const scramble = [];
+    let lastFace = -1;
+    for (let i = 0; i < 9; i++) {
+      let faceIndex;
+      do {
+        faceIndex = Math.floor(Math.random() * faces.length);
+      } while (faceIndex === lastFace);
+      const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
+      scramble.push(`${faces[faceIndex]}${mod}`);
+      lastFace = faceIndex;
+    }
+    return scramble.join(' ');
+  }
+
+  if (puzzleType === '4x4') {
+    const outerFaces = ['U', 'D', 'L', 'R', 'F', 'B'];
+    const wideFaces = ['Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw'];
+    const allMoves = [...outerFaces, ...wideFaces];
+    const scramble = [];
+    let lastMove = '';
+    for (let i = 0; i < 40; i++) {
+      let move;
+      do {
+        move = allMoves[Math.floor(Math.random() * allMoves.length)];
+      } while (move === lastMove || (move[0] === lastMove[0] && move.length === lastMove.length));
+      const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
+      scramble.push(`${move}${mod}`);
+      lastMove = move;
+    }
+    return scramble.join(' ');
+  }
+
+  if (puzzleType === '5x5') {
+    const moves = ['U', 'D', 'L', 'R', 'F', 'B', 'Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw'];
+    const scramble = [];
+    let lastMove = '';
+    for (let i = 0; i < 60; i++) {
+      let move;
+      do {
+        move = moves[Math.floor(Math.random() * moves.length)];
+      } while (move === lastMove || (move[0] === lastMove[0] && move.length === lastMove.length));
+      const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
+      scramble.push(`${move}${mod}`);
+      lastMove = move;
+    }
+    return scramble.join(' ');
+  }
+
+  // Standard 3x3x3 WCA Scramble
+  const faces = ['U', 'D', 'L', 'R', 'F', 'B'];
+  const getAxis = (f) => Math.floor(f / 2);
   const scramble = [];
   let lastFace = -1;
   let secondLastFace = -1;
 
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < 20; i++) {
     let faceIndex;
     do {
       faceIndex = Math.floor(Math.random() * faces.length);
@@ -63,7 +121,6 @@ function rgbToHsv(r, g, b) {
   return { h, s, v };
 }
 
-// Strict Rubik color classifier with noise & dark-frame rejection
 function classifyHsvColor(h, s, v, rawBrightness) {
   if (rawBrightness < 35 || v < 0.20) {
     return 'invalid';
@@ -85,30 +142,40 @@ export default function App() {
   // ==========================================
   // STATE MANAGEMENT
   // ==========================================
+  // Puzzle Category: '2x2' | '3x3' | '4x4' | '5x5'
+  const [puzzleType, setPuzzleType] = useState(() => {
+    return localStorage.getItem('rubik_puzzle_type') || '3x3';
+  });
+
   // Timer states: 'idle' | 'holding' | 'ready' | 'running'
   const [timerState, setTimerState] = useState('idle');
   const [timeMs, setTimeMs] = useState(0);
-  const [scramble, setScramble] = useState(() => generateScramble(20));
+  const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
 
-  // History & Solves (Cột trái)
+  // History & Solves
   const [solves, setSolves] = useState(() => {
     try {
       const saved = localStorage.getItem('rubik_solves_hcc');
       return saved ? JSON.parse(saved) : [
-        { id: 1, time: 14.52, date: '10/11', moves: 'Chưa dùng cam', verified: false },
-        { id: 2, time: 12.80, date: '10/11', moves: 'Chưa dùng cam', verified: false }
+        { id: 1, puzzleType: '3x3', time: 14.52, date: '10/11', moves: 'Chưa dùng cam', verified: false },
+        { id: 2, puzzleType: '3x3', time: 12.80, date: '10/11', moves: 'Chưa dùng cam', verified: false },
+        { id: 3, puzzleType: '4x4', time: 54.20, date: '10/11', moves: 'Giải thủ công', verified: false },
+        { id: 4, puzzleType: '5x5', time: 112.45, date: '10/11', moves: 'Giải thủ công', verified: false }
       ];
     } catch {
       return [];
     }
   });
 
+  // Filter solves for current puzzle
+  const currentSolves = solves.filter(s => (s.puzzleType || '3x3') === puzzleType);
+
   // ==========================================
-  // MULTI-LEADERBOARD SYSTEM (LẬP BẢNG MỚI THEO Ý MUỐN)
+  // MULTI-LEADERBOARD SYSTEM
   // ==========================================
   const [leaderboards, setLeaderboards] = useState(() => {
     try {
-      const saved = localStorage.getItem('rubik_multi_leaderboards');
+      const saved = localStorage.getItem('rubik_multi_leaderboards_v2');
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
@@ -116,42 +183,53 @@ export default function App() {
         id: 'board_1',
         title: 'Bảng Xếp Hạng HUST',
         entries: [
-          { id: 1, name: 'khoa.tt2611758', best: 0.71, avg: 1.02, verified: true },
-          { id: 2, name: 'tungtungvuadhur', best: 6.53, avg: 7.92, verified: true },
-          { id: 3, name: 'Người Tây Đồng Bằng', best: 6.55, avg: 11.57, verified: false },
-          { id: 4, name: 'tranduct757', best: 12.12, avg: 14.57, verified: false },
-          { id: 5, name: 'Tiến Dũng newbie', best: 12.14, avg: 14.75, verified: false }
+          { id: 1, puzzleType: '3x3', name: 'khoa.tt2611758', best: 0.71, avg: 1.02, verified: true },
+          { id: 2, puzzleType: '3x3', name: 'tungtungvuadhur', best: 6.53, avg: 7.92, verified: true },
+          { id: 3, puzzleType: '4x4', name: 'Người Tây Đồng Bằng', best: 36.55, avg: 41.57, verified: false },
+          { id: 4, puzzleType: '5x5', name: 'tranduct757', best: 72.12, avg: 84.57, verified: false },
+          { id: 5, puzzleType: '3x3', name: 'Tiến Dũng newbie', best: 12.14, avg: 14.75, verified: false }
         ]
       }
     };
   });
 
   const [activeBoardId, setActiveBoardId] = useState(() => {
-    const saved = localStorage.getItem('rubik_active_board_id');
-    return saved || 'board_1';
+    return localStorage.getItem('rubik_active_board_id') || 'board_1';
   });
 
-  // Modals for creating new board & adding players
+  const [leaderboardFilter, setLeaderboardFilter] = useState('current'); // 'current' or 'all'
+
+  // Modals
   const [showNewBoardModal, setShowNewBoardModal] = useState(false);
   const [newBoardTitle, setNewBoardTitle] = useState('');
-  const [newBoardMode, setNewBoardMode] = useState('empty'); // 'empty' or 'clone'
+  const [newBoardMode, setNewBoardMode] = useState('empty');
 
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerBest, setNewPlayerBest] = useState('');
   const [newPlayerAvg, setNewPlayerAvg] = useState('');
 
-  // Save leaderboards to localStorage
+  const currentBoard = leaderboards[activeBoardId] || Object.values(leaderboards)[0];
+
   const saveLeaderboards = (newBoards, newActiveId = null) => {
     setLeaderboards(newBoards);
-    localStorage.setItem('rubik_multi_leaderboards', JSON.stringify(newBoards));
+    localStorage.setItem('rubik_multi_leaderboards_v2', JSON.stringify(newBoards));
     if (newActiveId) {
       setActiveBoardId(newActiveId);
       localStorage.setItem('rubik_active_board_id', newActiveId);
     }
   };
 
-  // 1. TẠO BẢNG MỚI
+  // Change puzzle category
+  const handleSelectPuzzle = (type) => {
+    setPuzzleType(type);
+    localStorage.setItem('rubik_puzzle_type', type);
+    setScramble(generateScramble(type));
+    setTrackedMoves([]);
+    setLastMoveDetected('');
+  };
+
+  // Create new leaderboard
   const handleCreateNewBoard = (e) => {
     e.preventDefault();
     const title = newBoardTitle.trim() || `Bảng đấu #${Object.keys(leaderboards).length + 1}`;
@@ -165,21 +243,16 @@ export default function App() {
         : []
     };
 
-    const updated = {
-      ...leaderboards,
-      [newId]: newBoard
-    };
-
+    const updated = { ...leaderboards, [newId]: newBoard };
     saveLeaderboards(updated, newId);
     setNewBoardTitle('');
     setShowNewBoardModal(false);
   };
 
-  // 2. XÓA BẢNG HIỆN TẠI
+  // Delete current board
   const handleDeleteCurrentBoard = () => {
     const boardKeys = Object.keys(leaderboards);
     if (boardKeys.length <= 1) {
-      // Nếu chỉ có 1 bảng, reset thành bảng rỗng
       const reset = {
         'board_1': {
           id: 'board_1',
@@ -199,7 +272,7 @@ export default function App() {
     }
   };
 
-  // 3. THÊM TUYỂN THỦ MỚI VÀO BẢNG HIỆN TẠI
+  // Add custom player to board
   const handleAddEntry = (e) => {
     e.preventDefault();
     if (!newPlayerName.trim() || !newPlayerBest) return;
@@ -209,6 +282,7 @@ export default function App() {
 
     const newEntry = {
       id: Date.now(),
+      puzzleType: puzzleType,
       name: newPlayerName.trim(),
       best: bestVal,
       avg: avgVal,
@@ -216,7 +290,6 @@ export default function App() {
     };
 
     const currentEntries = currentBoard?.entries || [];
-    // Sort by best time ascending
     const sorted = [...currentEntries, newEntry].sort((a, b) => a.best - b.best);
 
     const updated = {
@@ -234,7 +307,7 @@ export default function App() {
     setShowAddEntryModal(false);
   };
 
-  // 4. XÓA 1 TUYỂN THỦ KHỎI BẢNG
+  // Delete entry
   const handleDeleteEntry = (entryId) => {
     if (!currentBoard) return;
     const filtered = currentBoard.entries.filter(e => e.id !== entryId);
@@ -248,8 +321,6 @@ export default function App() {
     saveLeaderboards(updated);
   };
 
-  const currentBoard = leaderboards[activeBoardId] || Object.values(leaderboards)[0];
-
   // Camera & AI State
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraHealth, setCameraHealth] = useState({
@@ -259,7 +330,8 @@ export default function App() {
     contrast: 0
   });
 
-  const [detectedColors, setDetectedColors] = useState(Array(9).fill('invalid'));
+  const currentDim = PUZZLE_CONFIGS[puzzleType]?.dim || 3;
+  const [detectedColors, setDetectedColors] = useState(() => Array(currentDim * currentDim).fill('invalid'));
   const [preCheckStatus, setPreCheckStatus] = useState({
     verified: false,
     text: 'Camera AI đang tắt (Chế độ thủ công chuẩn WCA)',
@@ -270,9 +342,7 @@ export default function App() {
   const [trackedMoves, setTrackedMoves] = useState([]);
   const [lastMoveDetected, setLastMoveDetected] = useState('');
 
-  // ==========================================
-  // REFS FOR INSTANT SYNCHRONIZATION
-  // ==========================================
+  // Refs for synchronization
   const timerStateRef = useRef('idle');
   const timerIntervalRef = useRef(null);
   const startTimeRef = useRef(0);
@@ -285,6 +355,7 @@ export default function App() {
   const trackedMovesRef = useRef([]);
   const cameraActiveRef = useRef(false);
   const cameraHealthRef = useRef(false);
+  const puzzleTypeRef = useRef(puzzleType);
 
   useEffect(() => {
     timerStateRef.current = timerState;
@@ -298,9 +369,12 @@ export default function App() {
     trackedMovesRef.current = trackedMoves;
   }, [trackedMoves]);
 
-  // ==========================================
-  // STOP & START TIMER HANDLERS
-  // ==========================================
+  useEffect(() => {
+    puzzleTypeRef.current = puzzleType;
+    setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+  }, [puzzleType, currentDim]);
+
+  // Stop & Start Timer
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
@@ -313,9 +387,11 @@ export default function App() {
     const finalSec = parseFloat((finalMs / 1000).toFixed(2));
     const movesRecorded = trackedMovesRef.current;
     const isCameraVerified = cameraActiveRef.current && cameraHealthRef.current && movesRecorded.length > 0;
+    const currentP = puzzleTypeRef.current;
 
     const newSolve = {
       id: Date.now(),
+      puzzleType: currentP,
       time: finalSec,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
       moves: isCameraVerified ? movesRecorded.join(' ') : 'Giải thủ công (Spacebar)',
@@ -328,10 +404,9 @@ export default function App() {
       return updated;
     });
 
-    // Reset moves & create new scramble
     setTrackedMoves([]);
     setLastMoveDetected('');
-    setScramble(generateScramble(20));
+    setScramble(generateScramble(currentP));
   }, []);
 
   const startTimer = useCallback(() => {
@@ -354,9 +429,7 @@ export default function App() {
     startTimerRef.current = startTimer;
   }, [stopTimer, startTimer]);
 
-  // ==========================================
-  // WCA KEYBOARD SPACEBAR CONTROLLER
-  // ==========================================
+  // WCA Keyboard Spacebar Controller
   useEffect(() => {
     let holdTimeout = null;
 
@@ -414,9 +487,7 @@ export default function App() {
     };
   }, []);
 
-  // ==========================================
-  // CAMERA ENGINE WITH HARDWARE CHECK
-  // ==========================================
+  // Camera Handler with Dynamic NxN Grid
   const toggleCamera = async () => {
     if (cameraActive) {
       if (streamRef.current) {
@@ -527,24 +598,25 @@ export default function App() {
             isScrambled: false,
             centerFace: null
           });
-          setDetectedColors(Array(9).fill('invalid'));
+          setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
           prevColorsRef.current = null;
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
         }
 
-        // Sample 9 stickers
-        const boxSize = Math.min(w, h) * 0.52;
+        // Sample Dynamic NxN Stickers (Adaptive for 2x2, 3x3, 4x4, 5x5)
+        const dim = currentDim;
+        const boxSize = Math.min(w, h) * 0.54;
         const startX = (w - boxSize) / 2;
         const startY = (h - boxSize) / 2;
-        const cellSize = boxSize / 3;
+        const cellSize = boxSize / dim;
         const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
 
-        const current9Colors = [];
+        const currentNxNColors = [];
         let validColorsCount = 0;
 
-        for (let row = 0; row < 3; row++) {
-          for (let col = 0; col < 3; col++) {
+        for (let row = 0; row < dim; row++) {
+          for (let col = 0; col < dim; col++) {
             const cx = Math.floor(startX + col * cellSize + cellSize / 2);
             const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
@@ -572,20 +644,21 @@ export default function App() {
               const hsv = rgbToHsv(avgR, avgG, avgB);
               const colorKey = classifyHsvColor(hsv.h, hsv.s, hsv.v, rawB);
 
-              current9Colors.push(colorKey);
+              currentNxNColors.push(colorKey);
               if (colorKey !== 'invalid') validColorsCount++;
             } else {
-              current9Colors.push('invalid');
+              currentNxNColors.push('invalid');
             }
           }
         }
 
-        setDetectedColors(current9Colors);
+        setDetectedColors(currentNxNColors);
 
-        if (validColorsCount < 6) {
+        const minStickersRequired = Math.floor(dim * dim * 0.6);
+        if (validColorsCount < minStickersRequired) {
           setPreCheckStatus({
             verified: false,
-            text: '🔍 Đang đợi khối Rubik trước camera...',
+            text: `🔍 Đang đợi khối ${dim}×${dim} trước camera...`,
             isScrambled: false,
             centerFace: null
           });
@@ -594,81 +667,44 @@ export default function App() {
           return;
         }
 
-        // AI Inspection
-        const centerColor = current9Colors[4];
+        // Center / Representative sticker
+        const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
+        const centerColor = currentNxNColors[centerIdx];
         const centerDef = COLOR_DEFINITIONS[centerColor];
         const centerName = centerDef ? centerDef.name : 'Không rõ';
-        const validColorsOnly = current9Colors.filter(c => c !== 'invalid');
+        const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
         const uniqueColorsCount = new Set(validColorsOnly).size;
-        const isAllSameColor = validColorsCount === 9 && uniqueColorsCount === 1;
+        const isAllSameColor = validColorsCount === (dim * dim) && uniqueColorsCount === 1;
 
         if (timerStateRef.current === 'idle') {
-          if (centerColor !== 'invalid' && uniqueColorsCount >= 2) {
+          if (uniqueColorsCount >= 2) {
             setPreCheckStatus({
               verified: true,
-              text: `🟢 ĐÃ CHECK KHỐI RUBIK: Mặt tâm ${centerName} — Đã xáo trộn hợp lệ!`,
+              text: `🟢 ĐÃ CHECK KHỐI ${dim}×${dim}: Đã xáo trộn hợp lệ! Sẵn sàng bấm giờ.`,
               isScrambled: true,
               centerFace: centerName
             });
           } else if (isAllSameColor) {
             setPreCheckStatus({
               verified: false,
-              text: `⚠️ Khối Rubik đang ở trạng thái hoàn thành (Tâm ${centerName})`,
+              text: `⚠️ Khối ${dim}×${dim} đang ở trạng thái hoàn thành`,
               isScrambled: false,
               centerFace: centerName
             });
           }
         }
 
-        // Zero-Hallucination Move Detection (F and F' mathematical permutation only)
+        // Auto-stop when completed (All stickers same color)
         const now = performance.now();
         if (
           timerStateRef.current === 'running' &&
-          prevColorsRef.current &&
-          validColorsCount === 9 &&
-          (now - lastMoveTimeRef.current > 400)
+          isAllSameColor &&
+          (now - startTimeRef.current > 2500)
         ) {
-          const prev = prevColorsRef.current;
-          let detectedMove = null;
-
-          const isClockwiseF =
-            current9Colors[2] === prev[0] &&
-            current9Colors[5] === prev[1] &&
-            current9Colors[8] === prev[2] &&
-            current9Colors[7] === prev[5] &&
-            current9Colors[6] === prev[8] &&
-            current9Colors[3] === prev[7] &&
-            current9Colors[0] === prev[6] &&
-            current9Colors[1] === prev[3];
-
-          const isCounterF =
-            current9Colors[0] === prev[2] &&
-            current9Colors[1] === prev[5] &&
-            current9Colors[2] === prev[8] &&
-            current9Colors[5] === prev[7] &&
-            current9Colors[8] === prev[6] &&
-            current9Colors[7] === prev[3] &&
-            current9Colors[6] === prev[0] &&
-            current9Colors[3] === prev[1];
-
-          if (isClockwiseF) {
-            detectedMove = 'F';
-          } else if (isCounterF) {
-            detectedMove = "F'";
-          }
-
-          if (detectedMove) {
-            lastMoveTimeRef.current = now;
-            setLastMoveDetected(detectedMove);
-            setTrackedMoves(moves => [...moves, detectedMove]);
-          }
-
-          if (isAllSameColor && (now - startTimeRef.current > 2000) && trackedMovesRef.current.length >= 1) {
-            stopTimerRef.current();
-          }
+          stopTimerRef.current();
         }
 
-        prevColorsRef.current = current9Colors;
+        prevColorsRef.current = currentNxNColors;
       }
 
       animFrameRef.current = requestAnimationFrame(processFrame);
@@ -680,7 +716,7 @@ export default function App() {
       isRunningLoop = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [cameraActive]);
+  }, [cameraActive, currentDim]);
 
   // Clean up
   useEffect(() => {
@@ -696,9 +732,11 @@ export default function App() {
     return totalSec.toFixed(2);
   };
 
-  const bestTime = solves.length > 0 ? Math.min(...solves.map(s => s.time)).toFixed(2) : '--';
-  const meanTime = solves.length > 0 
-    ? (solves.reduce((acc, s) => acc + s.time, 0) / solves.length).toFixed(2) 
+  const bestTime = currentSolves.length > 0 
+    ? Math.min(...currentSolves.map(s => s.time)).toFixed(2) 
+    : '--';
+  const meanTime = currentSolves.length > 0 
+    ? (currentSolves.reduce((acc, s) => acc + s.time, 0) / currentSolves.length).toFixed(2) 
     : '--';
 
   const deleteSolve = (id) => {
@@ -711,16 +749,17 @@ export default function App() {
 
   // Add my best score to current board
   const handleAddMyScoreToBoard = () => {
-    if (solves.length === 0) {
-      alert('Bạn chưa có lượt giải nào để thêm vào bảng!');
+    if (currentSolves.length === 0) {
+      alert(`Bạn chưa có lượt giải ${puzzleType} nào để thêm vào bảng!`);
       return;
     }
-    const myBest = Math.min(...solves.map(s => s.time));
+    const myBest = Math.min(...currentSolves.map(s => s.time));
     const myAvg = parseFloat(meanTime);
 
     const newEntry = {
       id: Date.now(),
-      name: 'khoa.tt2611758 (Tôi)',
+      puzzleType: puzzleType,
+      name: `khoa.tt2611758 (${puzzleType})`,
       best: myBest,
       avg: isNaN(myAvg) ? myBest : myAvg,
       verified: true
@@ -738,6 +777,12 @@ export default function App() {
     };
     saveLeaderboards(updated);
   };
+
+  // Filter leaderboard entries based on toggle
+  const displayedEntries = (currentBoard?.entries || []).filter(e => {
+    if (leaderboardFilter === 'all') return true;
+    return (e.puzzleType || '3x3') === puzzleType;
+  });
 
   return (
     <div style={{
@@ -757,7 +802,7 @@ export default function App() {
           HEADER BAR
       ========================================== */}
       <header style={{
-        padding: '12px 24px',
+        padding: '10px 24px',
         backgroundColor: '#0d1629',
         borderBottom: '1px solid #192642',
         display: 'flex',
@@ -779,11 +824,11 @@ export default function App() {
             ⏱️
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '700', color: '#f8fafc' }}>
+            <h1 style={{ margin: 0, fontSize: '1.02rem', fontWeight: '700', color: '#f8fafc' }}>
               Rubik Timer & AI Verification
             </h1>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-              Speedcubing practice • HUST
+            <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
+              HUST Speedcubing • 2×2, 3×3, 4×4, 5×5
             </p>
           </div>
         </div>
@@ -793,7 +838,7 @@ export default function App() {
           <button
             onClick={toggleCamera}
             style={{
-              padding: '7px 16px',
+              padding: '6px 14px',
               borderRadius: '6px',
               border: cameraActive 
                 ? (cameraHealth.isHealthy ? '1px solid #22c55e' : '1px solid #ef4444') 
@@ -805,7 +850,7 @@ export default function App() {
                 ? (cameraHealth.isHealthy ? '#4ade80' : '#f87171') 
                 : '#94a3b8',
               fontWeight: '600',
-              fontSize: '0.82rem',
+              fontSize: '0.8rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -816,12 +861,12 @@ export default function App() {
             <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
             <span>
               {cameraActive 
-                ? (cameraHealth.isHealthy ? 'Tắt Camera AI' : 'Camera Bị Lỗi (Bấm để tắt)') 
+                ? (cameraHealth.isHealthy ? 'Tắt Camera AI' : 'Camera Bị Lỗi (Tắt)') 
                 : 'Bật Camera AI'}
             </span>
           </button>
 
-          <span style={{ fontSize: '0.85rem', color: '#94a3b8', background: '#111c34', padding: '5px 10px', borderRadius: '6px', border: '1px solid #1a2a4c' }}>
+          <span style={{ fontSize: '0.82rem', color: '#94a3b8', background: '#111c34', padding: '4px 8px', borderRadius: '6px', border: '1px solid #1a2a4c' }}>
             khoa.tt2611758@sis.hust.edu.vn
           </span>
         </div>
@@ -834,7 +879,7 @@ export default function App() {
         flex: 1,
         display: 'grid',
         gridTemplateColumns: '270px 1fr 380px',
-        padding: '16px 20px',
+        padding: '14px 20px',
         gap: '16px',
         overflow: 'hidden'
       }}>
@@ -847,8 +892,10 @@ export default function App() {
             padding: '16px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>Thành tích của tôi</span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{solves.length} lượt</span>
+              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>
+                Thành tích ({puzzleType})
+              </span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{currentSolves.length} lượt</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -886,17 +933,19 @@ export default function App() {
             overflow: 'hidden'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>Lịch sử lượt giải</span>
+              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>
+                Lịch sử ({puzzleType})
+              </span>
               <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Mới nhất</span>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {solves.length === 0 ? (
+              {currentSolves.length === 0 ? (
                 <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '24px' }}>
-                  Chưa có lượt giải nào
+                  Chưa có lượt giải {puzzleType} nào
                 </div>
               ) : (
-                solves.map((s, index) => (
+                currentSolves.map((s, index) => (
                   <div
                     key={s.id}
                     style={{
@@ -910,7 +959,7 @@ export default function App() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ color: '#64748b', fontSize: '0.78rem' }}>#{solves.length - index}</span>
+                      <span style={{ color: '#64748b', fontSize: '0.78rem' }}>#{currentSolves.length - index}</span>
                       <strong style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.95rem' }}>{s.time}s</strong>
                       <span style={{
                         fontSize: '0.65rem',
@@ -948,61 +997,101 @@ export default function App() {
           </div>
         </div>
 
-        {/* === CỘT GIỮA: SCRAMBLE + CAMERA PREVIEW + ĐỒNG HỒ SPACE === */}
+        {/* === CỘT GIỮA: PUZZLE SELECTOR (3x3, 4x4, 5x5) + SCRAMBLE + CAMERA + TIMER === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '20px 24px',
+          padding: '18px 24px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'space-between',
           position: 'relative'
         }}>
-          {/* Top: WCA 3x3 Scramble */}
-          <div style={{ width: '100%', textAlign: 'center' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>WCA SCRAMBLE 3×3</span>
-              <button
-                onClick={() => setScramble(generateScramble(20))}
-                title="Đổi chuỗi xáo trộn"
-                style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.82rem' }}
-              >
-                🔄 Đổi mới
-              </button>
+          {/* Top: PUZZLE SELECTOR TABS (2x2, 3x3, 4x4, 5x5) */}
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              display: 'inline-flex',
+              background: '#090f1d',
+              padding: '4px',
+              borderRadius: '10px',
+              border: '1px solid #16223b',
+              gap: '4px'
+            }}>
+              {Object.values(PUZZLE_CONFIGS).map((p) => {
+                const isSelected = puzzleType === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSelectPuzzle(p.id)}
+                    style={{
+                      padding: '6px 16px',
+                      borderRadius: '7px',
+                      border: 'none',
+                      background: isSelected ? 'linear-gradient(135deg, #2563eb, #38bdf8)' : 'transparent',
+                      color: isSelected ? '#ffffff' : '#64748b',
+                      fontWeight: isSelected ? '700' : '600',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      boxShadow: isSelected ? '0 2px 8px rgba(37, 99, 235, 0.4)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {p.name}
+                  </button>
+                );
+              })}
             </div>
 
-            <div style={{
-              fontSize: '1.2rem',
-              fontWeight: '700',
-              lineHeight: 1.5,
-              color: '#cbd5e1',
-              fontFamily: 'monospace',
-              padding: '10px 16px',
-              background: '#090f1d',
-              borderRadius: '10px',
-              border: '1px solid #16223b'
-            }}>
-              {scramble}
+            {/* WCA Scramble text */}
+            <div style={{ width: '100%', textAlign: 'center' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700' }}>
+                  WCA SCRAMBLE {PUZZLE_CONFIGS[puzzleType]?.name}
+                </span>
+                <button
+                  onClick={() => setScramble(generateScramble(puzzleType))}
+                  title="Đổi chuỗi xáo trộn mới"
+                  style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.8rem' }}
+                >
+                  🔄 Đổi mới
+                </button>
+              </div>
+
+              <div style={{
+                fontSize: puzzleType === '5x5' ? '0.95rem' : (puzzleType === '4x4' ? '1.05rem' : '1.18rem'),
+                fontWeight: '700',
+                lineHeight: 1.45,
+                color: '#cbd5e1',
+                fontFamily: 'monospace',
+                padding: '8px 14px',
+                background: '#090f1d',
+                borderRadius: '10px',
+                border: '1px solid #16223b',
+                maxHeight: '75px',
+                overflowY: 'auto'
+              }}>
+                {scramble}
+              </div>
             </div>
           </div>
 
-          {/* Center-Top: Live Camera Diagnostics */}
+          {/* Center-Top: Live Camera Diagnostics with Adaptive Grid */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
-              margin: '8px 0',
-              padding: '10px 16px',
+              gap: '14px',
+              margin: '6px 0',
+              padding: '8px 14px',
               background: '#090f1d',
               borderRadius: '12px',
               border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
             }}>
               <div style={{
-                width: '130px',
-                height: '95px',
+                width: '120px',
+                height: '85px',
                 borderRadius: '8px',
                 overflow: 'hidden',
                 background: '#020617',
@@ -1017,22 +1106,22 @@ export default function App() {
                   background: 'rgba(0,0,0,0.7)',
                   padding: '1px 5px',
                   borderRadius: '3px',
-                  fontSize: '0.62rem',
+                  fontSize: '0.6rem',
                   color: cameraHealth.isHealthy ? '#4ade80' : '#f87171'
                 }}>
                   {cameraHealth.isHealthy ? '● LIVE' : '⚠️ LỖI CAM'}
                 </div>
               </div>
 
-              {/* 3x3 Rubik Sticker Grid Scanner */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600' }}>
-                  {cameraHealth.isHealthy ? 'Quét 9 Sticker' : 'Camera Bị Hỏng'}
+              {/* Adaptive Sticker Grid for 2x2, 3x3, 4x4, 5x5 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '600' }}>
+                  Lưới Quét {currentDim}×{currentDim}
                 </div>
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 22px)',
-                  gap: '4px',
+                  gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '16px' : '20px'})`,
+                  gap: '3px',
                   background: '#020617',
                   padding: '4px',
                   borderRadius: '6px',
@@ -1043,19 +1132,18 @@ export default function App() {
                       key={i}
                       title={`Ô ${i + 1}: ${COLOR_DEFINITIONS[colorKey]?.name || 'Không rõ'}`}
                       style={{
-                        width: '22px',
-                        height: '22px',
-                        borderRadius: '3px',
+                        width: currentDim >= 4 ? '16px' : '20px',
+                        height: currentDim >= 4 ? '16px' : '20px',
+                        borderRadius: '2px',
                         backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155',
-                        border: i === 4 ? '2px solid #ffffff' : '1px solid rgba(0,0,0,0.4)',
-                        boxShadow: i === 4 ? '0 0 6px rgba(255,255,255,0.6)' : 'none'
+                        border: '1px solid rgba(0,0,0,0.3)'
                       }}
                     />
                   ))}
                 </div>
               </div>
 
-              <div style={{ maxWidth: '240px', fontSize: '0.75rem', lineHeight: 1.4 }}>
+              <div style={{ maxWidth: '220px', fontSize: '0.72rem', lineHeight: 1.35 }}>
                 <div style={{
                   color: !cameraHealth.isHealthy 
                     ? '#f87171' 
@@ -1069,30 +1157,30 @@ export default function App() {
                   <button
                     onClick={toggleCamera}
                     style={{
-                      marginTop: '4px',
+                      marginTop: '3px',
                       background: '#7f1d1d',
                       border: '1px solid #ef4444',
                       color: '#ffffff',
-                      fontSize: '0.7rem',
-                      padding: '3px 8px',
+                      fontSize: '0.68rem',
+                      padding: '2px 6px',
                       borderRadius: '4px',
                       cursor: 'pointer'
                     }}
                   >
-                    Tắt cam hỏng để bấm giờ chuẩn
+                    Tắt cam hỏng
                   </button>
                 )}
               </div>
             </div>
           ) : (
             <div style={{
-              margin: '8px 0',
-              padding: '8px 16px',
+              margin: '6px 0',
+              padding: '6px 14px',
               borderRadius: '8px',
               background: 'rgba(56, 189, 248, 0.08)',
               border: '1px solid rgba(56, 189, 248, 0.25)',
               color: '#38bdf8',
-              fontSize: '0.78rem',
+              fontSize: '0.75rem',
               textAlign: 'center',
               display: 'flex',
               alignItems: 'center',
@@ -1100,7 +1188,7 @@ export default function App() {
             }}>
               <span>⏱️</span>
               <span>
-                <strong>Chế độ WCA chuẩn:</strong> Camera đang tắt. Bạn có thể thoải mái bấm giờ bằng phím Spacebar mà không lo bị sinh nước đi ảo!
+                <strong>{PUZZLE_CONFIGS[puzzleType]?.name}:</strong> Bấm giờ Spacebar WCA chuẩn. Thả Space để bắt đầu!
               </span>
             </div>
           )}
@@ -1120,7 +1208,7 @@ export default function App() {
             }}
           >
             <div style={{
-              fontSize: '8.8rem',
+              fontSize: '8.4rem',
               fontWeight: '900',
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
               letterSpacing: '-3px',
@@ -1133,8 +1221,8 @@ export default function App() {
             </div>
 
             <div style={{
-              marginTop: '14px',
-              fontSize: '1rem',
+              marginTop: '12px',
+              fontSize: '0.95rem',
               fontWeight: '700',
               letterSpacing: '0.5px',
               color: timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b')
@@ -1142,66 +1230,18 @@ export default function App() {
               {timerState === 'ready' && '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!'}
               {timerState === 'holding' && '○ Giữ thêm một chút...'}
               {timerState === 'running' && 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)'}
-              {timerState === 'idle' && 'Giữ phím SPACE để chuẩn bị sẵn sàng'}
+              {timerState === 'idle' && `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`}
             </div>
           </div>
 
-          {/* Live Move Tracking Display */}
-          {cameraActive && cameraHealth.isHealthy && (
-            <div style={{
-              width: '100%',
-              maxWidth: '540px',
-              background: '#090f1d',
-              border: '1px solid #16223b',
-              borderRadius: '8px',
-              padding: '8px 14px',
-              marginBottom: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '10px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '140px' }}>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: '600' }}>
-                  Nước đi AI xác nhận:
-                </span>
-                {lastMoveDetected && (
-                  <span style={{
-                    fontSize: '0.8rem',
-                    fontWeight: '800',
-                    color: '#38bdf8',
-                    background: 'rgba(56, 189, 248, 0.15)',
-                    padding: '1px 6px',
-                    borderRadius: '4px'
-                  }}>
-                    {lastMoveDetected}
-                  </span>
-                )}
-              </div>
-
-              <div style={{
-                flex: 1,
-                fontFamily: 'monospace',
-                fontSize: '0.82rem',
-                color: trackedMoves.length > 0 ? '#4ade80' : '#475569',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                textAlign: 'right'
-              }}>
-                {trackedMoves.length > 0 ? trackedMoves.join(' ') : '(Chưa phát hiện nước xoay)'}
-              </div>
-            </div>
-          )}
-
           {/* Bottom Instructions */}
-          <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.8rem', lineHeight: 1.5 }}>
+          <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.78rem', lineHeight: 1.5 }}>
             <div>Nhấn giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
             <div>Dừng bằng cách nhấn phím bất kỳ hoặc click vào đồng hồ</div>
           </div>
         </div>
 
-        {/* === CỘT PHẢI: HỆ THỐNG BẢNG XẾP HẠNG & LẬP BẢNG MỚI === */}
+        {/* === CỘT PHẢI: BẢNG XẾP HẠNG (CÓ LỌC 2x2, 3x3, 4x4, 5x5) === */}
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
@@ -1266,8 +1306,8 @@ export default function App() {
             </button>
           </div>
 
-          {/* Action Bar (Thêm tuyển thủ, Ghi điểm tôi, Xóa bảng) */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 10px 0' }}>
+          {/* Action Bar & Category Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 8px 0' }}>
             <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 onClick={() => setShowAddEntryModal(true)}
@@ -1303,44 +1343,64 @@ export default function App() {
               </button>
             </div>
 
-            <button
-              onClick={handleDeleteCurrentBoard}
-              title="Xóa bảng này hoặc đặt lại thành bảng rỗng"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#64748b',
-                fontSize: '0.72rem',
-                cursor: 'pointer',
-                padding: '2px 4px'
-              }}
-            >
-              🗑️ Xóa bảng
-            </button>
+            {/* Filter Toggle: Mục hiện tại vs Tất cả */}
+            <div style={{ display: 'flex', background: '#111c34', borderRadius: '4px', border: '1px solid #1e293b', padding: '2px' }}>
+              <button
+                onClick={() => setLeaderboardFilter('current')}
+                style={{
+                  background: leaderboardFilter === 'current' ? '#2563eb' : 'transparent',
+                  border: 'none',
+                  color: leaderboardFilter === 'current' ? '#ffffff' : '#94a3b8',
+                  fontSize: '0.68rem',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                {puzzleType}
+              </button>
+              <button
+                onClick={() => setLeaderboardFilter('all')}
+                style={{
+                  background: leaderboardFilter === 'all' ? '#2563eb' : 'transparent',
+                  border: 'none',
+                  color: leaderboardFilter === 'all' ? '#ffffff' : '#94a3b8',
+                  fontSize: '0.68rem',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                Tất cả
+              </button>
+            </div>
           </div>
 
           {/* Table Header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '26px 1fr 60px 60px 24px',
-            padding: '6px 8px',
-            fontSize: '0.75rem',
+            gridTemplateColumns: '26px 42px 1fr 58px 58px 20px',
+            padding: '6px 6px',
+            fontSize: '0.72rem',
             color: '#64748b',
             borderBottom: '1px solid #192642',
             fontWeight: '600'
           }}>
             <span>#</span>
+            <span>Loại</span>
             <span>Tài khoản</span>
             <span style={{ textAlign: 'right' }}>Best</span>
             <span style={{ textAlign: 'right' }}>Avg</span>
-            <span style={{ textAlign: 'center' }}></span>
+            <span></span>
           </div>
 
-          {/* Table Body (Full name display, no truncation) */}
+          {/* Table Body */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {(!currentBoard?.entries || currentBoard.entries.length === 0) ? (
+            {displayedEntries.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '36px' }}>
-                Bảng này hiện chưa có ai.
+                Chưa có kỷ lục nào cho {leaderboardFilter === 'current' ? puzzleType : 'bảng này'}.
                 <div style={{ marginTop: '8px' }}>
                   <button
                     onClick={() => setShowAddEntryModal(true)}
@@ -1354,20 +1414,20 @@ export default function App() {
                       cursor: 'pointer'
                     }}
                   >
-                    + Thêm người chơi đầu tiên
+                    + Thêm người đầu tiên
                   </button>
                 </div>
               </div>
             ) : (
-              currentBoard.entries.map((item, index) => (
+              displayedEntries.map((item, index) => (
                 <div
                   key={item.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '26px 1fr 60px 60px 24px',
-                    padding: '8px 8px',
+                    gridTemplateColumns: '26px 42px 1fr 58px 58px 20px',
+                    padding: '8px 6px',
                     borderBottom: '1px solid #111c34',
-                    fontSize: '0.82rem',
+                    fontSize: '0.8rem',
                     alignItems: 'center',
                     background: index === 0 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
                     borderRadius: '6px'
@@ -1377,7 +1437,19 @@ export default function App() {
                     {index + 1}
                   </span>
 
-                  {/* Tên hiển thị đầy đủ, không bị cắt dấu ba chấm (...) */}
+                  {/* Puzzle Type Badge */}
+                  <span style={{
+                    fontSize: '0.65rem',
+                    fontWeight: '700',
+                    color: '#38bdf8',
+                    background: 'rgba(56, 189, 248, 0.1)',
+                    padding: '1px 4px',
+                    borderRadius: '3px',
+                    width: 'fit-content'
+                  }}>
+                    {item.puzzleType || '3x3'}
+                  </span>
+
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
                     <span
                       title={item.name}
@@ -1394,10 +1466,10 @@ export default function App() {
                     {item.verified && (
                       <span style={{
                         flexShrink: 0,
-                        fontSize: '0.62rem',
+                        fontSize: '0.6rem',
                         color: '#4ade80',
                         background: 'rgba(34, 197, 94, 0.1)',
-                        padding: '1px 4px',
+                        padding: '1px 3px',
                         borderRadius: '3px'
                       }}>
                         ✓ AI
@@ -1503,7 +1575,7 @@ export default function App() {
                       checked={newBoardMode === 'empty'}
                       onChange={() => setNewBoardMode('empty')}
                     />
-                    Bảng trống (Bắt đầu từ 0)
+                    Bảng trống
                   </label>
 
                   <label style={{ fontSize: '0.82rem', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
@@ -1586,6 +1658,33 @@ export default function App() {
             </h3>
 
             <form onSubmit={handleAddEntry}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
+                  Loại khối:
+                </label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {Object.values(PUZZLE_CONFIGS).map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPuzzleType(p.id)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '5px',
+                        border: puzzleType === p.id ? '1px solid #38bdf8' : '1px solid #1e293b',
+                        background: puzzleType === p.id ? '#1e3a8a' : '#111c34',
+                        color: puzzleType === p.id ? '#ffffff' : '#94a3b8',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '4px' }}>
                   Tên người chơi / Tài khoản:
