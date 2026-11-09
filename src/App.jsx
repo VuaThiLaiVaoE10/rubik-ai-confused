@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Rubik3DView from './components/Rubik3DView';
 
 // ==========================================
 // 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
@@ -450,6 +451,8 @@ export default function App() {
 
   const [trackedMoves, setTrackedMoves] = useState([]);
   const [lastMoveDetected, setLastMoveDetected] = useState('');
+  const [cubeVisualMode, setCubeVisualMode] = useState('3d'); // '3d' hoặc '2d'
+  const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
 
   // Refs
   const timerStateRef = useRef('idle');
@@ -1474,66 +1477,146 @@ export default function App() {
             </div>
           </div>
 
-          {/* Center-Top: Camera view or Mode status banner */}
+          {/* Center-Top: Camera view or 3D Model interactive visualization */}
           {cameraActive ? (
             <div style={{
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              padding: '6px 12px',
+              padding: '6px 14px',
               background: '#090f1d',
               borderRadius: '10px',
               border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
             }}>
+              {/* Khung Camera */}
               <div style={{
-                width: '110px',
-                height: '75px',
+                width: '115px',
+                height: '80px',
                 borderRadius: '6px',
                 overflow: 'hidden',
                 background: '#020617',
-                border: '1px solid #334155'
+                border: '1px solid #334155',
+                flexShrink: 0
               }}>
                 <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
 
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '14px' : '18px'})`,
-                gap: '2px',
-                background: '#020617',
-                padding: '3px',
-                borderRadius: '5px'
-              }}>
-                {detectedColors.map((colorKey, i) => (
-                  <div
-                    key={i}
+              {/* Mô hình 3D Rubik / 2D Grid */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: '2px', background: '#020617', padding: '1px 3px', borderRadius: '4px', border: '1px solid #1e293b' }}>
+                  <button
+                    onClick={() => setCubeVisualMode('3d')}
                     style={{
-                      width: currentDim >= 4 ? '14px' : '18px',
-                      height: currentDim >= 4 ? '14px' : '18px',
-                      borderRadius: '2px',
-                      backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155'
+                      padding: '2px 6px',
+                      borderRadius: '3px',
+                      border: 'none',
+                      background: cubeVisualMode === '3d' ? '#2563eb' : 'transparent',
+                      color: cubeVisualMode === '3d' ? '#ffffff' : '#64748b',
+                      fontSize: '0.62rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
                     }}
+                  >
+                    🧊 3D
+                  </button>
+                  <button
+                    onClick={() => setCubeVisualMode('2d')}
+                    style={{
+                      padding: '2px 6px',
+                      borderRadius: '3px',
+                      border: 'none',
+                      background: cubeVisualMode === '2d' ? '#2563eb' : 'transparent',
+                      color: cubeVisualMode === '2d' ? '#ffffff' : '#64748b',
+                      fontSize: '0.62rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ▦ 2D
+                  </button>
+                </div>
+
+                {cubeVisualMode === '3d' ? (
+                  <Rubik3DView
+                    dim={currentDim}
+                    detectedColors={detectedColors}
+                    lastMove={lastMoveDetected}
+                    width={110}
+                    height={85}
                   />
-                ))}
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '14px' : '18px'})`,
+                    gap: '2px',
+                    background: '#020617',
+                    padding: '3px',
+                    borderRadius: '5px'
+                  }}>
+                    {detectedColors.map((colorKey, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          width: currentDim >= 4 ? '14px' : '18px',
+                          height: currentDim >= 4 ? '14px' : '18px',
+                          borderRadius: '2px',
+                          backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155'
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div style={{ maxWidth: '200px', fontSize: '0.7rem', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
-                {preCheckStatus.text}
+              {/* Trạng thái nhận diện AI */}
+              <div style={{ maxWidth: '180px', fontSize: '0.72rem', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
+                <div style={{ fontWeight: '700', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
+                  {preCheckStatus.verified ? `🟢 ĐÃ CHECK KHỐI ${currentDim}×${currentDim}` : `🔍 QUÉT 3D ${currentDim}×${currentDim}`}
+                </div>
+                <div style={{ lineHeight: '1.3' }}>{preCheckStatus.text}</div>
               </div>
             </div>
           ) : (
             <div style={{
-              padding: '4px 12px',
-              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 14px',
+              borderRadius: '8px',
               background: 'rgba(56, 189, 248, 0.08)',
               border: '1px solid rgba(56, 189, 248, 0.2)',
               color: '#38bdf8',
-              fontSize: '0.74rem'
+              fontSize: '0.74rem',
+              maxWidth: '560px'
             }}>
-              {gameMode === 'wca' && '🏆 Chế độ WCA: Bấm Space để bắt đầu 15s Inspection (quan sát)'}
-              {gameMode === 'target' && `⚡ Mục tiêu: Cố gắng hoàn thành trong Sub-${targetSeconds}s!`}
-              {gameMode === 'free' && '🎯 Chế độ Tự Do: Nhấn giữ Spacebar để sẵn sàng giải'}
-              {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI làm trọng tài xác minh'}
+              <div>
+                {gameMode === 'wca' && '🏆 Chế độ WCA: Bấm Space để bắt đầu 15s Inspection (quan sát)'}
+                {gameMode === 'target' && `⚡ Mục tiêu: Cố gắng hoàn thành trong Sub-${targetSeconds}s!`}
+                {gameMode === 'free' && '🎯 Chế độ Tự Do: Nhấn giữ Spacebar để sẵn sàng giải'}
+                {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI làm trọng tài xác minh'}
+              </div>
+
+              <button
+                onClick={() => setShow3DPreviewModal(true)}
+                title="Mở mô hình 3D tương tác của khối Rubik hiện tại"
+                style={{
+                  padding: '3px 9px',
+                  borderRadius: '4px',
+                  background: '#111c34',
+                  border: '1px solid #1e293b',
+                  color: '#38bdf8',
+                  fontSize: '0.7rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginLeft: '12px',
+                  flexShrink: 0
+                }}
+              >
+                <span>🧊 Xem Khối 3D</span>
+              </button>
             </div>
           )}
 
@@ -2484,6 +2567,79 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: MÔ HÌNH 3D RUBIK INTERACTIVE
+      ========================================== */}
+      {show3DPreviewModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999
+        }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '440px',
+            backgroundColor: '#0d1629',
+            border: '1px solid #38bdf866',
+            borderRadius: '16px',
+            padding: '20px',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.85)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.4rem' }}>🧊</span>
+                <div>
+                  <h3 style={{ margin: 0, fontWeight: '700', fontSize: '1.05rem', color: '#f8fafc' }}>
+                    Mô Hình 3D Khối {PUZZLE_CONFIGS[puzzleType]?.name}
+                  </h3>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    Three.js WebGL • Hỗ trợ xoay 360 độ
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShow3DPreviewModal(false)}
+                style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <Rubik3DView
+              dim={currentDim}
+              detectedColors={detectedColors}
+              lastMove={lastMoveDetected}
+              width={340}
+              height={260}
+            />
+
+            <div style={{
+              marginTop: '14px',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              background: '#111c34',
+              border: '1px solid #1a2a4c',
+              fontSize: '0.75rem',
+              color: '#94a3b8',
+              textAlign: 'center',
+              width: '100%'
+            }}>
+              🖐️ Dùng chuột (hoặc vuốt trên điện thoại) để giữ và kéo xoay khối 3D theo mọi góc nhìn.
+            </div>
           </div>
         </div>
       )}
