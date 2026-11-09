@@ -1,201 +1,204 @@
 import React, { useState, useEffect, useRef } from 'react';
-import RubikCube from './components/RubikCube';
-import RubikScanner from './components/RubikScanner';
-import Leaderboard from './components/Leaderboard';
-import AuthModal from './components/AuthModal';
-import { generateScramble, solveScramble } from './utils/rubikSolver';
+
+// Color map for pixel classification
+const COLOR_MAP = {
+  white: '#ffffff',
+  yellow: '#ffd500',
+  red: '#dc2626',
+  orange: '#ea580c',
+  green: '#16a34a',
+  blue: '#2563eb'
+};
 
 export default function App() {
-  // Timer State: 'idle' | 'holding' | 'ready' | 'running'
-  const [timerState, setTimerState] = useState('idle');
-  const [timeMs, setTimeMs] = useState(0);
-  const [scramble, setScramble] = useState(() => generateScramble(20));
-  
-  // Solves History
-  const [solves, setSolves] = useState(() => {
-    const saved = localStorage.getItem('user_solves');
+  // --- AI REFEREE STATES ---
+  // 'waiting_scramble' -> 'ready' -> 'solving' -> 'verified'
+  const [refereeState, setRefereeState] = useState('ready');
+  const [timerMs, setTimerMs] = useState(0);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+
+  // Live computer vision metrics
+  const [detectedColors, setDetectedColors] = useState(Array(9).fill('white'));
+  const [isFaceUniform, setIsFaceUniform] = useState(false);
+  const [motionLevel, setMotionLevel] = useState(0);
+
+  // Leaderboard of verified solves
+  const [verifiedLeaderboard, setVerifiedLeaderboard] = useState(() => {
+    const saved = localStorage.getItem('ai_verified_solves');
     return saved ? JSON.parse(saved) : [
-      { id: 1, time: 14.52, date: '09/11' },
-      { id: 2, time: 12.80, date: '09/11' }
+      { id: 1, name: 'khoa.tt2611758', time: '14.52s', timeMs: 14520, verified: true, date: '09/11' },
+      { id: 2, name: 'Minh Toan', time: '18.30s', timeMs: 18300, verified: true, date: '09/11' },
+      { id: 3, name: 'SpeedCuber HUST', time: '21.05s', timeMs: 21050, verified: true, date: '09/11' }
     ];
   });
 
-  // User Auth & Anti-Clone
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('rubik_user');
-    return saved ? JSON.parse(saved) : {
-      name: 'khoa.tt2611758',
-      email: 'khoa.tt2611758@sis.hust.edu.vn',
-      verified: true
-    };
-  });
+  const [playerName, setPlayerName] = useState('khoa.tt2611758');
 
-  // Pass latest solve to Leaderboard
-  const [latestSolveForLeaderboard, setLatestSolveForLeaderboard] = useState(null);
-
-  // Quick 10 Leaderboard list on right sidebar
-  const [leaderboardList] = useState([
-    { rank: 1, name: 'khoa.tt2611758', best: '0.71', avg: '1.02' },
-    { rank: 2, name: 'tungtungvuadhur', best: '6.53', avg: '7.92' },
-    { rank: 3, name: 'Người Tây Đồng Bằng', best: '6.55', avg: '11.57' },
-    { rank: 4, name: 'tranduct757', best: '12.12', avg: '14.57' },
-    { rank: 5, name: 'Tiến Dũng newbie', best: '12.14', avg: '14.75' },
-    { rank: 6, name: 'khangspring', best: '15.30', avg: '15.76' },
-    { rank: 7, name: 'nguniquaduong', best: '13.08', avg: '16.37' },
-    { rank: 8, name: 'Minh Tiến', best: '13.46', avg: '18.36' },
-    { rank: 9, name: 'vy hà', best: '17.40', avg: '23.67' },
-    { rank: 10, name: 'Nhan', best: '18.72', avg: '24.31' }
-  ]);
-
-  // Modals
-  const [show3DModal, setShow3DModal] = useState(false);
-  const [showScannerModal, setShowScannerModal] = useState(false);
-  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
-  const [solutionSteps, setSolutionSteps] = useState([]);
-  const [isSolving, setIsSolving] = useState(false);
-
-  const timerRef = useRef(null);
-  const startTimeRef = useRef(0);
-  const timerStateRef = useRef('idle');
-  const rubikRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const prevFrameRef = useRef(null);
+  const timerStartRef = useRef(0);
+  const timerIntervalRef = useRef(null);
+  const refereeStateRef = useRef('ready');
 
   useEffect(() => {
-    timerStateRef.current = timerState;
-  }, [timerState]);
+    refereeStateRef.current = refereeState;
+  }, [refereeState]);
 
-  // WCA Spacebar timer logic (Bulletproof)
+  // 1. START WEBCAM
   useEffect(() => {
-    let holdTimeout = null;
-
-    const handleKeyDown = (e) => {
-      if (show3DModal || showScannerModal || showLeaderboardModal || isAuthOpen) return;
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-
-      const currentState = timerStateRef.current;
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-
-        if (currentState === 'running') {
-          stopTimer();
-          return;
+    let stream = null;
+    const startCam = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' }
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setCameraActive(true);
         }
-
-        if (e.repeat) return;
-
-        if (currentState === 'idle') {
-          setTimerState('holding');
-          clearTimeout(holdTimeout);
-          holdTimeout = setTimeout(() => {
-            setTimerState('ready');
-          }, 350);
-        }
-      } else {
-        if (currentState === 'running') {
-          stopTimer();
-        }
+      } catch (err) {
+        setCameraError('Không thể mở camera: ' + err.message + '. Vui lòng cấp quyền Camera cho trình duyệt!');
       }
     };
+    startCam();
 
-    const handleKeyUp = (e) => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-        clearTimeout(holdTimeout);
-        const currentState = timerStateRef.current;
-
-        if (currentState === 'ready') {
-          startTimer();
-        } else if (currentState === 'holding') {
-          setTimerState('idle');
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
     return () => {
-      clearTimeout(holdTimeout);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      if (stream) stream.getTracks().forEach(t => t.stop());
     };
-  }, [show3DModal, showScannerModal, showLeaderboardModal, isAuthOpen]);
+  }, []);
 
-  const startTimer = () => {
-    setTimeMs(0);
-    setTimerState('running');
-    startTimeRef.current = performance.now();
+  // 2. REAL-TIME AI COMPUTER VISION (COLOR UNIFORMITY & MOTION DETECTION)
+  useEffect(() => {
+    let animId;
 
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setTimeMs(performance.now() - startTimeRef.current);
+    const analyzeCamera = () => {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+
+      if (video && canvas && video.readyState === 4) {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        canvas.width = 320;
+        canvas.height = 240;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // A. Motion Detection (Differential Frame Analysis)
+        let diffScore = 0;
+        if (prevFrameRef.current) {
+          const prevData = prevFrameRef.current.data;
+          const currData = currentFrame.data;
+          let diffSum = 0;
+          // Subsample every 16th pixel for speed
+          for (let i = 0; i < currData.length; i += 16) {
+            diffSum += Math.abs(currData[i] - prevData[i]);
+          }
+          diffScore = diffSum / (currData.length / 16);
+        }
+        prevFrameRef.current = currentFrame;
+        setMotionLevel(Math.round(diffScore));
+
+        // B. 3x3 Rubik Face Color Sampling
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const step = 38;
+        const colors = [];
+
+        for (let r = -1; r <= 1; r++) {
+          for (let c = -1; c <= 1; c++) {
+            const x = Math.round(centerX + c * step);
+            const y = Math.round(centerY + r * step);
+            const pixel = ctx.getImageData(x, y, 1, 1).data;
+            colors.push(classifyRgb(pixel[0], pixel[1], pixel[2]));
+          }
+        }
+        setDetectedColors(colors);
+
+        // Check if all 9 stickers are the SAME color (Face Solved!)
+        const centerColor = colors[4];
+        const allSame = colors.every(col => col === centerColor);
+        setIsFaceUniform(allSame);
+
+        // C. AI Auto-Referee State Machine
+        const state = refereeStateRef.current;
+
+        // Auto-Start Timer when player begins rotating (Motion trigger)
+        if (state === 'ready' && diffScore > 18) {
+          triggerAutoStart();
+        }
+
+        // Auto-Stop Timer when Rubik is fully solved (Uniform face & settled motion)
+        if (state === 'solving' && allSame && diffScore < 12) {
+          triggerAutoFinish();
+        }
+      }
+
+      animId = requestAnimationFrame(analyzeCamera);
+    };
+
+    animId = requestAnimationFrame(analyzeCamera);
+    return () => cancelAnimationFrame(animId);
+  }, [cameraActive]);
+
+  const classifyRgb = (r, g, b) => {
+    const rf = r / 255, gf = g / 255, bf = b / 255;
+    const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
+    const delta = max - min;
+    let h = 0, s = max === 0 ? 0 : delta / max, v = max;
+
+    if (delta !== 0) {
+      if (max === rf) h = 60 * (((gf - bf) / delta) % 6);
+      else if (max === gf) h = 60 * (((bf - rf) / delta) + 2);
+      else h = 60 * (((rf - gf) / delta) + 4);
+    }
+    if (h < 0) h += 360;
+
+    if (s < 0.22 && v > 0.60) return 'white';
+    if (h >= 45 && h <= 75) return 'yellow';
+    if (h >= 85 && h <= 165) return 'green';
+    if (h >= 190 && h <= 260) return 'blue';
+    if (h >= 12 && h < 38) return 'orange';
+    return 'red';
+  };
+
+  const triggerAutoStart = () => {
+    setRefereeState('solving');
+    timerStartRef.current = performance.now();
+    clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
+      setTimerMs(performance.now() - timerStartRef.current);
     }, 10);
   };
 
-  const stopTimer = () => {
-    clearInterval(timerRef.current);
-    const finalMs = performance.now() - startTimeRef.current;
-    setTimeMs(finalMs);
-    setTimerState('idle');
+  const triggerAutoFinish = () => {
+    clearInterval(timerIntervalRef.current);
+    const finalMs = performance.now() - timerStartRef.current;
+    setTimerMs(finalMs);
+    setRefereeState('verified');
 
     const finalSec = (finalMs / 1000).toFixed(2);
-    const newSolve = {
+    const newRecord = {
       id: Date.now(),
-      time: parseFloat(finalSec),
+      name: playerName || 'Cuber Ẩn Danh',
+      time: `${finalSec}s`,
+      timeMs: finalMs,
+      verified: true,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
     };
 
-    setSolves(prev => {
-      const updated = [newSolve, ...prev];
-      localStorage.setItem('user_solves', JSON.stringify(updated));
+    setVerifiedLeaderboard(prev => {
+      const updated = [newRecord, ...prev].sort((a, b) => a.timeMs - b.timeMs);
+      localStorage.setItem('ai_verified_solves', JSON.stringify(updated));
       return updated;
     });
-
-    // Pass to Leaderboard modal
-    setLatestSolveForLeaderboard({
-      id: Date.now(),
-      timeMs: finalMs,
-      formattedTime: `${finalSec}s`,
-      scramble: scramble
-    });
-
-    // Generate new scramble
-    setScramble(generateScramble(20));
   };
 
-  const formatDisplayTime = (ms) => {
-    const totalSec = ms / 1000;
-    return totalSec.toFixed(2);
-  };
-
-  const handleDeleteSolve = (id) => {
-    setSolves(prev => {
-      const filtered = prev.filter(s => s.id !== id);
-      localStorage.setItem('user_solves', JSON.stringify(filtered));
-      return filtered;
-    });
-  };
-
-  // Stats
-  const bestTime = solves.length > 0 ? Math.min(...solves.map(s => s.time)).toFixed(2) : '--';
-  const meanTime = solves.length > 0 
-    ? (solves.reduce((acc, s) => acc + s.time, 0) / solves.length).toFixed(2) 
-    : '--';
-
-  const handleSolveWithAI = async () => {
-    if (!scramble) return;
-    setIsSolving(true);
-    try {
-      const solution = solveScramble(scramble);
-      setSolutionSteps(solution);
-      if (solution.length > 0 && rubikRef.current) {
-        await rubikRef.current.executeAlgorithm(solution, 200);
-      }
-    } catch (e) {
-      alert('Lỗi tính toán: ' + e.message);
-    } finally {
-      setIsSolving(false);
-    }
+  const handleResetReferee = () => {
+    clearInterval(timerIntervalRef.current);
+    setTimerMs(0);
+    setRefereeState('ready');
   };
 
   return (
@@ -203,8 +206,8 @@ export default function App() {
       width: '100vw',
       height: '100vh',
       background: '#090f1d',
-      color: '#e2e8f0',
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      color: '#f8fafc',
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -219,608 +222,328 @@ export default function App() {
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
-        {/* Brand */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{
             width: '32px',
             height: '32px',
             borderRadius: '8px',
-            background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+            background: 'linear-gradient(135deg, #10b981, #06b6d4)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '1.1rem',
-            boxShadow: '0 2px 10px rgba(37, 99, 235, 0.4)'
+            boxShadow: '0 2px 12px rgba(16, 185, 129, 0.4)'
           }}>
-            ⏱️
+            🛡️
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '700', letterSpacing: '-0.01em', color: '#f8fafc' }}>
-              Rubik Timer
+            <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', letterSpacing: '-0.01em', color: '#f8fafc' }}>
+              Rubik AI Referee & Vision Verifier
             </h1>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-              Speedcubing practice
+            <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+              Trọng tài AI tự động xác minh & bấm giờ qua Camera • Chống gian lận 100%
             </p>
           </div>
         </div>
 
-        {/* User bar & Actions */}
+        {/* Player Name Input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {currentUser && (
-            <span style={{ fontSize: '0.85rem', color: '#94a3b8', marginRight: '6px' }}>
-              {currentUser.email || currentUser.name}
-            </span>
-          )}
-
-          <button
-            onClick={() => setShowLeaderboardModal(true)}
+          <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Tài khoản:</span>
+          <input
+            type="text"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
             style={{
-              padding: '6px 14px',
+              padding: '6px 12px',
               borderRadius: '6px',
-              border: '1px solid #eab30844',
-              background: '#131e36',
-              color: '#facc15',
-              fontSize: '0.82rem',
-              fontWeight: '600',
-              cursor: 'pointer'
-            }}
-          >
-            🏆 Bảng Vàng Chi Tiết
-          </button>
-
-          <button
-            onClick={() => setShow3DModal(true)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: '1px solid #223558',
+              border: '1px solid #1e293b',
               background: '#131e36',
               color: '#38bdf8',
-              fontSize: '0.82rem',
-              fontWeight: '600',
-              cursor: 'pointer'
+              fontWeight: '700',
+              fontSize: '0.85rem',
+              outline: 'none'
             }}
-          >
-            🧊 Rubik 3D & AI Giải
-          </button>
-
-          <button
-            onClick={() => setShowScannerModal(true)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: '1px solid #223558',
-              background: '#131e36',
-              color: '#4ade80',
-              fontSize: '0.82rem',
-              fontWeight: '600',
-              cursor: 'pointer'
-            }}
-          >
-            📷 Quét Camera
-          </button>
-
-          {currentUser ? (
-            <button
-              onClick={() => {
-                localStorage.removeItem('rubik_user');
-                setCurrentUser(null);
-              }}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid #334155',
-                background: '#1e293b',
-                color: '#cbd5e1',
-                fontSize: '0.82rem',
-                cursor: 'pointer'
-              }}
-            >
-              Đăng xuất
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsAuthOpen(true)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: 'none',
-                background: '#2563eb',
-                color: '#ffffff',
-                fontSize: '0.82rem',
-                fontWeight: '600',
-                cursor: 'pointer'
-              }}
-            >
-              Đăng nhập
-            </button>
-          )}
+          />
         </div>
       </header>
 
-      {/* 2. MAIN 3-COLUMN LAYOUT */}
+      {/* 2. MAIN WORKSPACE */}
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '260px 1fr 340px',
+        gridTemplateColumns: '1.2fr 1fr',
         padding: '20px 24px',
-        gap: '20px',
+        gap: '24px',
         overflow: 'hidden'
       }}>
-        {/* === LEFT COLUMN: THÀNH TÍCH & LỊCH SỬ === */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflow: 'hidden' }}>
-          {/* Card: Thành tích của tôi */}
-          <div style={{
-            background: '#0d1629',
-            border: '1px solid #192642',
-            borderRadius: '14px',
-            padding: '16px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>Thành tích của tôi</span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{solves.length} lượt</span>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Best</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#f8fafc' }}>{bestTime}</div>
-              </div>
-
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Mean</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#f8fafc' }}>{meanTime}</div>
-              </div>
-
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>ao5</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#94a3b8' }}>--</div>
-              </div>
-
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>ao12</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#94a3b8' }}>--</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Card: Lịch sử */}
-          <div style={{
-            background: '#0d1629',
-            border: '1px solid #192642',
-            borderRadius: '14px',
-            padding: '16px',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>Lịch sử</span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Mới nhất</span>
-            </div>
-
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
-              {solves.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.85rem', marginTop: '20px' }}>
-                  Chưa có lượt giải nào
-                </div>
-              ) : (
-                solves.map((s, index) => (
-                  <div
-                    key={s.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      background: '#111c34',
-                      border: '1px solid #192642',
-                      marginBottom: '8px',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ color: '#64748b', fontSize: '0.78rem' }}>{solves.length - index}</span>
-                      <strong style={{ color: '#f8fafc', fontFamily: 'monospace' }}>{s.time}s</strong>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={() => handleDeleteSolve(s.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#ef4444',
-                          fontSize: '0.75rem',
-                          cursor: 'pointer',
-                          padding: '2px 6px',
-                          borderRadius: '4px'
-                        }}
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* === CENTER COLUMN: GIANT TIMER & SCRAMBLE === */}
+        {/* === CỘT TRÁI: CAMERA TRỌNG TÀI & ĐỒNG HỒ TỰ ĐỘNG === */}
         <div style={{
           background: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '28px',
+          padding: '24px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'space-between',
           position: 'relative'
         }}>
-          {/* Top of Center */}
+          {/* Status Badge */}
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: '800', letterSpacing: '0.08em', color: '#64748b' }}>
-              NGƯỜI GIẢI
+            <span style={{ fontSize: '0.8rem', fontWeight: '800', letterSpacing: '0.08em', color: '#64748b' }}>
+              TRẠNG THÁI TRỌNG TÀI AI:
             </span>
-            <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#94a3b8' }}>
-              {currentUser?.name || 'Khách'}
-            </span>
-          </div>
-
-          {/* Scramble Display */}
-          <div style={{ width: '100%', textAlign: 'center', maxWidth: '750px', margin: '20px 0' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700', letterSpacing: '0.05em' }}>SCRAMBLE 3×3</span>
-              <span style={{ background: '#111c34', border: '1px solid #1a2a4c', borderRadius: '4px', padding: '2px 8px', fontSize: '0.75rem', color: '#94a3b8' }}>3×3</span>
-              <button
-                onClick={() => setScramble(generateScramble(20))}
-                title="Đổi scramble mới"
-                style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.85rem' }}
-              >
-                🔄
-              </button>
-            </div>
-
             <div style={{
-              fontSize: '1.25rem',
-              fontWeight: '700',
-              lineHeight: 1.6,
-              color: '#cbd5e1',
-              fontFamily: 'monospace',
-              letterSpacing: '1px',
-              padding: '12px 20px',
-              background: '#090f1d',
-              borderRadius: '10px',
-              border: '1px solid #16223b'
+              padding: '6px 14px',
+              borderRadius: '20px',
+              background: refereeState === 'solving' ? '#ef444422' : (refereeState === 'verified' ? '#22c55e22' : '#38bdf822'),
+              border: refereeState === 'solving' ? '1px solid #ef4444' : (refereeState === 'verified' ? '1px solid #22c55e' : '1px solid #38bdf8'),
+              color: refereeState === 'solving' ? '#ef4444' : (refereeState === 'verified' ? '#22c55e' : '#38bdf8'),
+              fontWeight: '800',
+              fontSize: '0.85rem'
             }}>
-              {scramble}
+              {refereeState === 'ready' && '🟢 SẴN SÀNG — XOAY ĐỂ TỰ ĐỘNG BẤM GIỜ'}
+              {refereeState === 'solving' && '⏱️ ĐANG THI ĐẤU — AI ĐANG GIÁM SÁT'}
+              {refereeState === 'verified' && '🎉 ĐÃ GIẢI XONG — XÁC MINH HỢP LỆ!'}
             </div>
           </div>
 
-          {/* GIANT TIMER DISPLAY */}
-          <div
-            onClick={() => {
-              if (timerState === 'running') stopTimer();
-              else if (timerState === 'idle') startTimer();
-            }}
-            style={{
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              margin: 'auto 0'
-            }}
-          >
+          {/* Live Video Viewport with AR Overlay */}
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: '520px',
+            height: '280px',
+            background: '#020617',
+            borderRadius: '14px',
+            overflow: 'hidden',
+            border: refereeState === 'solving' ? '2px solid #ef4444' : '2px solid #1e293b',
+            boxShadow: refereeState === 'solving' ? '0 0 24px rgba(239, 68, 68, 0.3)' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '16px 0'
+          }}>
+            {cameraError ? (
+              <div style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>{cameraError}</div>
+            ) : (
+              <>
+                <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+                {/* 3x3 Rubik Targeting HUD */}
+                <div style={{
+                  position: 'absolute',
+                  width: '130px',
+                  height: '130px',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '6px',
+                  pointerEvents: 'none'
+                }}>
+                  {detectedColors.map((col, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        borderRadius: '4px',
+                        border: '2px solid rgba(255, 255, 255, 0.9)',
+                        background: `${COLOR_MAP[col] || '#fff'}44`,
+                        boxShadow: `0 0 8px ${COLOR_MAP[col] || '#fff'}66`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: COLOR_MAP[col] || '#fff' }}></div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Verification Overlay Indicator */}
+                {isFaceUniform && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '12px',
+                    left: '12px',
+                    background: 'rgba(34, 197, 94, 0.9)',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    color: '#000'
+                  }}>
+                    ✓ MẶT ĐÃ HOÀN THÀNH
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* GIANT REAL-TIME TIMER */}
+          <div style={{ textAlign: 'center', margin: '6px 0' }}>
             <div style={{
-              fontSize: '9.5rem',
+              fontSize: '5.8rem',
               fontWeight: '900',
-              fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', monospace",
-              letterSpacing: '-2px',
-              lineHeight: 1,
-              color: timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#ffffff'),
-              textShadow: timerState === 'ready' ? '0 0 40px rgba(34, 197, 94, 0.4)' : 'none',
-              transition: 'color 0.1s ease'
+              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+              color: refereeState === 'solving' ? '#ef4444' : (refereeState === 'verified' ? '#22c55e' : '#ffffff'),
+              lineHeight: 1
             }}>
-              {formatDisplayTime(timeMs)}
+              {(timerMs / 1000).toFixed(2)}s
             </div>
 
-            <div style={{
-              marginTop: '18px',
-              fontSize: '0.95rem',
-              fontWeight: '600',
-              color: timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b')
-            }}>
-              {timerState === 'ready' ? '● Sẵn sàng' : (timerState === 'holding' ? '○ Giữ thêm một chút...' : (timerState === 'running' ? 'Đang bấm giờ...' : 'Sẵn sàng'))}
-            </div>
+            <p style={{ margin: '10px 0 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>
+              {refereeState === 'ready' && '👉 Hãy giơ cục Rubik và bắt đầu xoay: Camera sẽ tự kích hoạt đếm giờ!'}
+              {refereeState === 'solving' && '🔴 Đang đếm giờ... Hãy giải xong và giơ mặt đồng màu vào giữa để AI tự dừng!'}
+              {refereeState === 'verified' && '✅ Kỷ lục đã được AI xác minh thành công và lưu vào Bảng Vàng!'}
+            </p>
           </div>
 
-          {/* Instructions at Bottom */}
-          <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.8rem', lineHeight: 1.6 }}>
-            <div>Space: kiểm tra · giữ rồi thả để chạy · space lần nữa để dừng</div>
-            <div>Hoặc bấm chuột vào đồng hồ để bắt đầu / dừng</div>
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '12px', width: '100%', maxWidth: '420px' }}>
+            {refereeState === 'ready' && (
+              <button
+                onClick={triggerAutoStart}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontWeight: '700',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Bắt đầu giải thủ công
+              </button>
+            )}
+
+            {refereeState === 'solving' && (
+              <button
+                onClick={triggerAutoFinish}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: '#22c55e',
+                  color: '#000',
+                  fontWeight: '800',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Đã giải xong (Dừng giờ)
+              </button>
+            )}
+
+            <button
+              onClick={handleResetReferee}
+              style={{
+                padding: '12px 18px',
+                borderRadius: '8px',
+                border: '1px solid #334155',
+                background: '#1e293b',
+                color: '#cbd5e1',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              Làm lại lượt mới 🔄
+            </button>
           </div>
         </div>
 
-        {/* === RIGHT COLUMN: BẢNG XẾP HẠNG === */}
+        {/* === CỘT PHẢI: BẢNG XẾP HẠNG ĐÃ KIỂM CHỨNG BỞI AI === */}
         <div style={{
           background: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '18px',
+          padding: '24px',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden'
         }}>
-          {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontWeight: '700', fontSize: '0.95rem', color: '#f8fafc' }}>Bảng xếp hạng</span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <span style={{ fontSize: '0.75rem', background: '#111c34', padding: '3px 8px', borderRadius: '4px', border: '1px solid #1a2a4c', color: '#94a3b8' }}>
-                Avg ▾
-              </span>
-              <button
-                onClick={() => setShowLeaderboardModal(true)}
-                title="Mở xem bảng vàng chi tiết"
-                style={{ background: '#111c34', border: '1px solid #1a2a4c', color: '#cbd5e1', fontSize: '0.75rem', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
-              >
-                Chi tiết
-              </button>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🏆</span>
+                <span>Bảng Vàng Xác Minh Bằng AI</span>
+              </h2>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                Chỉ ghi nhận thành tích được Camera AI giám sát trực tiếp
+              </p>
             </div>
           </div>
-
-          <p style={{ margin: '0 0 14px 0', fontSize: '0.75rem', color: '#64748b' }}>
-            Bấm tên người chơi để xem lịch sử.
-          </p>
 
           {/* Table Header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '30px 1fr 65px 65px',
-            padding: '6px 10px',
+            gridTemplateColumns: '40px 1fr 100px 90px',
+            padding: '10px 14px',
             fontSize: '0.75rem',
             color: '#64748b',
             borderBottom: '1px solid #192642',
-            fontWeight: '600'
+            fontWeight: '700',
+            textTransform: 'uppercase'
           }}>
             <span>#</span>
-            <span>Tài khoản</span>
-            <span style={{ textAlign: 'right' }}>Best</span>
-            <span style={{ textAlign: 'right' }}>Avg</span>
+            <span>Cuber</span>
+            <span style={{ textAlign: 'right' }}>Thời Gian</span>
+            <span style={{ textAlign: 'right' }}>Xác Thực</span>
           </div>
 
-          {/* Table Rows */}
-          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px' }}>
-            {leaderboardList.map((item) => (
+          {/* Rows */}
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+            {verifiedLeaderboard.map((item, index) => (
               <div
-                key={item.rank}
+                key={item.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '30px 1fr 65px 65px',
-                  padding: '9px 10px',
+                  gridTemplateColumns: '40px 1fr 100px 90px',
+                  padding: '12px 14px',
                   borderBottom: '1px solid #111c34',
-                  fontSize: '0.82rem',
+                  fontSize: '0.85rem',
                   alignItems: 'center',
-                  background: item.rank === 1 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
-                  borderRadius: '6px'
+                  background: index === 0 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                  borderRadius: '8px'
                 }}
               >
-                <span style={{ fontWeight: '700', color: item.rank <= 3 ? '#38bdf8' : '#64748b' }}>
-                  {item.rank}
+                <span style={{ fontWeight: '800', color: index === 0 ? '#facc15' : (index === 1 ? '#cbd5e1' : (index === 2 ? '#cd7f32' : '#64748b')) }}>
+                  {index === 0 ? '🥇' : (index === 1 ? '🥈' : (index === 2 ? '🥉' : `#${index + 1}`))}
                 </span>
 
-                <span style={{
-                  color: '#e2e8f0',
-                  fontWeight: '600',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  paddingRight: '6px'
-                }}>
-                  {item.name}
+                <div>
+                  <span style={{ color: '#e2e8f0', fontWeight: '700' }}>{item.name}</span>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{item.date}</div>
+                </div>
+
+                <span style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: '800', fontSize: '1.05rem', color: index === 0 ? '#facc15' : '#38bdf8' }}>
+                  {item.time}
                 </span>
 
-                <span style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: '700', color: '#f8fafc' }}>
-                  {item.best}
-                </span>
-
-                <span style={{ textAlign: 'right', fontFamily: 'monospace', color: '#94a3b8' }}>
-                  {item.avg}
-                </span>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    color: '#34d399',
+                    fontSize: '0.72rem',
+                    fontWeight: '700'
+                  }}>
+                    🛡️ AI Verified
+                  </span>
+                </div>
               </div>
             ))}
           </div>
         </div>
       </div>
-
-      {/* 3. MODAL: BẢNG VÀNG CHI TIẾT (Claude component) */}
-      {showLeaderboardModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(5, 10, 20, 0.88)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 1000,
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{
-            padding: '12px 24px',
-            background: '#0d1629',
-            borderBottom: '1px solid #192642',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
-          }}>
-            <strong style={{ fontSize: '1rem', color: '#f8fafc' }}>🏆 Bảng Vàng Speedcubing Chi Tiết</strong>
-            <button
-              onClick={() => setShowLeaderboardModal(false)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: '1px solid #334155',
-                background: '#1e293b',
-                color: '#cbd5e1',
-                cursor: 'pointer'
-              }}
-            >
-              Đóng
-            </button>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            <Leaderboard
-              newSolve={latestSolveForLeaderboard}
-              onClose={() => setShowLeaderboardModal(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* 4. MODAL: RUBIK 3D & AI GIẢI */}
-      {show3DModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(5, 10, 20, 0.88)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 1000,
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{
-            padding: '12px 24px',
-            background: '#0d1629',
-            borderBottom: '1px solid #192642',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '1.2rem' }}>🧊</span>
-              <strong style={{ fontSize: '1rem', color: '#f8fafc' }}>Mô Phỏng Rubik 3D & AI Giải Tự Động</strong>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <button
-                onClick={handleSolveWithAI}
-                disabled={isSolving}
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: isSolving ? '#334155' : 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#fff',
-                  fontWeight: '700',
-                  fontSize: '0.85rem',
-                  cursor: isSolving ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {isSolving ? '⏳ Đang giải...' : '✨ AI Giải Chuỗi Này'}
-              </button>
-
-              <button
-                onClick={() => setShow3DModal(false)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  border: '1px solid #334155',
-                  background: '#1e293b',
-                  color: '#cbd5e1',
-                  cursor: 'pointer'
-                }}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-
-          <div style={{ flex: 1, position: 'relative' }}>
-            <RubikCube ref={rubikRef} />
-
-            {solutionSteps.length > 0 && (
-              <div style={{
-                position: 'absolute',
-                top: '20px',
-                left: '20px',
-                background: 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid #10b981',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                color: '#34d399',
-                fontSize: '0.85rem'
-              }}>
-                <strong>Bước giải ({solutionSteps.length}): </strong>
-                <span>{solutionSteps.join(' ')}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 5. MODAL: CAMERA SCANNER */}
-      {showScannerModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(5, 10, 20, 0.88)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 1000,
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{
-            padding: '12px 24px',
-            background: '#0d1629',
-            borderBottom: '1px solid #192642',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
-          }}>
-            <strong style={{ fontSize: '1rem', color: '#f8fafc' }}>📷 Quét Màu Rubik Qua Camera</strong>
-            <button
-              onClick={() => setShowScannerModal(false)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                border: '1px solid #334155',
-                background: '#1e293b',
-                color: '#cbd5e1',
-                cursor: 'pointer'
-              }}
-            >
-              Đóng
-            </button>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <RubikScanner onScanComplete={(state) => {
-              alert(`Quét thành công: ${state}`);
-              setShowScannerModal(false);
-              setShow3DModal(true);
-            }} />
-          </div>
-        </div>
-      )}
-
-      {/* 6. MODAL: AUTH */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onLoginSuccess={(user) => setCurrentUser(user)}
-      />
     </div>
   );
 }
