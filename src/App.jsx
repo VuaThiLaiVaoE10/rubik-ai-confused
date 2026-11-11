@@ -202,6 +202,134 @@ export default function App() {
     };
   });
 
+    // ==========================================
+  // MOBILE RESPONSIVENESS & TOUCHPAD CONTROLS
+  // ==========================================
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 860);
+  const [mobileTab, setMobileTab] = useState('timer'); // 'timer' | 'stats' | 'leaderboard' | '3d'
+  const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' | 'environment'
+  const touchHoldTimerRef = useRef(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 860);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Web Audio sound synthesizer for responsive feedback
+  const playAppSound = useCallback((type) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'ready') {
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      } else if (type === 'start') {
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } else if (type === 'stop') {
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.08);
+      }
+    } catch {}
+  }, []);
+
+  // Mobile pointer/touch events for StackMat touch timer
+  const handleTimerPointerDown = useCallback((e) => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+
+    const curState = timerStateRef.current;
+    const curMode = gameModeRef.current;
+    if (curMode === 'solo') return;
+
+    if (curState === 'running') {
+      stopTimerRef.current();
+        playAppSound('stop');
+      playAppSound('stop');
+      return;
+    }
+
+    if (curState === 'inspecting') {
+      setTimerState('holding');
+      touchHoldTimerRef.current = setTimeout(() => {
+        setTimerState('ready');
+        playAppSound('ready');
+      }, adminSettingsRef.current?.spaceHoldMs || 280);
+      return;
+    }
+
+    if (curState === 'idle') {
+      if (curMode === 'wca') {
+        startInspectionRef.current();
+      } else {
+        setTimerState('holding');
+        touchHoldTimerRef.current = setTimeout(() => {
+          setTimerState('ready');
+          playAppSound('ready');
+        }, adminSettingsRef.current?.spaceHoldMs || 280);
+      }
+    }
+  }, [playAppSound]);
+
+  const handleTimerPointerUp = useCallback((e) => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+    if (touchHoldTimerRef.current) {
+      clearTimeout(touchHoldTimerRef.current);
+      touchHoldTimerRef.current = null;
+    }
+
+    const curState = timerStateRef.current;
+    if (curState === 'ready') {
+      startTimerRef.current();
+      playAppSound('start');
+    } else if (curState === 'holding') {
+      if (gameModeRef.current === 'wca') {
+        setTimerState('inspecting');
+      } else {
+        setTimerState('idle');
+      }
+    }
+  }, [playAppSound]);
+
+  // Flip Camera between Front (user) and Back (environment)
+  const flipCamera = async () => {
+    const nextMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+    setCameraFacingMode(nextMode);
+    if (cameraActive) {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      try {
+        setPreCheckStatus(prev => ({ ...prev, text: 'Đang chuyển camera...' }));
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: nextMode }
+        });
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        setPreCheckStatus(prev => ({ ...prev, text: 'Đã đổi camera thành công!' }));
+      } catch (err) {
+        console.error('Lỗi đổi camera:', err);
+      }
+    }
+  };
+
   // Modal Login thông thường (hoàn toàn ẩn mục Admin)
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [inputUserName, setInputUserName] = useState('');
@@ -729,6 +857,7 @@ export default function App() {
 
         if (currentState === 'ready') {
           startTimerRef.current();
+          playAppSound('start');
         } else if (currentState === 'holding') {
           if (gameModeRef.current === 'wca') {
             setTimerState('inspecting');
@@ -771,7 +900,7 @@ export default function App() {
       try {
         setPreCheckStatus(prev => ({ ...prev, text: 'Đang kết nối camera...' }));
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: cameraFacingMode }
         });
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
@@ -1057,11 +1186,13 @@ export default function App() {
           </div>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.02rem', fontWeight: '700', color: '#f8fafc' }}>
-              {adminSettings.competitionTitle}
+              {isMobile ? 'Rubik AI Speedcubing' : adminSettings.competitionTitle}
             </h1>
-            <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
-              {adminSettings.subTitle}
-            </p>
+            {!isMobile && (
+              <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
+                {adminSettings.subTitle}
+              </p>
+            )}
           </div>
         </div>
 
@@ -1114,6 +1245,30 @@ export default function App() {
             <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
             <span>{cameraActive ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') : 'Bật Cam'}</span>
           </button>
+
+          {/* NUT DOI CAMERA TRUOC/SAU (CHO MOBILE/TABLET) */}
+          {cameraActive && (
+            <button
+              onClick={flipCamera}
+              title="Đổi giữa Camera Trước và Camera Sau"
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #334155',
+                background: '#1e293b',
+                color: '#38bdf8',
+                fontWeight: '600',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <span>🔄</span>
+              <span>{cameraFacingMode === 'user' ? 'Cam Sau' : 'Cam Trước'}</span>
+            </button>
+          )}
 
           {/* CHỈ HIỂN THỊ QUẢN TRỊ KHI LÀ GMAIL KHOA: khoa.tt2611758@sis.hust.edu.vn */}
           {isKhoaAdmin ? (
@@ -1194,14 +1349,17 @@ export default function App() {
       ========================================== */}
       <div style={{
         flex: 1,
-        display: 'grid',
-        gridTemplateColumns: gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px',
-        padding: '12px 20px',
-        gap: '16px',
-        overflow: 'hidden'
+        display: isMobile ? 'flex' : 'grid',
+        flexDirection: isMobile ? 'column' : undefined,
+        gridTemplateColumns: isMobile ? undefined : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px'),
+        padding: isMobile ? '8px 10px 72px 10px' : '12px 20px',
+        gap: '12px',
+        overflowY: isMobile ? 'auto' : 'hidden',
+        overflowX: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
+        {(!isMobile || mobileTab === 'stats') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden', width: isMobile ? '100%' : undefined }}>
           <div style={{
             backgroundColor: '#0d1629',
             border: '1px solid #192642',
@@ -1313,18 +1471,22 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
 
         {/* === CỘT GIỮA: CHẾ ĐỘ CHƠI + PUZZLE TABS + SCRAMBLE + CAMERA + TIMER === */}
+        {(!isMobile || mobileTab === 'timer' || gameMode === 'solo') && (
         <div style={{
           backgroundColor: '#0d1629',
           border: '1px solid #192642',
           borderRadius: '16px',
-          padding: '16px 22px',
+          padding: isMobile ? '12px 14px' : '16px 22px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'space-between',
-          position: 'relative'
+          position: 'relative',
+          width: isMobile ? '100%' : undefined,
+          minHeight: isMobile ? '450px' : undefined
         }}>
           {/* Top Bar: GAME MODES + PUZZLE SELECTOR */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
@@ -1334,8 +1496,11 @@ export default function App() {
               padding: '3px',
               borderRadius: '8px',
               border: '1px solid #16223b',
-              gap: '4px'
-            }}>
+              gap: '4px',
+              maxWidth: '100%',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch'
+            }} className="no-scrollbar">
               {GAME_MODES.map((m) => {
                 const isSelected = gameMode === m.id;
                 return (
@@ -1391,8 +1556,11 @@ export default function App() {
               padding: '3px',
               borderRadius: '8px',
               border: '1px solid #16223b',
-              gap: '4px'
-            }}>
+              gap: '4px',
+              maxWidth: '100%',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch'
+            }} className="no-scrollbar">
               {Object.values(PUZZLE_CONFIGS).map((p) => {
                 const isSelected = puzzleType === p.id;
                 return (
@@ -1639,16 +1807,12 @@ export default function App() {
             </div>
           )}
 
-          {/* Center-Middle: GIANT TIMER & INSPECTION DISPLAY */}
+          {/* Center-Middle: GIANT TIMER & SPEEDCUBING TOUCHPAD */}
           <div
-            onClick={() => {
-              if (timerState === 'running') stopTimerRef.current();
-              else if (timerState === 'inspecting') startTimerRef.current();
-              else if (timerState === 'idle') {
-                if (gameMode === 'wca') startInspectionRef.current();
-                else startTimerRef.current();
-              }
-            }}
+            onPointerDown={handleTimerPointerDown}
+            onPointerUp={handleTimerPointerUp}
+            onPointerCancel={handleTimerPointerUp}
+            className="touch-timer-surface"
             style={{
               cursor: 'pointer',
               display: 'flex',
@@ -1658,7 +1822,7 @@ export default function App() {
             }}
           >
             <div style={{
-              fontSize: timerState === 'inspecting' ? '9rem' : '8.2rem',
+              fontSize: timerState === 'inspecting' ? 'clamp(4.2rem, 18vw, 8.5rem)' : 'clamp(3.8rem, 16vw, 8rem)',
               fontWeight: '900',
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
               letterSpacing: '-3px',
@@ -1691,6 +1855,29 @@ export default function App() {
               )}
             </div>
 
+            
+            {/* Quick summary stats bar on mobile */}
+            {isMobile && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                marginTop: '12px',
+                padding: '6px 14px',
+                borderRadius: '20px',
+                background: '#090f1d',
+                border: '1px solid #16223b',
+                fontSize: '0.75rem'
+              }}>
+                <div>PB: <strong style={{ color: '#fbbf24' }}>{bestTime}s</strong></div>
+                <div style={{ color: '#334155' }}>•</div>
+                <div>Ao5: <strong style={{ color: '#38bdf8' }}>{ao5}s</strong></div>
+                <div style={{ color: '#334155' }}>•</div>
+                <div>Số lần: <strong style={{ color: '#a78bfa' }}>{currentSolves.length}</strong></div>
+              </div>
+            )}
+
             {lastTargetResult && timerState === 'idle' && (
               <div style={{
                 marginTop: '8px',
@@ -1707,17 +1894,19 @@ export default function App() {
           </div>
 
           <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.78rem', lineHeight: 1.5 }}>
-            <div>Giữ phím Space cho đến khi đổi màu xanh lá → Thả tay để bắt đầu giải</div>
-            <div>Dừng bằng cách nhấn phím bất kỳ hoặc click chuột vào đồng hồ</div>
+            <div>📱 <strong>Mobile:</strong> Chạm giữ màn hình chờ xanh lá → Thả tay để giải → Chạm để dừng</div>
+            <div>💻 <strong>Desktop:</strong> Giữ phím Space chờ xanh lá → Thả tay để giải → Bấm phím bất kỳ để dừng</div>
           </div>
             </>
           )}
         </div>
+        )}
 
         {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
-        {gameMode !== 'solo' && (
+        {gameMode !== 'solo' && (!isMobile || mobileTab === 'leaderboard') && (
         <div style={{
           backgroundColor: '#0d1629',
+          width: isMobile ? '100%' : undefined,
           border: '1px solid #192642',
           borderRadius: '16px',
           padding: '16px 18px',
@@ -1960,8 +2149,194 @@ export default function App() {
             )}
           </div>
         </div>
+
+        )}
+        {/* === TAB RIÊNG CHO MOBILE: KHỐI 3D & CAMERA AI === */}
+        {isMobile && mobileTab === '3d' && gameMode !== 'solo' && (
+          <div style={{
+            backgroundColor: '#0d1629',
+            border: '1px solid #192642',
+            borderRadius: '16px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '14px',
+            width: '100%'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: '#38bdf8' }}>
+                🧊 Khối Rubik 3D & Camera AI
+              </h3>
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                Khối: {PUZZLE_CONFIGS[puzzleType]?.name}
+              </span>
+            </div>
+
+            {/* Khung 3D tương tác cho mobile */}
+            <div style={{
+              width: '100%',
+              height: '240px',
+              background: '#070b14',
+              borderRadius: '12px',
+              border: '1px solid #1e293b',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              <Rubik3DView
+                dim={currentDim}
+                detectedColors={detectedColors}
+                lastMove={lastMoveDetected}
+                width={330}
+                height={240}
+              />
+              <div style={{
+                position: 'absolute',
+                bottom: '8px',
+                left: '8px',
+                right: '8px',
+                textAlign: 'center',
+                fontSize: '0.72rem',
+                color: '#64748b',
+                background: 'rgba(15, 23, 42, 0.75)',
+                padding: '4px 8px',
+                borderRadius: '6px'
+              }}>
+                👆 Dùng 1 ngón tay xoay 360° • Dùng 2 ngón tay thu phóng
+              </div>
+            </div>
+
+            {/* Điều khiển Camera trên mobile */}
+            <div style={{
+              width: '100%',
+              background: '#111c34',
+              borderRadius: '10px',
+              padding: '12px',
+              border: '1px solid #1e293b',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: cameraActive ? '#4ade80' : '#94a3b8' }}>
+                  {cameraActive ? '🟢 Camera AI Đang Bật' : '🔴 Camera Đang Tắt'}
+                </span>
+                <button
+                  onClick={toggleCamera}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: cameraActive ? '#ef4444' : '#22c55e',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {cameraActive ? 'Tắt Cam' : 'Bật Cam'}
+                </button>
+              </div>
+
+              {cameraActive && (
+                <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'center' }}>
+                  <button
+                    onClick={flipCamera}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      border: '1px solid #334155',
+                      background: '#1e293b',
+                      color: '#38bdf8',
+                      fontSize: '0.8rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>🔄</span>
+                    <span>Đổi Sang {cameraFacingMode === 'user' ? 'Camera Sau' : 'Camera Trước'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Camera Video preview */}
+              {cameraActive && (
+                <div style={{
+                  width: '100%',
+                  maxWidth: '280px',
+                  height: '160px',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  border: cameraHealth.isHealthy ? '2px solid #22c55e' : '2px solid #ef4444',
+                  position: 'relative',
+                  background: '#000'
+                }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR (FIXED) */}
+      {isMobile && gameMode !== 'solo' && (
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: '#0d1629',
+          borderTop: '1px solid #1a2a4c',
+          display: 'flex',
+          justifyContent: 'space-around',
+          padding: '6px 8px env(safe-area-inset-bottom, 8px) 8px',
+          zIndex: 9999,
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.6)'
+        }}>
+          {[
+            { id: 'timer', label: 'Đồng Hồ', icon: '⏱️' },
+            { id: 'stats', label: `Lịch Sử (${solves.length})`, icon: '📊' },
+            { id: 'leaderboard', label: 'Bảng Điểm', icon: '🏆' },
+            { id: '3d', label: '3D & Cam', icon: '🧊' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setMobileTab(tab.id)}
+              style={{
+                flex: 1,
+                padding: '6px 4px',
+                border: 'none',
+                borderRadius: '8px',
+                background: mobileTab === tab.id ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'transparent',
+                color: mobileTab === tab.id ? '#ffffff' : '#64748b',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '2px',
+                cursor: 'pointer',
+                fontSize: '0.72rem',
+                fontWeight: mobileTab === tab.id ? '700' : '500',
+                transition: 'all 0.15s'
+              }}
+            >
+              <span style={{ fontSize: '1.15rem' }}>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
 
       {/* ==========================================
           MODAL: DASHBOARD THỐNG KÊ

@@ -150,7 +150,6 @@ export default function Solo1v1Arena({
           isHealthy: !!data.isHealthy
         });
         setConnectionStatus('connected');
-        // If we are host, also sync initial scramble
         break;
       }
 
@@ -211,11 +210,6 @@ export default function Solo1v1Arena({
         break;
       }
 
-      case 'RESTART_REQUEST': {
-        // Guest receives new round from host
-        break;
-      }
-
       default:
         break;
     }
@@ -230,7 +224,6 @@ export default function Solo1v1Arena({
       setConnectionError('');
 
       if (isHostSide) {
-        // Send handshake
         conn.send({
           type: 'HANDSHAKE',
           name: currentUser.name || 'Người chơi 1',
@@ -238,7 +231,6 @@ export default function Solo1v1Arena({
           isHealthy: cameraHealth.isHealthy
         });
 
-        // Generate initial scramble
         const initialScramble = generateScramble(puzzleType);
         setCurrentScramble(initialScramble);
         setMatchState('ready');
@@ -249,7 +241,6 @@ export default function Solo1v1Arena({
           roundNumber: 1
         });
       } else {
-        // Ack handshake
         conn.send({
           type: 'HANDSHAKE_ACK',
           name: currentUser.name || 'Người chơi 2',
@@ -354,7 +345,6 @@ export default function Solo1v1Arena({
         const conn = peer.connect(targetPeerId, { reliable: true });
         setupConnection(conn, false);
 
-        // Timeout fallback if cannot connect
         setTimeout(() => {
           if (connRef.current && !connRef.current.open && connectionStatus !== 'connected') {
             setConnectionError(`Không tìm thấy phòng "${code}". Hãy kiểm tra lại mã hoặc nhờ Host tạo lại phòng!`);
@@ -427,7 +417,7 @@ export default function Solo1v1Arena({
   }, [myFinalTime, oppFinalTime, matchState, playSound]);
 
   // ==========================================
-  // SPACEBAR & TOUCH TIMER CONTROLS
+  // SPACEBAR & MOBILE TOUCHPAD TIMER LOGIC
   // ==========================================
   const startTimer = useCallback(() => {
     setMyTimerState('running');
@@ -471,50 +461,57 @@ export default function Solo1v1Arena({
     playSound('tick');
   }, [cameraActive, cameraHealth.isHealthy, formatTime, playSound]);
 
+  // Unified Hold & Release Handlers (Both Spacebar & Mobile Touch)
+  const handleHoldStart = useCallback(() => {
+    if (myTimerState === 'running') {
+      stopTimer();
+      return;
+    }
+
+    if (myTimerState === 'idle' || myTimerState === 'done') {
+      if (!spacePressedRef.current) {
+        spacePressedRef.current = true;
+        setMyTimerState('holding');
+        sendP2P({ type: 'TIMER_STATE', state: 'holding' });
+
+        holdTimeoutRef.current = setTimeout(() => {
+          setMyTimerState('ready');
+          sendP2P({ type: 'TIMER_STATE', state: 'ready' });
+          playSound('ready');
+        }, 280);
+      }
+    }
+  }, [myTimerState, stopTimer, playSound]);
+
+  const handleHoldEnd = useCallback(() => {
+    spacePressedRef.current = false;
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+
+    if (myTimerState === 'ready') {
+      startTimer();
+    } else if (myTimerState === 'holding') {
+      setMyTimerState('idle');
+      sendP2P({ type: 'TIMER_STATE', state: 'idle' });
+    }
+  }, [myTimerState, startTimer]);
+
   // Spacebar listeners
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.preventDefault();
-
-      if (myTimerState === 'running') {
-        stopTimer();
-        return;
-      }
-
-      if (myTimerState === 'idle' || myTimerState === 'done') {
-        if (!spacePressedRef.current) {
-          spacePressedRef.current = true;
-          setMyTimerState('holding');
-          sendP2P({ type: 'TIMER_STATE', state: 'holding' });
-
-          holdTimeoutRef.current = setTimeout(() => {
-            setMyTimerState('ready');
-            sendP2P({ type: 'TIMER_STATE', state: 'ready' });
-            playSound('ready');
-          }, 280);
-        }
-      }
+      handleHoldStart();
     };
 
     const handleKeyUp = (e) => {
       if (e.code !== 'Space') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.preventDefault();
-
-      spacePressedRef.current = false;
-      if (holdTimeoutRef.current) {
-        clearTimeout(holdTimeoutRef.current);
-        holdTimeoutRef.current = null;
-      }
-
-      if (myTimerState === 'ready') {
-        startTimer();
-      } else if (myTimerState === 'holding') {
-        setMyTimerState('idle');
-        sendP2P({ type: 'TIMER_STATE', state: 'idle' });
-      }
+      handleHoldEnd();
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -523,7 +520,7 @@ export default function Solo1v1Arena({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [myTimerState, startTimer, stopTimer, playSound]);
+  }, [handleHoldStart, handleHoldEnd]);
 
   // Quick Emoji reaction sender
   const sendReaction = (emoji, text) => {
@@ -553,8 +550,8 @@ export default function Solo1v1Arena({
 
     return (
       <div style={{
-        marginTop: '16px',
-        padding: '16px',
+        marginTop: '12px',
+        padding: '14px',
         borderRadius: '12px',
         background: iWon
           ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(16, 185, 129, 0.35))'
@@ -563,10 +560,10 @@ export default function Solo1v1Arena({
         textAlign: 'center',
         animation: 'fadeIn 0.3s ease-in-out'
       }}>
-        <div style={{ fontSize: '1.8rem', fontWeight: '900', color: iWon ? '#4ade80' : (isTie ? '#60a5fa' : '#f87171') }}>
+        <div style={{ fontSize: 'clamp(1.2rem, 5vw, 1.8rem)', fontWeight: '900', color: iWon ? '#4ade80' : (isTie ? '#60a5fa' : '#f87171') }}>
           {iWon ? '🏆 BẠN ĐÃ CHIẾN THẮNG!' : (isTie ? '🤝 HÒA NHAU KỊCH TÍNH!' : '🥈 ĐỐI THỦ ĐÃ VỀ ĐÍCH TRƯỚC!')}
         </div>
-        <div style={{ fontSize: '1rem', color: '#cbd5e1', marginTop: '6px' }}>
+        <div style={{ fontSize: '0.88rem', color: '#cbd5e1', marginTop: '4px' }}>
           {isTie ? 'Cả hai có thời gian bằng nhau tuyệt đối!' : (iWon ? `Bạn nhanh hơn đối thủ ${diffSec} giây! 🚀` : `Đối thủ nhanh hơn bạn ${diffSec} giây!`)}
         </div>
 
@@ -574,14 +571,14 @@ export default function Solo1v1Arena({
           <button
             onClick={handleNextRound}
             style={{
-              marginTop: '12px',
-              padding: '10px 24px',
+              marginTop: '10px',
+              padding: '10px 20px',
               borderRadius: '8px',
               border: 'none',
               background: 'linear-gradient(135deg, #f59e0b, #d97706)',
               color: '#ffffff',
               fontWeight: '700',
-              fontSize: '0.95rem',
+              fontSize: '0.9rem',
               cursor: 'pointer',
               boxShadow: '0 4px 12px rgba(245, 158, 11, 0.4)'
             }}
@@ -590,7 +587,7 @@ export default function Solo1v1Arena({
           </button>
         )}
         {!isHost && (
-          <div style={{ marginTop: '10px', fontSize: '0.82rem', color: '#94a3b8' }}>
+          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
             ⏳ Đang chờ Host bắt đầu ván tiếp theo...
           </div>
         )}
@@ -605,26 +602,28 @@ export default function Solo1v1Arena({
       margin: '0 auto',
       display: 'flex',
       flexDirection: 'column',
-      gap: '16px'
+      gap: '12px'
     }}>
       {/* HEADER BAR: SOLO STATUS & LEAVE */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '12px 18px',
+        padding: '10px 14px',
         background: '#1e293b',
         borderRadius: '12px',
-        border: '1px solid #334155'
+        border: '1px solid #334155',
+        flexWrap: 'wrap',
+        gap: '8px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '1.4rem' }}>⚔️</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '1.3rem' }}>⚔️</span>
           <div>
-            <div style={{ fontWeight: '800', fontSize: '1.05rem', color: '#f8fafc', letterSpacing: '0.5px' }}>
-              ĐẤU TRƯỜNG SOLO 1V1 REALTIME (WebRTC P2P)
+            <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#f8fafc' }}>
+              ĐẤU TRƯỜNG SOLO 1V1 (WebRTC P2P)
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              Kết nối trực tiếp mạng P2P Browser-to-Browser • Miễn phí 100% • Không cần máy chủ riêng
+            <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+              P2P Browser-to-Browser • Hỗ trợ cả Điện Thoại & Máy Tính
             </div>
           </div>
         </div>
@@ -632,17 +631,17 @@ export default function Solo1v1Arena({
         <button
           onClick={onExitSolo}
           style={{
-            padding: '7px 14px',
-            borderRadius: '8px',
+            padding: '6px 12px',
+            borderRadius: '6px',
             border: '1px solid #475569',
             background: '#0f172a',
             color: '#cbd5e1',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             fontWeight: '600',
             cursor: 'pointer'
           }}
         >
-          🚪 Rời Chế Độ Solo
+          🚪 Rời Solo
         </button>
       </div>
 
@@ -651,25 +650,25 @@ export default function Solo1v1Arena({
         <div style={{
           background: '#1e293b',
           borderRadius: '12px',
-          padding: '24px',
+          padding: '16px',
           border: '1px solid #334155'
         }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '1.15rem', color: '#38bdf8', textAlign: 'center' }}>
-            Tham Gia Hoặc Tạo Phòng Đấu Rubik 1v1
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '1.05rem', color: '#38bdf8', textAlign: 'center' }}>
+            Tham Gia Hoặc Tạo Phòng Đấu 1v1
           </h3>
-          <p style={{ margin: '0 0 20px 0', textAlign: 'center', fontSize: '0.84rem', color: '#94a3b8', lineHeight: '1.5' }}>
-            Đấu trực tiếp với bạn bè theo thời gian thực! Bạn có thể xem đồng hồ bấm giờ của đối thủ chạy từng tích-tắc trực tiếp trên màn hình.
+          <p style={{ margin: '0 0 16px 0', textAlign: 'center', fontSize: '0.78rem', color: '#94a3b8', lineHeight: '1.4' }}>
+            Đấu trực tiếp trên cả Mobile & Máy tính. Bạn có thể thấy đồng hồ đối thủ nhảy số từng tích-tắc!
           </p>
 
           {connectionError && (
             <div style={{
-              padding: '10px 14px',
+              padding: '8px 12px',
               borderRadius: '8px',
               background: '#ef444422',
               border: '1px solid #ef4444',
               color: '#fca5a5',
-              fontSize: '0.82rem',
-              marginBottom: '16px',
+              fontSize: '0.78rem',
+              marginBottom: '12px',
               textAlign: 'center'
             }}>
               ⚠️ {connectionError}
@@ -678,14 +677,14 @@ export default function Solo1v1Arena({
 
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '20px'
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: '14px'
           }}>
             {/* OPTION 1: CREATE ROOM */}
             <div style={{
               background: '#0f172a',
               borderRadius: '10px',
-              padding: '20px',
+              padding: '16px',
               border: '1px solid #38bdf844',
               display: 'flex',
               flexDirection: 'column',
@@ -694,24 +693,24 @@ export default function Solo1v1Arena({
               textAlign: 'center'
             }}>
               <div>
-                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>👑</div>
-                <h4 style={{ margin: '0 0 6px 0', color: '#38bdf8', fontSize: '1rem' }}>Tạo Phòng Đấu Mới</h4>
-                <p style={{ margin: '0 0 14px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
-                  Làm chủ phòng (Host), chọn khối Rubik và sinh Scramble thi đấu cho cả hai.
+                <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>👑</div>
+                <h4 style={{ margin: '0 0 4px 0', color: '#38bdf8', fontSize: '0.95rem' }}>Tạo Phòng Đấu Mới</h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                  Làm Host, chọn khối và sinh Scramble đồng bộ cho cả hai.
                 </p>
               </div>
 
               {connectionStatus === 'waiting' ? (
                 <div style={{ width: '100%' }}>
                   <div style={{
-                    padding: '10px',
+                    padding: '8px',
                     borderRadius: '8px',
                     background: '#1e293b',
                     border: '1px dashed #38bdf8',
-                    marginBottom: '10px'
+                    marginBottom: '8px'
                   }}>
-                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>MÃ PHÒNG CỦA BẠN:</div>
-                    <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#38bdf8', letterSpacing: '4px' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>MÃ PHÒNG:</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#38bdf8', letterSpacing: '3px' }}>
                       {roomCode}
                     </div>
                   </div>
@@ -726,13 +725,13 @@ export default function Solo1v1Arena({
                       color: '#ffffff',
                       fontWeight: '700',
                       cursor: 'pointer',
-                      fontSize: '0.82rem'
+                      fontSize: '0.78rem'
                     }}
                   >
-                    {copiedLink ? '✓ Đã Sao Chép Mã!' : '📋 Sao Chép Mã Phòng Gửi Bạn'}
+                    {copiedLink ? '✓ Đã Sao Chép!' : '📋 Sao Chép Mã Phòng Gửi Bạn'}
                   </button>
-                  <div style={{ marginTop: '10px', fontSize: '0.75rem', color: '#f59e0b' }}>
-                    ⏳ Đang chờ đối thủ nhập mã vào phòng...
+                  <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#f59e0b' }}>
+                    ⏳ Đang chờ đối thủ nhập mã...
                   </div>
                 </div>
               ) : (
@@ -748,10 +747,10 @@ export default function Solo1v1Arena({
                     color: '#ffffff',
                     fontWeight: '700',
                     cursor: 'pointer',
-                    fontSize: '0.9rem'
+                    fontSize: '0.85rem'
                   }}
                 >
-                  {connectionStatus === 'creating' ? '⏳ Đang khởi tạo Peer...' : '🚀 Tạo Phòng Ngay'}
+                  {connectionStatus === 'creating' ? '⏳ Đang khởi tạo...' : '🚀 Tạo Phòng Ngay'}
                 </button>
               )}
             </div>
@@ -760,7 +759,7 @@ export default function Solo1v1Arena({
             <div style={{
               background: '#0f172a',
               borderRadius: '10px',
-              padding: '20px',
+              padding: '16px',
               border: '1px solid #22c55e44',
               display: 'flex',
               flexDirection: 'column',
@@ -769,10 +768,10 @@ export default function Solo1v1Arena({
               textAlign: 'center'
             }}>
               <div>
-                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>🎯</div>
-                <h4 style={{ margin: '0 0 6px 0', color: '#22c55e', fontSize: '1rem' }}>Vào Phòng Bạn Bè</h4>
-                <p style={{ margin: '0 0 14px 0', fontSize: '0.78rem', color: '#94a3b8' }}>
-                  Nhập mã phòng 4 chữ số do bạn bè gửi để vào tranh tài ngay lập tức.
+                <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>🎯</div>
+                <h4 style={{ margin: '0 0 4px 0', color: '#22c55e', fontSize: '0.95rem' }}>Vào Phòng Bạn Bè</h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                  Nhập mã phòng 4 số do bạn bè gửi để tranh tài ngay.
                 </p>
               </div>
 
@@ -786,16 +785,16 @@ export default function Solo1v1Arena({
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    padding: '10px',
+                    padding: '8px',
                     borderRadius: '8px',
                     border: '1px solid #334155',
                     background: '#1e293b',
                     color: '#ffffff',
-                    fontSize: '1.2rem',
+                    fontSize: '1.1rem',
                     textAlign: 'center',
                     fontWeight: '700',
-                    letterSpacing: '3px',
-                    marginBottom: '10px'
+                    letterSpacing: '2px',
+                    marginBottom: '8px'
                   }}
                 />
                 <button
@@ -810,10 +809,10 @@ export default function Solo1v1Arena({
                     color: '#ffffff',
                     fontWeight: '700',
                     cursor: 'pointer',
-                    fontSize: '0.9rem'
+                    fontSize: '0.85rem'
                   }}
                 >
-                  {connectionStatus === 'connecting' ? '⏳ Đang kết nối WebRTC...' : '⚡ Tham Gia Phòng'}
+                  {connectionStatus === 'connecting' ? '⏳ Đang kết nối...' : '⚡ Tham Gia Phòng'}
                 </button>
               </div>
             </div>
@@ -823,39 +822,39 @@ export default function Solo1v1Arena({
 
       {/* CONNECTED ARENA VIEW (Both players in room) */}
       {connectionStatus === 'connected' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* MATCH HEADER & SCRAMBLE */}
           <div style={{
             background: '#1e293b',
             borderRadius: '12px',
-            padding: '16px 20px',
+            padding: '12px 14px',
             border: '1px solid #334155',
             textAlign: 'center'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <div style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: '700' }}>
-                VÁN ĐẤU #{roundNumber} • {puzzleType.toUpperCase()}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+              <div style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '700' }}>
+                VÁN #{roundNumber} • {puzzleType.toUpperCase()}
               </div>
 
               {/* LIVE SCOREBOARD */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                gap: '8px',
                 background: '#0f172a',
-                padding: '4px 16px',
+                padding: '3px 12px',
                 borderRadius: '20px',
                 border: '1px solid #38bdf833'
               }}>
-                <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '1rem' }}>{currentUser.name}</span>
-                <span style={{ fontWeight: '900', color: '#f59e0b', fontSize: '1.2rem' }}>
+                <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.9rem' }}>{currentUser.name}</span>
+                <span style={{ fontWeight: '900', color: '#f59e0b', fontSize: '1.1rem' }}>
                   {myScore} : {opponentScore}
                 </span>
-                <span style={{ fontWeight: '800', color: '#f43f5e', fontSize: '1rem' }}>{opponent?.name || 'Đối thủ'}</span>
+                <span style={{ fontWeight: '800', color: '#f43f5e', fontSize: '0.9rem' }}>{opponent?.name || 'Đối thủ'}</span>
               </div>
 
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                Mã phòng: <strong style={{ color: '#ffffff' }}>{roomCode}</strong>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                Phòng: <strong style={{ color: '#ffffff' }}>{roomCode}</strong>
               </div>
             </div>
 
@@ -863,12 +862,12 @@ export default function Solo1v1Arena({
             <div style={{
               background: '#0f172a',
               borderRadius: '8px',
-              padding: '12px',
+              padding: '10px',
               fontFamily: 'monospace',
-              fontSize: '1.15rem',
+              fontSize: 'clamp(0.85rem, 3.5vw, 1.1rem)',
               fontWeight: '700',
               color: '#fbbf24',
-              letterSpacing: '1px',
+              letterSpacing: '0.5px',
               border: '1px solid #334155',
               wordBreak: 'break-word'
             }}>
@@ -879,32 +878,47 @@ export default function Solo1v1Arena({
           {/* DUAL TIMERS BATTLEFIELD (Left: You, Right: Opponent) */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '16px'
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: '12px'
           }}>
-            {/* LEFT CARD: YOU */}
-            <div style={{
-              background: '#1e293b',
-              borderRadius: '12px',
-              padding: '24px 16px',
-              border: `2px solid ${
-                myTimerState === 'ready'
-                  ? '#22c55e'
-                  : (myTimerState === 'holding' ? '#f59e0b' : (myTimerState === 'running' ? '#38bdf8' : '#334155'))
-              }`,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: myTimerState === 'ready' ? '0 0 20px rgba(34, 197, 94, 0.3)' : 'none',
-              transition: 'border-color 0.15s, box-shadow 0.15s'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '1rem' }}>👤</span>
-                <strong style={{ fontSize: '1.05rem', color: '#38bdf8' }}>{currentUser.name} (Bạn)</strong>
+            {/* LEFT CARD: YOU (TOUCH-FRIENDLY SPEEDCUBING PAD) */}
+            <div
+              onPointerDown={(e) => {
+                if (e.target.tagName === 'BUTTON') return;
+                handleHoldStart();
+              }}
+              onPointerUp={(e) => {
+                if (e.target.tagName === 'BUTTON') return;
+                handleHoldEnd();
+              }}
+              onPointerCancel={handleHoldEnd}
+              style={{
+                background: '#1e293b',
+                borderRadius: '12px',
+                padding: '18px 14px',
+                border: `2px solid ${
+                  myTimerState === 'ready'
+                    ? '#22c55e'
+                    : (myTimerState === 'holding' ? '#f59e0b' : (myTimerState === 'running' ? '#38bdf8' : '#334155'))
+                }`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: myTimerState === 'ready' ? '0 0 20px rgba(34, 197, 94, 0.3)' : 'none',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+                cursor: 'pointer',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                touchAction: 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.9rem' }}>👤</span>
+                <strong style={{ fontSize: '0.95rem', color: '#38bdf8' }}>{currentUser.name} (Bạn)</strong>
                 <span style={{
-                  fontSize: '0.7rem',
-                  padding: '2px 6px',
+                  fontSize: '0.68rem',
+                  padding: '2px 5px',
                   borderRadius: '4px',
                   background: cameraActive && cameraHealth.isHealthy ? '#10b98122' : '#ef444422',
                   color: cameraActive && cameraHealth.isHealthy ? '#34d399' : '#f87171',
@@ -917,29 +931,30 @@ export default function Solo1v1Arena({
               {/* YOUR TIMER DISPLAY */}
               <div style={{
                 fontFamily: 'monospace',
-                fontSize: '3.6rem',
+                fontSize: 'clamp(2.6rem, 10vw, 3.6rem)',
                 fontWeight: '900',
                 color: myTimerState === 'ready'
                   ? '#22c55e'
                   : (myTimerState === 'holding' ? '#f59e0b' : (myTimerState === 'running' ? '#ffffff' : '#e2e8f0')),
-                margin: '10px 0'
+                margin: '6px 0'
               }}>
                 {formatTime(myTimeMs)}
               </div>
 
               {/* YOUR STATUS INSTRUCTION */}
               <div style={{
-                fontSize: '0.82rem',
+                fontSize: '0.78rem',
                 fontWeight: '700',
+                textAlign: 'center',
                 color: myTimerState === 'ready'
                   ? '#22c55e'
                   : (myTimerState === 'holding' ? '#f59e0b' : (myTimerState === 'running' ? '#38bdf8' : '#94a3b8'))
               }}>
-                {myTimerState === 'idle' && 'Bấm & Giữ phím SPACE để chuẩn bị!'}
-                {myTimerState === 'holding' && '⏳ Đang giữ phím... chờ xanh lá'}
-                {myTimerState === 'ready' && '🚀 SẴN SÀNG! THẢ SPACE ĐỂ GIẢI!'}
-                {myTimerState === 'running' && '🔥 ĐANG GIẢI... BẤM SPACE ĐỂ DỪNG!'}
-                {myTimerState === 'done' && `🏁 Đã xong: ${formatTime(myFinalTime)}!`}
+                {myTimerState === 'idle' && '📱 Chạm giữ thẻ này (hoặc bấm Space) để chuẩn bị!'}
+                {myTimerState === 'holding' && '⏳ Đang giữ... chờ đổi màu xanh'}
+                {myTimerState === 'ready' && '🚀 SẴN SÀNG! THẢ TAY ĐỂ GIẢI!'}
+                {myTimerState === 'running' && '🔥 ĐANG GIẢI... CHẠM ĐỂ DỪNG!'}
+                {myTimerState === 'done' && `🏁 Đã xong: ${formatTime(myFinalTime)}! (Chạm để ván mới)`}
               </div>
             </div>
 
@@ -947,21 +962,22 @@ export default function Solo1v1Arena({
             <div style={{
               background: '#1e293b',
               borderRadius: '12px',
-              padding: '24px 16px',
+              padding: '18px 14px',
               border: `2px solid ${
                 oppTimerState === 'running' ? '#f43f5e' : (oppTimerState === 'done' ? '#10b981' : '#334155')
               }`,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              userSelect: 'none'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '1rem' }}>⚔️</span>
-                <strong style={{ fontSize: '1.05rem', color: '#f43f5e' }}>{opponent?.name || 'Đối thủ'}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.9rem' }}>⚔️</span>
+                <strong style={{ fontSize: '0.95rem', color: '#f43f5e' }}>{opponent?.name || 'Đối thủ'}</strong>
                 <span style={{
-                  fontSize: '0.7rem',
-                  padding: '2px 6px',
+                  fontSize: '0.68rem',
+                  padding: '2px 5px',
                   borderRadius: '4px',
                   background: opponent?.cameraActive && opponent?.isHealthy ? '#10b98122' : '#ef444422',
                   color: opponent?.cameraActive && opponent?.isHealthy ? '#34d399' : '#f87171',
@@ -974,22 +990,23 @@ export default function Solo1v1Arena({
               {/* OPPONENT LIVE TIMER */}
               <div style={{
                 fontFamily: 'monospace',
-                fontSize: '3.6rem',
+                fontSize: 'clamp(2.6rem, 10vw, 3.6rem)',
                 fontWeight: '900',
                 color: oppTimerState === 'running' ? '#f43f5e' : (oppTimerState === 'done' ? '#34d399' : '#64748b'),
-                margin: '10px 0'
+                margin: '6px 0'
               }}>
                 {formatTime(oppLiveTimeMs)}
               </div>
 
               {/* OPPONENT STATUS */}
               <div style={{
-                fontSize: '0.82rem',
+                fontSize: '0.78rem',
                 fontWeight: '700',
+                textAlign: 'center',
                 color: oppTimerState === 'running' ? '#f43f5e' : (oppTimerState === 'done' ? '#34d399' : '#94a3b8')
               }}>
                 {oppTimerState === 'idle' && 'Đối thủ đang quan sát khối Rubik...'}
-                {oppTimerState === 'holding' && '⏳ Đối thủ đang giữ Space...'}
+                {oppTimerState === 'holding' && '⏳ Đối thủ đang giữ chuẩn bị...'}
                 {oppTimerState === 'ready' && '⚡ Đối thủ đã sẵn sàng xuất phát!'}
                 {oppTimerState === 'running' && '🔥 ĐỐI THỦ ĐANG XOAY TỐC ĐỘ CAO!'}
                 {oppTimerState === 'done' && `🏁 Đối thủ đã về đích: ${formatTime(oppFinalTime)}!`}
@@ -1005,13 +1022,14 @@ export default function Solo1v1Arena({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '8px',
+            gap: '6px',
             background: '#1e293b',
             borderRadius: '10px',
-            padding: '10px',
-            border: '1px solid #334155'
+            padding: '8px',
+            border: '1px solid #334155',
+            flexWrap: 'wrap'
           }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginRight: '6px' }}>Biểu cảm nhanh:</span>
+            <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginRight: '4px' }}>Cảm xúc nhanh:</span>
             {[
               { emoji: '🔥', text: 'Nhanh quá!' },
               { emoji: '👏', text: 'Hay lắm!' },
@@ -1024,20 +1042,20 @@ export default function Solo1v1Arena({
                 onClick={() => sendReaction(r.emoji, r.text)}
                 title={r.text}
                 style={{
-                  padding: '6px 12px',
+                  padding: '5px 10px',
                   borderRadius: '6px',
                   border: '1px solid #334155',
                   background: '#0f172a',
                   color: '#ffffff',
-                  fontSize: '0.85rem',
+                  fontSize: '0.8rem',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px'
+                  gap: '3px'
                 }}
               >
                 <span>{r.emoji}</span>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{r.text}</span>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{r.text}</span>
               </button>
             ))}
           </div>
@@ -1054,14 +1072,13 @@ export default function Solo1v1Arena({
                 <div
                   key={r.id}
                   style={{
-                    padding: '6px 16px',
+                    padding: '5px 14px',
                     borderRadius: '20px',
                     background: r.fromMe ? '#2563eb' : '#f43f5e',
                     color: '#ffffff',
-                    fontSize: '0.82rem',
+                    fontSize: '0.78rem',
                     fontWeight: '700',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    animation: 'bounceIn 0.3s ease'
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                   }}
                 >
                   {r.emoji} {r.text}
