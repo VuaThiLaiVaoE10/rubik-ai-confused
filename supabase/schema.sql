@@ -39,13 +39,21 @@ SET search_path = ''
 AS $$
 DECLARE
   min_human_time NUMERIC(8, 2);
+  recent_flood_count INTEGER;
 BEGIN
   -- 3.1. Bắt buộc đã xác thực Camera AI
   IF NEW.camera_verified IS NOT TRUE THEN
     RAISE EXCEPTION 'ANTI_CHEAT_REJECTED: Lượt giải chưa được xác thực bởi Camera AI.';
   END IF;
 
-  -- 3.2. Kiểm tra ngưỡng thời gian vật lý tối thiểu của con người theo từng khối
+  -- 3.2. Chặn nguồn độc hại / XSS / Script Injection ngay tại tầng Database
+  IF NEW.player_name ~* '(<|>|javascript:|vbscript:|onload=|onerror=|<script)'
+     OR NEW.scramble ~* '(<|>|javascript:|vbscript:|onload=|onerror=|<script)'
+     OR NEW.board_id ~* '(<|>|javascript:|vbscript:|;)' THEN
+    RAISE EXCEPTION 'WAF_MALICIOUS_PAYLOAD_REJECTED: Phát hiện chuỗi độc hại hoặc thẻ script.';
+  END IF;
+
+  -- 3.3. Kiểm tra ngưỡng thời gian vật lý tối thiểu của con người theo từng khối
   CASE NEW.puzzle_type
     WHEN '2x2' THEN min_human_time := 0.45;
     WHEN '3x3' THEN min_human_time := 2.80;
@@ -58,22 +66,34 @@ BEGIN
     RAISE EXCEPTION 'ANTI_CHEAT_REJECTED: Thời gian giải (%s) không hợp lệ với khối %.', NEW.best_time, NEW.puzzle_type;
   END IF;
 
-  -- 3.3. Kiểm tra định dạng mã băm chống giả mạo (SHA-256 64 hex chars)
+  -- 3.4. Kiểm tra định dạng mã băm chống giả mạo (SHA-256 64 hex chars)
   IF NEW.proof_hash IS NULL OR NEW.proof_hash !~ '^[a-f0-9]{64}$' THEN
     RAISE EXCEPTION 'ANTI_CHEAT_REJECTED: Thiếu hoặc sai chữ ký bảo mật (proof_hash).';
   END IF;
 
-  -- 3.4. Kiểm tra tên người chơi và công thức tráo (scramble)
-  IF LENGTH(TRIM(NEW.player_name)) < 1 OR LENGTH(TRIM(NEW.player_name)) > 60 THEN
+  -- 3.5. Kiểm tra tên người chơi và công thức tráo (scramble)
+  IF LENGTH(TRIM(NEW.player_name)) < 1 OR LENGTH(TRIM(NEW.player_name)) > 45 THEN
     RAISE EXCEPTION 'ANTI_CHEAT_REJECTED: Tên người chơi không hợp lệ.';
   END IF;
 
-  IF LENGTH(TRIM(NEW.scramble)) < 5 THEN
+  IF LENGTH(TRIM(NEW.scramble)) < 5 OR LENGTH(TRIM(NEW.scramble)) > 360 THEN
     RAISE EXCEPTION 'ANTI_CHEAT_REJECTED: Công thức Scramble không hợp lệ.';
   END IF;
 
-  -- 3.5. Nếu là UPDATE kỷ lục cũ, giữ lại kỷ lục nhanh nhất (Personal Best)
-  IF TG_OP = 'UPDATE' THEN
+  -- 3.6. Chống Bot Flood / DDoS & giữ kỷ lục nhanh nhất (Personal Best)
+  IF TG_OP = 'INSERT' THEN
+    SELECT COUNT(*) INTO recent_flood_count
+    FROM public.rubik_leaderboards
+    WHERE created_at > (NOW() - INTERVAL '10 seconds');
+
+    IF recent_flood_count >= 25 THEN
+      RAISE EXCEPTION 'ANTI_DDOS_REJECTED: Tường lửa Server đang chặn đợt spam bất thường.';
+    END IF;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF OLD.updated_at > (NOW() - INTERVAL '3 seconds') THEN
+      RAISE EXCEPTION 'ANTI_FLOOD_REJECTED: Thao tác cập nhật quá nhanh, vui lòng đợi 3 giây.';
+    END IF;
+
     IF NEW.best_time > OLD.best_time THEN
       NEW.best_time := OLD.best_time;
     END IF;

@@ -4,6 +4,14 @@
 // và kèm chữ ký SHA-256 + PostgreSQL Trigger chống gian lận từ phía Server.
 // ============================================================================
 
+import {
+  sanitizeText,
+  sanitizeEmail,
+  checkRateLimit,
+  hasMaliciousPayload,
+  recordBlockedThreat
+} from './securityShield';
+
 const CLOUD_CONFIG_STORAGE_KEY = 'rubik_supabase_cloud_config_v1';
 const CLOUD_PROOF_SALT = 'HUST_RUBIK_AI_WCA_VERIFIED_2026';
 
@@ -240,19 +248,35 @@ export async function fetchCloudLeaderboard(boardId = 'board_1') {
     return { ok: false, unconfigured: true, entries: [] };
   }
 
+  // Chống bot spam tải bảng xếp hạng liên tục
+  const rate = checkRateLimit('cloud_fetch_leaderboard', {
+    maxHits: 12,
+    windowMs: 30000,
+    cooldownMs: 10000
+  });
+  if (!rate.allowed) {
+    return { ok: false, rateLimited: true, reason: rate.reason, entries: [] };
+  }
+
+  const cleanBoardId = sanitizeText(boardId, 40, 'board_1');
   const { url, anonKey } = getCloudConfig();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const query = new URLSearchParams({
       select: 'id,board_id,player_name,player_email,puzzle_type,best_time,avg_time,scramble,camera_verified,updated_at',
-      board_id: `eq.${boardId}`,
+      board_id: `eq.${cleanBoardId}`,
       order: 'best_time.asc',
       limit: '100'
     });
 
     const res = await fetch(`${url}/rest/v1/rubik_leaderboards?${query.toString()}`, {
       method: 'GET',
-      headers: buildSupabaseHeaders(anonKey)
+      headers: buildSupabaseHeaders(anonKey),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       return { ok: false, entries: [], status: res.status };
@@ -262,9 +286,9 @@ export async function fetchCloudLeaderboard(boardId = 'board_1') {
     const entries = (Array.isArray(rows) ? rows : []).map(r => ({
       id: r.id || `${r.player_name}_${r.puzzle_type}`,
       cloudId: r.id,
-      puzzleType: r.puzzle_type || '3x3',
-      name: r.player_name,
-      email: r.player_email || '',
+      puzzleType: sanitizeText(r.puzzle_type || '3x3', 10, '3x3'),
+      name: sanitizeText(r.player_name, 40, 'Người chơi'),
+      email: sanitizeEmail(r.player_email || '', ''),
       best: parseFloat(Number(r.best_time).toFixed(2)),
       avg: parseFloat(Number(r.avg_time).toFixed(2)),
       verified: Boolean(r.camera_verified),
@@ -276,6 +300,7 @@ export async function fetchCloudLeaderboard(boardId = 'board_1') {
 
     return { ok: true, entries };
   } catch (err) {
+    clearTimeout(timeoutId);
     return { ok: false, entries: [], error: err?.message };
   }
 }
@@ -298,12 +323,33 @@ export async function submitVerifiedSolveToCloud({
     return { ok: false, reason: 'Chưa xác thực Camera AI' };
   }
 
+  // Kiểm tra nguồn độc hại trong dữ liệu gửi đi
+  if (hasMaliciousPayload(playerName) || hasMaliciousPayload(scramble) || hasMaliciousPayload(boardId)) {
+    recordBlockedThreat('payload', 'Chặn dữ liệu chứa mã độc trước khi gửi lên Cloud');
+    return { ok: false, reason: 'Phát hiện ký tự không an toàn trong dữ liệu gửi đi.' };
+  }
+
+  // Giới hạn tần suất gửi kỷ lục lên Cloud (tối đa 5 lần / phút)
+  const rate = checkRateLimit('cloud_submit_solve', {
+    maxHits: 5,
+    windowMs: 60000,
+    cooldownMs: 30000
+  });
+  if (!rate.allowed) {
+    return { ok: false, rateLimited: true, reason: rate.reason };
+  }
+
+  const cleanBoardId = sanitizeText(boardId, 40, 'board_1');
+  const cleanName = sanitizeText(playerName, 40, 'Người chơi');
+  const cleanEmail = sanitizeEmail(playerEmail, 'guest@cuber.vn');
+  const cleanScramble = sanitizeText(scramble, 320, 'WCA Verified Scramble');
+
   const proofHash = await computeSolveProof({
-    boardId,
-    playerName,
+    boardId: cleanBoardId,
+    playerName: cleanName,
     puzzleType,
     bestTime,
-    scramble,
+    scramble: cleanScramble,
     cameraVerified
   });
 
@@ -312,15 +358,18 @@ export async function submitVerifiedSolveToCloud({
   }
 
   const { url, anonKey } = getCloudConfig();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const payload = {
-      board_id: boardId,
-      player_name: playerName.trim(),
-      player_email: playerEmail.trim(),
+      board_id: cleanBoardId,
+      player_name: cleanName,
+      player_email: cleanEmail,
       puzzle_type: puzzleType,
       best_time: Number(bestTime.toFixed(2)),
       avg_time: Number((avgTime || bestTime).toFixed(2)),
-      scramble: scramble || 'WCA Verified Scramble',
+      scramble: cleanScramble,
       camera_verified: true,
       started_scrambled: Boolean(startedScrambled),
       proof_hash: proofHash
@@ -334,9 +383,11 @@ export async function submitVerifiedSolveToCloud({
           'Content-Type': 'application/json',
           Prefer: 'resolution=merge-duplicates,return=representation'
         }),
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       }
     );
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       const errText = await res.text();
@@ -346,6 +397,7 @@ export async function submitVerifiedSolveToCloud({
     const data = await res.json();
     return { ok: true, data, proofHash };
   } catch (err) {
+    clearTimeout(timeoutId);
     return { ok: false, reason: err?.message, proofHash };
   }
 }

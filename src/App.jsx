@@ -22,6 +22,13 @@ import {
   testCloudConnection,
   SUPABASE_SCHEMA_SQL
 } from './utils/cloudBackend';
+import {
+  sanitizeText,
+  sanitizeEmail,
+  checkRateLimit,
+  hasMaliciousPayload,
+  getSecurityStats
+} from './utils/securityShield';
 
 // ==========================================
 // 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
@@ -272,8 +279,17 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Cổng chống bot: chưa xác minh người thật (hoặc hành vi đáng ngờ) thì chặn lượt bắt đầu và hiện thử thách
+  // Cổng chống bot & chống spam: chưa xác minh người thật hoặc bấm flood quá tải thì chặn
   const requireHuman = useCallback(() => {
+    const rate = checkRateLimit('timer_start_action', {
+      maxHits: 18,
+      windowMs: 15000,
+      cooldownMs: 12000
+    });
+    if (!rate.allowed) {
+      setLastNotice({ type: 'warning', text: `🛡️ ${rate.reason}` });
+      return true;
+    }
     if (isHumanSessionValid() && !behaviorRef.current.suspicious) return false;
     setShowHumanCheck(true);
     return true;
@@ -594,7 +610,11 @@ export default function App() {
 
   const handleCreateNewBoard = (e) => {
     e.preventDefault();
-    const title = newBoardTitle.trim() || `Bảng đấu #${Object.keys(leaderboards).length + 1}`;
+    if (hasMaliciousPayload(newBoardTitle)) {
+      alert('🛡️ Tường lửa bảo mật đã chặn ký tự nghi vấn mã độc trong tên bảng!');
+      return;
+    }
+    const title = sanitizeText(newBoardTitle, 40, `Bảng đấu #${Object.keys(leaderboards).length + 1}`);
     const newId = `board_${Date.now()}`;
     const newBoard = {
       id: newId,
@@ -676,11 +696,24 @@ export default function App() {
     }
   };
 
-  // Đăng nhập bình thường (hoàn toàn ẩn Admin)
+  // Đăng nhập bình thường (hoàn toàn ẩn Admin, tích hợp lọc nguồn độc & chống brute-force)
   const handleLoginSubmit = (e) => {
     e.preventDefault();
-    const name = inputUserName.trim() || 'Người chơi';
-    const email = inputUserEmail.trim() || `${name.toLowerCase()}@cuber.vn`;
+    const rate = checkRateLimit('auth_login_attempt', {
+      maxHits: 6,
+      windowMs: 60000,
+      cooldownMs: 20000
+    });
+    if (!rate.allowed) {
+      alert(`🛡️ ${rate.reason}`);
+      return;
+    }
+    if (hasMaliciousPayload(inputUserName) || hasMaliciousPayload(inputUserEmail)) {
+      alert('🛡️ Tường lửa bảo mật: Phát hiện ký tự không hợp lệ hoặc mã độc trong thông tin đăng nhập!');
+      return;
+    }
+    const name = sanitizeText(inputUserName, 36, 'Người chơi');
+    const email = sanitizeEmail(inputUserEmail, `${name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@cuber.vn`);
     const userObj = { name, email };
     setCurrentUser(userObj);
     localStorage.setItem('rubik_auth_user', JSON.stringify(userObj));
@@ -702,8 +735,8 @@ export default function App() {
   const handleSaveAdminSettings = (e) => {
     e.preventDefault();
     const newSettings = {
-      competitionTitle: editCompTitle.trim() || 'Rubik Timer & AI Verification',
-      subTitle: editCompSub.trim() || 'HUST Speedcubing',
+      competitionTitle: sanitizeText(editCompTitle, 60, 'Rubik Timer & AI Verification'),
+      subTitle: sanitizeText(editCompSub, 80, 'HUST Speedcubing'),
       spaceHoldMs: Number(editSpaceHoldMs) || 280
     };
     setAdminSettings(newSettings);
@@ -1438,8 +1471,40 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right header: Dashboard + Camera + Tài Khoản */}
+        {/* Right header: Shield + Dashboard + Camera + Tài Khoản */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {!isMobile && (
+            <div
+              title="Tường lửa bảo vệ Web: Chống Bot, Chống XSS/Nguồn độc, Rate Limit & Anti-Crash đang hoạt động"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                color: '#34d399',
+                fontSize: '0.72rem',
+                fontWeight: '700'
+              }}
+            >
+              <span>🛡️</span>
+              <span>WAF & Anti-Bot</span>
+              {getSecurityStats().totalBlocked > 0 && (
+                <span style={{
+                  background: '#ef4444',
+                  color: '#fff',
+                  borderRadius: '10px',
+                  padding: '0 5px',
+                  fontSize: '0.66rem'
+                }}>
+                  Đã chặn {getSecurityStats().totalBlocked}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* NÚT MỞ DASHBOARD */}
           <button
             onClick={() => setShowDashboardModal(true)}

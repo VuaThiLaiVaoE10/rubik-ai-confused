@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'peerjs';
+import { validateP2PPacket, sanitizeText } from '../utils/securityShield';
 
 export default function Solo1v1Arena({
   currentUser,
@@ -138,14 +139,16 @@ export default function Solo1v1Arena({
     };
   }, [disconnectAll]);
 
-  // Handle incoming P2P messages
-  const handleP2PData = useCallback((data) => {
-    if (!data || !data.type) return;
+  // Handle incoming P2P messages (qua tường lửa validateP2PPacket chống flood & mã độc)
+  const handleP2PData = useCallback((rawData) => {
+    const check = validateP2PPacket(rawData);
+    if (!check.valid) return;
+    const data = check.packet;
 
     switch (data.type) {
       case 'HANDSHAKE': {
         setOpponent({
-          name: data.name || 'Đối thủ',
+          name: sanitizeText(data.name, 32, 'Đối thủ'),
           cameraActive: !!data.cameraActive,
           isHealthy: !!data.isHealthy
         });
@@ -155,7 +158,7 @@ export default function Solo1v1Arena({
 
       case 'HANDSHAKE_ACK': {
         setOpponent({
-          name: data.name || 'Đối thủ',
+          name: sanitizeText(data.name, 32, 'Đối thủ'),
           cameraActive: !!data.cameraActive,
           isHealthy: !!data.isHealthy
         });
