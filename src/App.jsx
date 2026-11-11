@@ -539,17 +539,29 @@ export default function App() {
 
   // Kiểm tra xem tài khoản hiện tại có phải là Gmail của Khoa không
   const isKhoaAdmin = currentUser.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isKhoaAdminRef = useRef(isKhoaAdmin);
+  useEffect(() => {
+    isKhoaAdminRef.current = isKhoaAdmin;
+  }, [isKhoaAdmin]);
 
   const [adminSettings, setAdminSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem('rubik_admin_settings');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {
+    const defaults = {
       competitionTitle: 'Rubik Timer & AI Verification',
       subTitle: 'HUST Speedcubing • 2×2, 3×3, 4×4, 5×5',
-      spaceHoldMs: 280
+      announcementBanner: '',
+      spaceHoldMs: 280,
+      inspectionDurationSec: 15,
+      requireCameraToSolve: true,
+      require3DCubePreCheck: true,
+      requireCubeMoveDuringSolve: true,
+      autoStopWhenSolved: true,
+      adminVipBypass: true
     };
+    try {
+      const saved = localStorage.getItem('rubik_admin_settings');
+      if (saved) return { ...defaults, ...JSON.parse(saved) };
+    } catch {}
+    return defaults;
   });
 
   // ==========================================
@@ -645,7 +657,15 @@ export default function App() {
   useEffect(() => { requireHumanRef.current = requireHuman; }, [requireHuman]);
 
   // CHỐT CHẶN BẮT BUỘC: Phải BẬT CAMERA AI và XÁC MINH KHỐI RUBIK TRÊN MÔ HÌNH 3D mới được phép bấm đồng hồ giải!
+  // (Trừ khi là Admin Khoa đang bật Đặc quyền VIP Bypass hoặc Admin đã tắt quy tắc trong Bảng Quản Trị)
   const requireCameraAndCubeToSolve = useCallback(() => {
+    const cfg = adminSettingsRef.current || {};
+    if (isKhoaAdminRef.current && cfg.adminVipBypass !== false) {
+      return false; // Đặc quyền Admin Khoa: cho phép bấm đồng hồ tự do mọi lúc
+    }
+    if (cfg.requireCameraToSolve === false) {
+      return false;
+    }
     if (!cameraActiveRef.current) {
       setLastNotice({
         type: 'warning',
@@ -660,18 +680,20 @@ export default function App() {
       });
       return true;
     }
-    const now = performance.now();
-    const isCubeVerifiedFresh =
-      Boolean(preCheckRef.current && preCheckRef.current.verified) &&
-      lastCubeVerifiedAtRef.current > 0 &&
-      now - lastCubeVerifiedAtRef.current <= 25000;
+    if (cfg.require3DCubePreCheck !== false) {
+      const now = performance.now();
+      const isCubeVerifiedFresh =
+        Boolean(preCheckRef.current && preCheckRef.current.verified) &&
+        lastCubeVerifiedAtRef.current > 0 &&
+        now - lastCubeVerifiedAtRef.current <= 25000;
 
-    if (!isCubeVerifiedFresh) {
-      setLastNotice({
-        type: 'warning',
-        text: `🧊 CHƯA XÁC MINH KHỐI RUBIK TRÊN 3D: Hãy đưa hoặc di chuyển khối Rubik ${puzzleTypeRef.current} (đã xáo trộn) trước Camera để AI phân tích lên Mô hình 3D trước khi bấm đồng hồ!`
-      });
-      return true;
+      if (!isCubeVerifiedFresh) {
+        setLastNotice({
+          type: 'warning',
+          text: `🧊 CHƯA XÁC MINH KHỐI RUBIK TRÊN 3D: Hãy đưa hoặc di chuyển khối Rubik ${puzzleTypeRef.current} (đã xáo trộn) trước Camera để AI phân tích lên Mô hình 3D trước khi bấm đồng hồ!`
+        });
+        return true;
+      }
     }
     return false;
   }, []);
@@ -811,11 +833,28 @@ export default function App() {
   const [inputUserName, setInputUserName] = useState('');
   const [inputUserEmail, setInputUserEmail] = useState('');
 
-  // Admin Control Panel Modal (Chỉ Khoa mới mở được khi CÓ CAM)
+  // Admin Control Panel Modal (Dành độc quyền cho Gmail của Khoa: khoa.tt2611758@sis.hust.edu.vn)
   const [showAdminPanelModal, setShowAdminPanelModal] = useState(false);
   const [editCompTitle, setEditCompTitle] = useState(adminSettings.competitionTitle);
   const [editCompSub, setEditCompSub] = useState(adminSettings.subTitle);
-  const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs);
+  const [editAnnouncement, setEditAnnouncement] = useState(adminSettings.announcementBanner || '');
+  const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs || 280);
+  const [editInspectionSec, setEditInspectionSec] = useState(adminSettings.inspectionDurationSec || 15);
+  const [editRequireCam, setEditRequireCam] = useState(adminSettings.requireCameraToSolve !== false);
+  const [editRequire3DPreCheck, setEditRequire3DPreCheck] = useState(adminSettings.require3DCubePreCheck !== false);
+  const [editRequireMove, setEditRequireMove] = useState(adminSettings.requireCubeMoveDuringSolve !== false);
+  const [editAutoStop, setEditAutoStop] = useState(adminSettings.autoStopWhenSolved !== false);
+  const [editAdminVipBypass, setEditAdminVipBypass] = useState(adminSettings.adminVipBypass !== false);
+
+  // State chỉnh sửa nhanh Kỷ lục & Bảng xếp hạng trực tiếp trong Admin Panel của Khoa
+  const [adminRecName, setAdminRecName] = useState('');
+  const [adminRecPuzzle, setAdminRecPuzzle] = useState('3x3');
+  const [adminRecBest, setAdminRecBest] = useState('');
+  const [adminRecAvg, setAdminRecAvg] = useState('');
+  const [adminRenameBoardTitle, setAdminRenameBoardTitle] = useState('');
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editingEntryBest, setEditingEntryBest] = useState('');
+  const [editingEntryAvg, setEditingEntryAvg] = useState('');
 
   // Cấu hình Supabase Cloud Backend (Bảng Kỷ Lục Toàn Cầu + Anti-Cheat Server)
   const [cloudUrlInput, setCloudUrlInput] = useState(() => getCloudConfig().url);
@@ -1150,15 +1189,213 @@ export default function App() {
 
   const handleSaveAdminSettings = (e) => {
     e.preventDefault();
+    if (!isKhoaAdmin) return;
     const newSettings = {
       competitionTitle: sanitizeText(editCompTitle, 60, 'Rubik Timer & AI Verification'),
       subTitle: sanitizeText(editCompSub, 80, 'HUST Speedcubing'),
-      spaceHoldMs: Number(editSpaceHoldMs) || 280
+      announcementBanner: sanitizeText(editAnnouncement, 140, ''),
+      spaceHoldMs: Number(editSpaceHoldMs) || 280,
+      inspectionDurationSec: Number(editInspectionSec) || 15,
+      requireCameraToSolve: Boolean(editRequireCam),
+      require3DCubePreCheck: Boolean(editRequire3DPreCheck),
+      requireCubeMoveDuringSolve: Boolean(editRequireMove),
+      autoStopWhenSolved: Boolean(editAutoStop),
+      adminVipBypass: Boolean(editAdminVipBypass)
     };
     setAdminSettings(newSettings);
     localStorage.setItem('rubik_admin_settings', JSON.stringify(newSettings));
     setShowAdminPanelModal(false);
-    alert('✅ Đã lưu cài đặt Quản trị thành công!');
+    setLastNotice({
+      type: 'success',
+      text: '👑 Đã lưu toàn bộ cấu hình Quản trị của Khoa thành công!'
+    });
+  };
+
+  // [ĐẶC QUYỀN ADMIN KHOA] Thêm mới hoặc Cập nhật trực tiếp kỷ lục của bất kỳ người chơi nào lên Bảng Xếp Hạng + Cloud
+  const handleAdminUpsertRecord = async (e) => {
+    e.preventDefault();
+    if (!isKhoaAdmin || !currentBoard) return;
+    const cleanName = sanitizeText(adminRecName, 36, '');
+    const bestVal = parseFloat(String(adminRecBest).replace(',', '.'));
+    const avgVal = adminRecAvg ? parseFloat(String(adminRecAvg).replace(',', '.')) : bestVal;
+
+    if (!cleanName || Number.isNaN(bestVal) || bestVal <= 0 || bestVal > 9999) {
+      alert('⚠️ Vui lòng nhập Tên tuyển thủ và Thời gian Best hợp lệ (ví dụ: 8.45)!');
+      return;
+    }
+
+    const finalBest = parseFloat(bestVal.toFixed(2));
+    const finalAvg = parseFloat((Number.isNaN(avgVal) || avgVal <= 0 ? finalBest : avgVal).toFixed(2));
+    const pType = adminRecPuzzle || '3x3';
+
+    const boardEntries = [...(currentBoard.entries || [])];
+    const existingIdx = boardEntries.findIndex(
+      (item) => item.name.trim().toLowerCase() === cleanName.toLowerCase() && (item.puzzleType || '3x3') === pType
+    );
+
+    if (existingIdx !== -1) {
+      boardEntries[existingIdx] = {
+        ...boardEntries[existingIdx],
+        name: cleanName,
+        puzzleType: pType,
+        best: finalBest,
+        avg: finalAvg,
+        verified: true,
+        date: new Date().toLocaleDateString('vi-VN')
+      };
+    } else {
+      boardEntries.push({
+        id: Date.now(),
+        puzzleType: pType,
+        name: cleanName,
+        best: finalBest,
+        avg: finalAvg,
+        verified: true,
+        date: new Date().toLocaleDateString('vi-VN')
+      });
+    }
+
+    boardEntries.sort((a, b) => a.best - b.best);
+    const updatedBoards = {
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: boardEntries
+      }
+    };
+    saveLeaderboards(updatedBoards);
+
+    if (isCloudConfigured()) {
+      await submitVerifiedSolveToCloud({
+        boardId: activeBoardId,
+        playerName: cleanName,
+        playerEmail: ADMIN_EMAIL,
+        puzzleType: pType,
+        bestTime: finalBest,
+        avgTime: finalAvg,
+        scramble: 'ADMIN_VERIFIED_OVERRIDE',
+        cameraVerified: true,
+        startedScrambled: true
+      });
+    }
+
+    setAdminRecName('');
+    setAdminRecBest('');
+    setAdminRecAvg('');
+    setLastNotice({
+      type: 'success',
+      text: `👑 Admin Khoa đã cập nhật kỷ lục: ${cleanName} (${pType}) — Best ${finalBest}s!`
+    });
+  };
+
+  // [ĐẶC QUYỀN ADMIN KHOA] Sửa nhanh điểm số trực tiếp trên từng dòng của Bảng Xếp Hạng
+  const handleAdminSaveInlineEntry = async (entry) => {
+    if (!isKhoaAdmin || !currentBoard) return;
+    const newBest = parseFloat(String(editingEntryBest).replace(',', '.'));
+    const newAvg = editingEntryAvg ? parseFloat(String(editingEntryAvg).replace(',', '.')) : newBest;
+    if (Number.isNaN(newBest) || newBest <= 0 || newBest > 9999) {
+      alert('⚠️ Thời gian không hợp lệ!');
+      return;
+    }
+    const finalBest = parseFloat(newBest.toFixed(2));
+    const finalAvg = parseFloat((Number.isNaN(newAvg) || newAvg <= 0 ? finalBest : newAvg).toFixed(2));
+
+    const updatedEntries = (currentBoard.entries || [])
+      .map((item) =>
+        item.id === entry.id
+          ? { ...item, best: finalBest, avg: finalAvg, date: new Date().toLocaleDateString('vi-VN') }
+          : item
+      )
+      .sort((a, b) => a.best - b.best);
+
+    saveLeaderboards({
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        entries: updatedEntries
+      }
+    });
+
+    if (isCloudConfigured()) {
+      await submitVerifiedSolveToCloud({
+        boardId: activeBoardId,
+        playerName: entry.name,
+        playerEmail: ADMIN_EMAIL,
+        puzzleType: entry.puzzleType || '3x3',
+        bestTime: finalBest,
+        avgTime: finalAvg,
+        scramble: 'ADMIN_INLINE_EDIT',
+        cameraVerified: true,
+        startedScrambled: true
+      });
+    }
+
+    setEditingEntryId(null);
+    setLastNotice({
+      type: 'success',
+      text: `👑 Đã cập nhật điểm của ${entry.name} thành ${finalBest}s!`
+    });
+  };
+
+  // [ĐẶC QUYỀN ADMIN KHOA] Đổi tên Bảng Xếp Hạng hiện tại
+  const handleAdminRenameCurrentBoard = () => {
+    if (!isKhoaAdmin || !currentBoard) return;
+    const cleanTitle = sanitizeText(adminRenameBoardTitle, 45, '');
+    if (!cleanTitle) {
+      alert('⚠️ Vui lòng nhập tên mới cho bảng xếp hạng!');
+      return;
+    }
+    saveLeaderboards({
+      ...leaderboards,
+      [activeBoardId]: {
+        ...currentBoard,
+        title: cleanTitle
+      }
+    });
+    setLastNotice({
+      type: 'success',
+      text: `👑 Đã đổi tên bảng xếp hạng thành "${cleanTitle}"!`
+    });
+  };
+
+  // [ĐẶC QUYỀN ADMIN KHOA] Xóa sạch lịch sử giải cá nhân trên máy
+  const handleAdminClearSolveHistory = () => {
+    if (!isKhoaAdmin) return;
+    if (window.confirm('Bạn có chắc muốn xóa toàn bộ lịch sử các lượt giải cá nhân trên thiết bị này?')) {
+      setSolves([]);
+      localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify([]));
+      setLastNotice({
+        type: 'success',
+        text: '🧹 Đã xóa toàn bộ lịch sử lượt giải cá nhân!'
+      });
+    }
+  };
+
+  // [ĐẶC QUYỀN ADMIN KHOA] Mở khóa nhanh xác thực 3D (Dùng khi Khoa muốn test nhanh mà không cần cầm khối Rubik)
+  const handleAdminForceVerifyCube = () => {
+    if (!isKhoaAdmin) return;
+    lastCubeVerifiedAtRef.current = performance.now();
+    startScrambledRef.current = true;
+    cubeMovesSeenRef.current = 4;
+    cubeStateChangedRef.current = true;
+    setPreCheckStatus({
+      verified: true,
+      text: `👑 Admin Khoa đã kích hoạt xác thực nhanh khối Rubik ${puzzleType} — Sẵn sàng bấm giờ!`,
+      isScrambled: true,
+      centerFace: 'green'
+    });
+    setModel3DVerification({
+      verified: true,
+      badgeText: '👑 ADMIN VERIFIED',
+      statusTitle: `Đã mở khóa nhanh Mô hình 3D (${puzzleType})`,
+      detailText: 'Quyền Quản trị viên của Khoa đã xác nhận trạng thái khối Rubik hợp lệ.',
+      facesCount: 6,
+      validStickers: currentDim * currentDim
+    });
+    setLastNotice({
+      type: 'success',
+      text: '👑 Đã kích hoạt Mở Khóa Nhanh 3D cho Admin Khoa!'
+    });
   };
 
   // Camera & AI State
@@ -1283,15 +1520,16 @@ export default function App() {
 
   // Inspection Timer Loop (WCA Mode)
   const startInspection = useCallback(() => {
+    const inspectLimit = Number(adminSettingsRef.current?.inspectionDurationSec) || 15;
     setTimerState('inspecting');
-    setInspectionSeconds(15);
+    setInspectionSeconds(inspectLimit);
     setPenaltyText('');
     inspectionStartRef.current = performance.now();
 
     if (inspectionIntervalRef.current) clearInterval(inspectionIntervalRef.current);
     inspectionIntervalRef.current = setInterval(() => {
       const elapsedSec = (performance.now() - inspectionStartRef.current) / 1000;
-      const remain = 15 - elapsedSec;
+      const remain = inspectLimit - elapsedSec;
 
       if (remain <= -2) {
         setPenaltyText('DNF');
@@ -1331,24 +1569,28 @@ export default function App() {
       else setLastTargetResult('loss');
     }
 
+    const cfg = adminSettingsRef.current || {};
+    const isVipKhoa = Boolean(isKhoaAdminRef.current && cfg.adminVipBypass !== false);
     const movesRecorded = trackedMovesRef.current;
-    // BẮT BUỘC BẬT CAMERA HOẠT ĐỘNG VÀ ĐỦ TIÊU CHUẨN SÁNG/TƯƠNG PHẢN
-    const isCameraVerified = Boolean(cameraActiveRef.current && cameraHealthRef.current);
+    // BẮT BUỘC BẬT CAMERA HOẠT ĐỘNG VÀ ĐỦ TIÊU CHUẨN SÁNG/TƯƠNG PHẢN (Trừ khi Admin Khoa bật VIP Bypass hoặc tắt quy tắc)
+    const isCameraVerified = Boolean(
+      isVipKhoa || cfg.requireCameraToSolve === false || (cameraActiveRef.current && cameraHealthRef.current)
+    );
     const currentP = puzzleTypeRef.current;
 
     // ANTI-BOT & ANTI-FAKE OBJECT: đánh giá 3 tầng tính hợp lệ của lượt giải trước khi cho vào Bảng Kỷ Lục
     const integrity = evaluateSolveIntegrity({
       sec: finalSec,
       puzzle: currentP,
-      startedScrambled: startScrambledRef.current,
-      cubeMovesSeen: cubeMovesSeenRef.current,
-      cubeStateChanged: cubeStateChangedRef.current,
-      automation: detectAutomation(),
+      startedScrambled: isVipKhoa || cfg.require3DCubePreCheck === false ? true : startScrambledRef.current,
+      cubeMovesSeen: isVipKhoa || cfg.requireCubeMoveDuringSolve === false ? Math.max(2, cubeMovesSeenRef.current) : cubeMovesSeenRef.current,
+      cubeStateChanged: isVipKhoa || cfg.requireCubeMoveDuringSolve === false ? true : cubeStateChangedRef.current,
+      automation: isVipKhoa ? [] : detectAutomation(),
       behavior: behaviorRef.current
     });
     behaviorRef.current.recordSolve(finalSec);
-    if (behaviorRef.current.suspicious) revokeHumanSession(); // buộc xác minh lại ở lượt sau
-    const isRecordEligible = Boolean(isCameraVerified && integrity.ok);
+    if (!isVipKhoa && behaviorRef.current.suspicious) revokeHumanSession(); // buộc xác minh lại ở lượt sau
+    const isRecordEligible = Boolean(isVipKhoa || (isCameraVerified && integrity.ok));
 
     // Giữ mô hình 3D thêm vài giây sau khi dừng để xem kết quả
     setLinger3D(true);
@@ -2048,10 +2290,12 @@ export default function App() {
           }
 
           // Chỉ tự động dừng đồng hồ khi:
-          // 1) Đã xác thực khối Rubik xáo trộn lúc đầu (startScrambledRef.current === true)
-          // 2) Đã ghi nhận ít nhất 2 lần xoay biến đổi trạng thái khối Rubik trong lúc giải
-          // 3) Mặt Rubik đồng màu chuẩn giữ ổn định >= 3 khung hình liên tiếp sau 2.8 giây
+          // 1) Admin bật tính năng autoStopWhenSolved (mặc định true)
+          // 2) Đã xác thực khối Rubik xáo trộn lúc đầu (startScrambledRef.current === true)
+          // 3) Đã ghi nhận ít nhất 2 lần xoay biến đổi trạng thái khối Rubik trong lúc giải
+          // 4) Mặt Rubik đồng màu chuẩn giữ ổn định >= 3 khung hình liên tiếp sau 2.8 giây
           if (
+            adminSettingsRef.current?.autoStopWhenSolved !== false &&
             isAllSameColor &&
             startScrambledRef.current &&
             cubeStateChangedRef.current &&
@@ -2114,15 +2358,21 @@ export default function App() {
     return (e.puzzleType || '3x3') === puzzleType;
   });
 
-  // Handler mở Bảng Quản Trị Của Khoa (Chỉ cho phép khi CÓ CAMERA HOẠT ĐỘNG)
+  // Handler mở Bảng Quản Trị Độc Quyền Của Khoa (Mở tự do 1 chạm mọi lúc cho tài khoản khoa.tt2611758@sis.hust.edu.vn)
   const handleOpenKhoaAdminPanel = () => {
-    if (!cameraActive || !cameraHealth.isHealthy) {
-      alert('📷 YÊU CẦU BẢO MẬT:\n\nBạn phải BẬT CAMERA hoạt động bình thường thì mới có thể mở Bảng Quản Trị Admin của Khoa!\n\nHãy nhấn nút "Bật Cam" ở trên trước khi mở.');
-      return;
-    }
-    setEditCompTitle(adminSettings.competitionTitle);
-    setEditCompSub(adminSettings.subTitle);
-    setEditSpaceHoldMs(adminSettings.spaceHoldMs);
+    if (!isKhoaAdmin) return;
+    setEditCompTitle(adminSettings.competitionTitle || 'Rubik Timer & AI Verification');
+    setEditCompSub(adminSettings.subTitle || 'HUST Speedcubing • 2×2, 3×3, 4×4, 5×5');
+    setEditAnnouncement(adminSettings.announcementBanner || '');
+    setEditSpaceHoldMs(adminSettings.spaceHoldMs || 280);
+    setEditInspectionSec(adminSettings.inspectionDurationSec || 15);
+    setEditRequireCam(adminSettings.requireCameraToSolve !== false);
+    setEditRequire3DPreCheck(adminSettings.require3DCubePreCheck !== false);
+    setEditRequireMove(adminSettings.requireCubeMoveDuringSolve !== false);
+    setEditAutoStop(adminSettings.autoStopWhenSolved !== false);
+    setEditAdminVipBypass(adminSettings.adminVipBypass !== false);
+    setAdminRenameBoardTitle(currentBoard?.title || '');
+    setAdminRecPuzzle(puzzleType || '3x3');
     setShowAdminPanelModal(true);
   };
 
@@ -2309,15 +2559,11 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 onClick={handleOpenKhoaAdminPanel}
-                title={cameraActive && cameraHealth.isHealthy ? "Mở Bảng Điều Khiển Quản Trị của Khoa" : "Cần bật Camera để mở bảng Quản Trị"}
+                title="Mở Trung Tâm Quản Trị Độc Quyền của Khoa (Chỉnh sửa tự do mọi thứ)"
                 style={{
-                  background: (cameraActive && cameraHealth.isHealthy)
-                    ? 'linear-gradient(135deg, #f59e0b, #d97706)' 
-                    : '#1e293b',
-                  border: (cameraActive && cameraHealth.isHealthy)
-                    ? 'none'
-                    : '1px solid #334155',
-                  color: (cameraActive && cameraHealth.isHealthy) ? '#ffffff' : '#64748b',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  border: '1px solid #fbbf24',
+                  color: '#ffffff',
                   padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '0.78rem',
@@ -2326,10 +2572,10 @@ export default function App() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px',
-                  boxShadow: (cameraActive && cameraHealth.isHealthy) ? '0 2px 8px rgba(245, 158, 11, 0.35)' : 'none'
+                  boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)'
                 }}
               >
-                <span>⚙️</span>
+                <span>👑</span>
                 <span>Quản Trị Của Khoa</span>
               </button>
 
@@ -2377,6 +2623,27 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {/* THÔNG BÁO GHIM ĐẦU TRANG DO ADMIN KHOA TÙY CHỈNH */}
+      {adminSettings.announcementBanner && adminSettings.announcementBanner.trim() !== '' && (
+        <div style={{
+          width: '100%',
+          padding: '6px 16px',
+          background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.18), rgba(37, 99, 235, 0.22), rgba(245, 158, 11, 0.18))',
+          borderBottom: '1px solid rgba(245, 158, 11, 0.4)',
+          color: '#fde68a',
+          fontSize: '0.78rem',
+          fontWeight: '700',
+          textAlign: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px'
+        }}>
+          <span>📢</span>
+          <span>{adminSettings.announcementBanner}</span>
+        </div>
+      )}
 
       {/* ==========================================
           MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN ANDROID & iOS)
@@ -4135,36 +4402,66 @@ export default function App() {
                 background: isKhoaAdmin ? 'rgba(245, 158, 11, 0.1)' : 'rgba(56, 189, 248, 0.1)',
                 border: isKhoaAdmin ? '1px solid #f59e0b' : '1px solid #38bdf8',
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
+                flexDirection: 'column',
+                gap: '10px'
               }}>
-                <div>
-                  <div style={{ fontWeight: '700', fontSize: '0.85rem', color: isKhoaAdmin ? '#fbbf24' : '#38bdf8' }}>
-                    {isKhoaAdmin ? '👑 Quản Trị Viên Khoa' : currentUser.name}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: '700', fontSize: '0.85rem', color: isKhoaAdmin ? '#fbbf24' : '#38bdf8' }}>
+                      {isKhoaAdmin ? '👑 Quản Trị Viên Khoa (Super-Admin)' : currentUser.name}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      {currentUser.email}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                    {currentUser.email}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleLogout();
+                      setShowAuthModal(false);
+                    }}
+                    style={{
+                      background: '#ef4444',
+                      border: 'none',
+                      color: '#ffffff',
+                      padding: '5px 12px',
+                      borderRadius: '5px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Đăng xuất
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleLogout();
-                    setShowAuthModal(false);
-                  }}
-                  style={{
-                    background: '#ef4444',
-                    border: 'none',
-                    color: '#ffffff',
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    fontSize: '0.75rem',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Đăng xuất
-                </button>
+
+                {isKhoaAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAuthModal(false);
+                      handleOpenKhoaAdminPanel();
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: '7px',
+                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      border: 'none',
+                      color: '#ffffff',
+                      fontWeight: '800',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>⚙️</span>
+                    <span>Mở Trung Tâm Quản Trị Của Khoa</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -4236,16 +4533,16 @@ export default function App() {
       )}
 
       {/* ==========================================
-          MODAL: BẢNG QUẢN TRỊ ĐỘC QUYỀN CỦA KHOA (YÊU CẦU CÓ CAM)
+          MODAL: TRUNG TÂM QUẢN TRỊ ĐỘC QUYỀN CỦA KHOA (SUPER-ADMIN CONTROL CENTER)
       ========================================== */}
-      {showAdminPanelModal && (
+      {showAdminPanelModal && isKhoaAdmin && (
         <div style={{
           position: 'fixed',
           top: 0,
           left: 0,
           width: '100vw',
           height: '100vh',
-          backgroundColor: 'rgba(5, 8, 16, 0.9)',
+          backgroundColor: 'rgba(5, 8, 16, 0.92)',
           backdropFilter: 'blur(8px)',
           display: 'flex',
           alignItems: 'center',
@@ -4253,14 +4550,14 @@ export default function App() {
           zIndex: 99999
         }}>
           <div style={{
-            width: '92%',
-            maxWidth: '560px',
+            width: '94%',
+            maxWidth: '680px',
             backgroundColor: '#0d1629',
             border: '1px solid #f59e0b88',
             borderRadius: '16px',
-            padding: '24px 28px',
+            padding: isMobile ? '18px 16px' : '24px 28px',
             boxShadow: '0 25px 50px rgba(0,0,0,0.85)',
-            maxHeight: '90vh',
+            maxHeight: '92vh',
             overflowY: 'auto',
             position: 'relative'
           }}>
@@ -4281,125 +4578,550 @@ export default function App() {
             </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <span style={{ fontSize: '1.6rem' }}>👑</span>
+              <span style={{ fontSize: '1.7rem' }}>👑</span>
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#f59e0b' }}>
-                  Bảng Quản Trị Độc Quyền Của Khoa
+                <h2 style={{ margin: 0, fontSize: '1.22rem', color: '#f59e0b' }}>
+                  Trung Tâm Quản Trị Độc Quyền Của Khoa
                 </h2>
-                <p style={{ margin: 0, fontSize: '0.74rem', color: '#64748b' }}>
-                  Xác thực: {ADMIN_EMAIL} • Camera AI: 🟢 Đã xác thực
+                <p style={{ margin: 0, fontSize: '0.74rem', color: '#94a3b8' }}>
+                  Tài khoản Super-Admin: <strong style={{ color: '#fbbf24' }}>{ADMIN_EMAIL}</strong> • Mở tự do mọi lúc (Ẩn 100% với người khác)
                 </p>
               </div>
             </div>
 
-            {/* HỆ THỐNG QUẢN TRỊ CHỐNG GIAN LẬN */}
-            <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #38bdf844' }}>
-              <h4 style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
-                🛡️ 1. Quản Trị Hệ Thống Chống Gian Lận (Anti-Cheat)
-              </h4>
-              <p style={{ margin: '0 0 10px 0', fontSize: '0.74rem', color: '#94a3b8', lineHeight: '1.4' }}>
-                Cơ chế bảo mật: Bắt buộc 100% người chơi phải <strong>Bật Camera AI</strong> và giải trực tiếp. Hệ thống tự động nhận diện và cập nhật người giải nhanh nhất lên Top 1, tuyệt đối không dùng dữ liệu giả hay thêm tay.
-              </p>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {/* PHẦN 1: THÊM / SỬA NHANH KỶ LỤC NGƯỜI CHƠI TRỰC TIẾP (LOCAL + SUPABASE CLOUD) */}
+            <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid rgba(245, 158, 11, 0.45)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                <h4 style={{ margin: 0, fontSize: '0.86rem', color: '#fbbf24' }}>
+                  🏆 1. Thêm / Cập Nhật Nhanh Kỷ Lục Tuyển Thủ (Local & Cloud)
+                </h4>
                 <button
                   type="button"
-                  onClick={handleClearCurrentBoard}
+                  onClick={handleAdminForceVerifyCube}
                   style={{
-                    padding: '8px 14px',
+                    padding: '4px 10px',
                     borderRadius: '6px',
-                    background: 'rgba(239, 68, 68, 0.15)',
-                    border: '1px solid #ef4444',
-                    color: '#f87171',
+                    background: 'rgba(34, 197, 94, 0.18)',
+                    border: '1px solid #22c55e',
+                    color: '#4ade80',
+                    fontSize: '0.72rem',
                     fontWeight: '700',
-                    fontSize: '0.8rem',
                     cursor: 'pointer'
                   }}
                 >
-                  🧹 Xóa Sạch Kỷ Lục Bảng "{currentBoard?.title}"
+                  ⚡ Mở Khóa Nhanh Khối 3D ({puzzleType})
+                </button>
+              </div>
+              <p style={{ margin: '0 0 10px 0', fontSize: '0.73rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                Dành riêng cho Khoa: Nhập tên tuyển thủ và thành tích để thêm mới hoặc ghi đè kỷ lục trực tiếp lên bảng <strong>"{currentBoard?.title}"</strong> và đồng bộ lên Supabase Cloud ngay lập tức.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '2fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'end' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '3px' }}>Tên tuyển thủ:</label>
+                  <input
+                    type="text"
+                    placeholder="VD: Trần Trọng Khoa"
+                    value={adminRecName}
+                    onChange={(e) => setAdminRecName(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 9px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.8rem'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '3px' }}>Khối Rubik:</label>
+                  <select
+                    value={adminRecPuzzle}
+                    onChange={(e) => setAdminRecPuzzle(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 8px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.8rem'
+                    }}
+                  >
+                    <option value="2x2">2×2×2</option>
+                    <option value="3x3">3×3×3</option>
+                    <option value="4x4">4×4×4</option>
+                    <option value="5x5">5×5×5</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '3px' }}>Best (giây):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="VD: 7.25"
+                    value={adminRecBest}
+                    onChange={(e) => setAdminRecBest(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 8px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#38bdf8',
+                      fontWeight: '700',
+                      fontSize: '0.8rem'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '3px' }}>Ao5 (tùy chọn):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="VD: 8.10"
+                    value={adminRecAvg}
+                    onChange={(e) => setAdminRecAvg(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 8px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#cbd5e1',
+                      fontSize: '0.8rem'
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAdminUpsertRecord}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontWeight: '800',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    gridColumn: isMobile ? 'span 2' : undefined
+                  }}
+                >
+                  ➕ Lưu Lên Bảng
                 </button>
               </div>
             </div>
 
-            <form onSubmit={handleSaveAdminSettings}>
-              {/* TÙY CHỈNH TIÊU ĐỀ HỆ THỐNG */}
-              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
-                  ⚙️ 2. Tùy chỉnh tiêu đề hiển thị
-                </h4>
+            {/* PHẦN 2: QUẢN LÝ TRỰC TIẾP BẢNG XẾP HẠNG HIỆN TẠI & DANH SÁCH KỶ LỤC */}
+            <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #38bdf844' }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '0.86rem', color: '#38bdf8' }}>
+                📋 2. Chỉnh Sửa Trực Tiếp Bảng Xếp Hạng ({currentBoard?.entries?.length || 0} kỷ lục)
+              </h4>
 
-                <div style={{ marginBottom: '10px' }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Tiêu đề chính:
-                  </label>
-                  <input
-                    type="text"
-                    value={editCompTitle}
-                    onChange={(e) => setEditCompTitle(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '7px 10px',
-                      borderRadius: '5px',
-                      background: '#090f1d',
-                      border: '1px solid #192642',
-                      color: '#f8fafc',
-                      fontSize: '0.85rem'
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>
-                    Tiêu đề phụ:
-                  </label>
-                  <input
-                    type="text"
-                    value={editCompSub}
-                    onChange={(e) => setEditCompSub(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '7px 10px',
-                      borderRadius: '5px',
-                      background: '#090f1d',
-                      border: '1px solid #192642',
-                      color: '#f8fafc',
-                      fontSize: '0.85rem'
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* ĐỘ NHẠY PHÍM SPACEBAR */}
-              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#4ade80' }}>
-                  ⏱️ 3. Thời gian giữ phím Spacebar để Ready (Xanh lá)
-                </h4>
-
-                <select
-                  value={editSpaceHoldMs}
-                  onChange={(e) => setEditSpaceHoldMs(Number(e.target.value))}
+              {/* Đổi tên bảng & Các nút xóa nhanh */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  value={adminRenameBoardTitle}
+                  onChange={(e) => setAdminRenameBoardTitle(e.target.value)}
+                  placeholder="Tên bảng xếp hạng..."
                   style={{
-                    width: '100%',
-                    padding: '7px 10px',
+                    flex: 1,
+                    minWidth: '160px',
+                    padding: '6px 10px',
                     borderRadius: '5px',
                     background: '#090f1d',
                     border: '1px solid #192642',
                     color: '#f8fafc',
-                    fontSize: '0.85rem'
+                    fontSize: '0.8rem'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAdminRenameCurrentBoard}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '5px',
+                    background: '#1e293b',
+                    border: '1px solid #38bdf8',
+                    color: '#38bdf8',
+                    fontWeight: '700',
+                    fontSize: '0.76rem',
+                    cursor: 'pointer'
                   }}
                 >
-                  <option value={150}>150ms — Rất nhạy (Chạm nhanh là chạy)</option>
-                  <option value={280}>280ms — Tiêu chuẩn cân bằng (Mặc định)</option>
-                  <option value={350}>350ms — Chuẩn WCA quốc tế (csTimer)</option>
-                  <option value={550}>550ms — Giữ chắc tay (Tránh bấm nhầm)</option>
-                </select>
+                  ✏️ Đổi Tên Bảng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearCurrentBoard}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '5px',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid #ef4444',
+                    color: '#f87171',
+                    fontWeight: '700',
+                    fontSize: '0.76rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🧹 Xóa Sạch Bảng Này
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAdminClearSolveHistory}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '5px',
+                    background: 'rgba(245, 158, 11, 0.15)',
+                    border: '1px solid #f59e0b',
+                    color: '#fbbf24',
+                    fontWeight: '700',
+                    fontSize: '0.76rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗑️ Xóa Lịch Sử Cá Nhân ({solves.length})
+                </button>
               </div>
 
-              {/* KẾT NỐI CLOUD BACKEND SUPABASE + SERVER ANTI-CHEAT */}
+              {/* Danh sách kỷ lục trong bảng hiện tại để Khoa bấm sửa / xóa trực tiếp */}
+              <div style={{ maxHeight: '175px', overflowY: 'auto', borderRadius: '6px', background: '#090f1d', border: '1px solid #192642', padding: '6px' }}>
+                {(!currentBoard?.entries || currentBoard.entries.length === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '14px', fontSize: '0.76rem', color: '#64748b' }}>
+                    Bảng hiện tại đang trống. Bạn có thể thêm tuyển thủ ở mục số 1 bên trên.
+                  </div>
+                ) : (
+                  currentBoard.entries.map((entry, idx) => (
+                    <div
+                      key={entry.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '6px',
+                        padding: '6px 8px',
+                        borderBottom: idx < currentBoard.entries.length - 1 ? '1px solid #111c34' : 'none',
+                        fontSize: '0.78rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                        <span style={{ color: idx === 0 ? '#facc15' : '#64748b', fontWeight: '800', width: '22px' }}>
+                          #{idx + 1}
+                        </span>
+                        <span style={{
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: '#1e293b',
+                          color: '#38bdf8',
+                          fontSize: '0.68rem',
+                          fontWeight: '700'
+                        }}>
+                          {entry.puzzleType || '3x3'}
+                        </span>
+                        <span style={{ color: '#f8fafc', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {entry.name}
+                        </span>
+                      </div>
+
+                      {editingEntryId === entry.id ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingEntryBest}
+                            onChange={(e) => setEditingEntryBest(e.target.value)}
+                            placeholder="Best"
+                            style={{
+                              width: '62px',
+                              padding: '3px 6px',
+                              borderRadius: '4px',
+                              background: '#111c34',
+                              border: '1px solid #38bdf8',
+                              color: '#38bdf8',
+                              fontSize: '0.75rem',
+                              fontWeight: '700'
+                            }}
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingEntryAvg}
+                            onChange={(e) => setEditingEntryAvg(e.target.value)}
+                            placeholder="Ao5"
+                            style={{
+                              width: '62px',
+                              padding: '3px 6px',
+                              borderRadius: '4px',
+                              background: '#111c34',
+                              border: '1px solid #334155',
+                              color: '#cbd5e1',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAdminSaveInlineEntry(entry)}
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              background: '#16a34a',
+                              border: 'none',
+                              color: '#fff',
+                              fontSize: '0.72rem',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Lưu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingEntryId(null)}
+                            style={{
+                              padding: '3px 6px',
+                              borderRadius: '4px',
+                              background: '#334155',
+                              border: 'none',
+                              color: '#cbd5e1',
+                              fontSize: '0.72rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: '#38bdf8', fontWeight: '800' }}>{Number(entry.best).toFixed(2)}s</span>
+                          <span style={{ color: '#64748b', fontSize: '0.7rem' }}>(Ao5: {Number(entry.avg || entry.best).toFixed(2)}s)</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingEntryId(entry.id);
+                              setEditingEntryBest(String(entry.best));
+                              setEditingEntryAvg(String(entry.avg || entry.best));
+                            }}
+                            style={{
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: '#1e293b',
+                              border: '1px solid #38bdf866',
+                              color: '#38bdf8',
+                              fontSize: '0.7rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✏️ Sửa
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntry(entry.id)}
+                            style={{
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #ef444466',
+                              color: '#f87171',
+                              fontSize: '0.7rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveAdminSettings}>
+              {/* PHẦN 3: CÔNG TẮC QUY TẮC THI ĐẤU, CAMERA AI & ĐẶC QUYỀN VIP CỦA KHOA */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #4ade8044' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.86rem', color: '#4ade80' }}>
+                  🎛️ 3. Công Tắc Quy Tắc Camera AI, Đồng Hồ & Đặc Quyền Admin Khoa
+                </h4>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.79rem', color: '#fde68a', cursor: 'pointer', fontWeight: '700' }}>
+                    <input
+                      type="checkbox"
+                      checked={editAdminVipBypass}
+                      onChange={(e) => setEditAdminVipBypass(e.target.checked)}
+                    />
+                    <span>👑 Đặc quyền VIP cho Gmail Khoa: Cho phép riêng Khoa bấm đồng hồ & lưu kỷ lục tự do ngay cả khi tắt Camera</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editRequireCam}
+                      onChange={(e) => setEditRequireCam(e.target.checked)}
+                    />
+                    <span>📷 Bắt buộc người chơi phải BẬT CAMERA AI mới bấm được đồng hồ giải</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editRequire3DPreCheck}
+                      onChange={(e) => setEditRequire3DPreCheck(e.target.checked)}
+                    />
+                    <span>🧊 Bắt buộc xác minh khối Rubik thật trên Mô hình 3D trước khi cho bấm giờ</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editRequireMove}
+                      onChange={(e) => setEditRequireMove(e.target.checked)}
+                    />
+                    <span>🔄 Bắt buộc Camera bắt được chuyển động xoay khối trong lúc giải mới công nhận kỷ lục</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editAutoStop}
+                      onChange={(e) => setEditAutoStop(e.target.checked)}
+                    />
+                    <span>⚡ Tự động dừng đồng hồ khi Camera AI nhận diện mặt Rubik đã giải xong (đồng màu)</span>
+                  </label>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px' }}>
+                      Độ nhạy giữ phím Spacebar / Cảm ứng:
+                    </label>
+                    <select
+                      value={editSpaceHoldMs}
+                      onChange={(e) => setEditSpaceHoldMs(Number(e.target.value))}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: '5px',
+                        background: '#090f1d',
+                        border: '1px solid #192642',
+                        color: '#f8fafc',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      <option value={100}>100ms — Siêu nhạy (Chạm nhẹ là xanh)</option>
+                      <option value={150}>150ms — Rất nhạy (Tốc độ cao)</option>
+                      <option value={280}>280ms — Tiêu chuẩn cân bằng (Mặc định)</option>
+                      <option value={350}>350ms — Chuẩn WCA quốc tế (csTimer)</option>
+                      <option value={550}>550ms — Giữ chắc tay (Tránh bấm nhầm)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px' }}>
+                      Thời gian đếm ngược quan sát (Chế độ WCA):
+                    </label>
+                    <select
+                      value={editInspectionSec}
+                      onChange={(e) => setEditInspectionSec(Number(e.target.value))}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: '5px',
+                        background: '#090f1d',
+                        border: '1px solid #192642',
+                        color: '#f8fafc',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      <option value={10}>10 giây — Nhanh</option>
+                      <option value={15}>15 giây — Chuẩn WCA Quốc tế</option>
+                      <option value={20}>20 giây — Thư thả</option>
+                      <option value={30}>30 giây — Luyện tập mở rộng</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* PHẦN 4: TÙY CHỈNH TIÊU ĐỀ & THÔNG BÁO GIẢI ĐẤU */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#38bdf8' }}>
+                  ⚙️ 4. Tùy Chỉnh Giao Diện, Tiêu Đề & Thông Báo Giải Đấu
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px' }}>
+                      Tiêu đề chính trên thanh Header:
+                    </label>
+                    <input
+                      type="text"
+                      value={editCompTitle}
+                      onChange={(e) => setEditCompTitle(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: '5px',
+                        background: '#090f1d',
+                        border: '1px solid #192642',
+                        color: '#f8fafc',
+                        fontSize: '0.82rem'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px' }}>
+                      Tiêu đề phụ:
+                    </label>
+                    <input
+                      type="text"
+                      value={editCompSub}
+                      onChange={(e) => setEditCompSub(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '7px 10px',
+                        borderRadius: '5px',
+                        background: '#090f1d',
+                        border: '1px solid #192642',
+                        color: '#f8fafc',
+                        fontSize: '0.82rem'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.74rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    📢 Dòng thông báo ghim nổi bật đầu trang (Để trống nếu muốn ẩn):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="VD: Giải đấu HUST Speedcubing mở rộng 2026 — Chúc các cuber đạt PB mới!"
+                    value={editAnnouncement}
+                    onChange={(e) => setEditAnnouncement(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#fde68a',
+                      fontSize: '0.82rem'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* PHẦN 5: KẾT NỐI CLOUD BACKEND SUPABASE + SERVER ANTI-CHEAT */}
               <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
                   <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#38bdf8' }}>
-                    ☁️ 4. Kết Nối Cloud Backend (Supabase + Anti-Cheat Server)
+                    ☁️ 5. Kết Nối Cloud Backend (Supabase + Anti-Cheat Server)
                   </h4>
                   <button
                     type="button"
@@ -4531,15 +5253,15 @@ export default function App() {
                   style={{
                     padding: '8px 20px',
                     borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                     border: 'none',
                     color: '#ffffff',
-                    fontWeight: '700',
+                    fontWeight: '800',
                     fontSize: '0.82rem',
                     cursor: 'pointer'
                   }}
                 >
-                  Lưu Tùy Chỉnh
+                  💾 Lưu Toàn Bộ Cài Đặt Của Khoa
                 </button>
               </div>
             </form>
