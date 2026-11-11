@@ -15,7 +15,13 @@ html, body, #root {
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+input, textarea, select {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  touch-action: manipulation;
 }
 
 /* Custom hide scrollbar utility */
@@ -27,14 +33,14 @@ html, body, #root {
   scrollbar-width: none;
 }
 
-/* Cho phép cuộn dọc tự nhiên trên điện thoại khi lướt qua vùng đồng hồ */
+/* Cho phép cuộn dọc & ngang tự nhiên trên điện thoại khi lướt qua vùng đồng hồ */
 .touch-timer-surface {
   user-select: none;
   -webkit-user-select: none;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
 }
 
-/* Khi đang giữ sẵn sàng hoặc đang chạy giờ thì khóa cuộn trên nút垫 tay */
+/* Khi đang giữ sẵn sàng hoặc đang chạy giờ thì khóa cuộn trên nút đặt tay */
 .touch-timer-pad-active {
   user-select: none;
   -webkit-user-select: none;

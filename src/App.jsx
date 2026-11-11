@@ -1492,33 +1492,36 @@ export default function App() {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* ==========================================
-          HEADER BAR: AUTH + DASHBOARD (ẨN HOÀN TOÀN MỤC ADMIN VỚI NGƯỜI NGOÀI)
+          HEADER BAR: AUTH + DASHBOARD (HIỂN THỊ ĐẦY ĐỦ & CUỘN MƯỢT TRÊN ĐIỆN THOẠI)
       ========================================== */}
       <header style={{
-        padding: '10px 24px',
+        padding: isMobile ? '8px 10px' : '10px 24px',
         backgroundColor: '#0d1629',
         borderBottom: '1px solid #192642',
         display: 'flex',
+        flexWrap: 'wrap',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'center',
+        gap: '8px',
+        width: '100%'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <div style={{
-            width: '34px',
-            height: '34px',
+            width: isMobile ? '28px' : '34px',
+            height: isMobile ? '28px' : '34px',
             borderRadius: '8px',
             background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.2rem',
+            fontSize: isMobile ? '1rem' : '1.2rem',
             boxShadow: '0 2px 10px rgba(37, 99, 235, 0.4)'
           }}>
             ⏱️
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.02rem', fontWeight: '700', color: '#f8fafc' }}>
-              {isMobile ? 'Rubik AI Speedcubing' : adminSettings.competitionTitle}
+            <h1 style={{ margin: 0, fontSize: isMobile ? '0.88rem' : '1.02rem', fontWeight: '700', color: '#f8fafc' }}>
+              {isMobile ? 'Rubik AI Pro' : adminSettings.competitionTitle}
             </h1>
             {!isMobile && (
               <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
@@ -1528,8 +1531,21 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right header: Shield + Dashboard + Camera + Tài Khoản */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Right header: Shield + Dashboard + Camera + Tài Khoản (Cho phép cuộn ngang & tự xuống dòng trên điện thoại) */}
+        <div
+          className="no-scrollbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: isMobile ? '6px' : '10px',
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+            maxWidth: '100%',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-x pan-y'
+          }}
+        >
           {!isMobile && (
             <button
               type="button"
@@ -1866,7 +1882,8 @@ export default function App() {
               gap: '4px',
               maxWidth: '100%',
               overflowX: 'auto',
-              WebkitOverflowScrolling: 'touch'
+              WebkitOverflowScrolling: 'touch',
+              touchAction: 'pan-x pan-y'
             }} className="no-scrollbar">
               {GAME_MODES.map((m) => {
                 const isSelected = gameMode === m.id;
@@ -1884,6 +1901,8 @@ export default function App() {
                       fontWeight: isSelected ? '700' : '600',
                       fontSize: '0.75rem',
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       transition: 'all 0.15s'
                     }}
                   >
@@ -3108,15 +3127,37 @@ export default function App() {
                 alignItems: 'center',
                 gap: '2px',
                 cursor: 'pointer',
-                fontSize: '0.72rem',
+                fontSize: '0.68rem',
                 fontWeight: mobileTab === tab.id ? '700' : '500',
                 transition: 'all 0.15s'
               }}
             >
-              <span style={{ fontSize: '1.15rem' }}>{tab.icon}</span>
+              <span style={{ fontSize: '1.1rem' }}>{tab.icon}</span>
               <span>{tab.label}</span>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setShowAuthModal(true)}
+            style={{
+              flex: 1,
+              padding: '6px 4px',
+              border: isKhoaAdmin ? '1px solid #f59e0b' : 'none',
+              borderRadius: '8px',
+              background: currentUser.email !== 'guest@cuber.vn' ? 'rgba(37, 99, 235, 0.2)' : 'transparent',
+              color: isKhoaAdmin ? '#fbbf24' : (currentUser.email !== 'guest@cuber.vn' ? '#38bdf8' : '#94a3b8'),
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '2px',
+              cursor: 'pointer',
+              fontSize: '0.68rem',
+              fontWeight: '700'
+            }}
+          >
+            <span style={{ fontSize: '1.1rem' }}>{isKhoaAdmin ? '👑' : '👤'}</span>
+            <span>{currentUser.email === 'guest@cuber.vn' ? 'Đăng Nhập' : 'Tài Khoản'}</span>
+          </button>
         </div>
       )}
 
