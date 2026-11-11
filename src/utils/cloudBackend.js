@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.rubik_leaderboards (
 );
 
 CREATE OR REPLACE FUNCTION public.validate_rubik_solve_trigger()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
 DECLARE min_human_time NUMERIC(8, 2);
 BEGIN
   IF NEW.camera_verified IS NOT TRUE THEN
@@ -60,14 +60,16 @@ CREATE TRIGGER trg_validate_rubik_solve
   FOR EACH ROW EXECUTE FUNCTION public.validate_rubik_solve_trigger();
 
 ALTER TABLE public.rubik_leaderboards ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.rubik_leaderboards TO anon, authenticated;
+GRANT USAGE, SELECT ON SEQUENCE public.rubik_leaderboards_id_seq TO anon, authenticated;
 DROP POLICY IF EXISTS "Public Read Leaderboard" ON public.rubik_leaderboards;
-CREATE POLICY "Public Read Leaderboard" ON public.rubik_leaderboards FOR SELECT USING (true);
+CREATE POLICY "Public Read Leaderboard" ON public.rubik_leaderboards FOR SELECT TO anon, authenticated USING (true);
 DROP POLICY IF EXISTS "Verified Insert Leaderboard" ON public.rubik_leaderboards;
-CREATE POLICY "Verified Insert Leaderboard" ON public.rubik_leaderboards FOR INSERT WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
+CREATE POLICY "Verified Insert Leaderboard" ON public.rubik_leaderboards FOR INSERT TO anon, authenticated WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
 DROP POLICY IF EXISTS "Verified Update Leaderboard" ON public.rubik_leaderboards;
-CREATE POLICY "Verified Update Leaderboard" ON public.rubik_leaderboards FOR UPDATE USING (true) WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
+CREATE POLICY "Verified Update Leaderboard" ON public.rubik_leaderboards FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
 DROP POLICY IF EXISTS "Admin Delete Leaderboard" ON public.rubik_leaderboards;
-CREATE POLICY "Admin Delete Leaderboard" ON public.rubik_leaderboards FOR DELETE USING (true);`;
+CREATE POLICY "Admin Delete Leaderboard" ON public.rubik_leaderboards FOR DELETE TO anon, authenticated USING (true);`;
 
 /**
  * Lấy cấu hình Supabase từ biến môi trường (.env) hoặc cài đặt Admin của Khoa

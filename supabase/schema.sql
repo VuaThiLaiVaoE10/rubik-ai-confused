@@ -34,7 +34,8 @@ CREATE INDEX IF NOT EXISTS idx_rubik_leaderboards_ranking
 CREATE OR REPLACE FUNCTION public.validate_rubik_solve_trigger()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
+SET search_path = ''
 AS $$
 DECLARE
   min_human_time NUMERIC(8, 2);
@@ -90,14 +91,17 @@ CREATE TRIGGER trg_validate_rubik_solve
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_rubik_solve_trigger();
 
--- 4. Bật Row Level Security (RLS) bảo vệ dữ liệu trên Cloud
+-- 4. Bật Row Level Security (RLS) & cấp quyền Data API cho anon/authenticated
 ALTER TABLE public.rubik_leaderboards ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.rubik_leaderboards TO anon, authenticated;
+GRANT USAGE, SELECT ON SEQUENCE public.rubik_leaderboards_id_seq TO anon, authenticated;
 
 -- Cho phép mọi người xem Bảng Xếp Hạng Toàn Cầu (24/7 kể cả khi máy chủ cá nhân tắt)
 DROP POLICY IF EXISTS "Public Read Leaderboard" ON public.rubik_leaderboards;
 CREATE POLICY "Public Read Leaderboard"
   ON public.rubik_leaderboards
   FOR SELECT
+  TO anon, authenticated
   USING (true);
 
 -- Cho phép gửi kỷ lục mới nếu thỏa mãn điều kiện Anti-Cheat
@@ -105,6 +109,7 @@ DROP POLICY IF EXISTS "Verified Insert Leaderboard" ON public.rubik_leaderboards
 CREATE POLICY "Verified Insert Leaderboard"
   ON public.rubik_leaderboards
   FOR INSERT
+  TO anon, authenticated
   WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
 
 -- Cho phép cập nhật kỷ lục cá nhân nếu thỏa mãn điều kiện Anti-Cheat
@@ -112,6 +117,7 @@ DROP POLICY IF EXISTS "Verified Update Leaderboard" ON public.rubik_leaderboards
 CREATE POLICY "Verified Update Leaderboard"
   ON public.rubik_leaderboards
   FOR UPDATE
+  TO anon, authenticated
   USING (true)
   WITH CHECK (camera_verified = true AND length(proof_hash) = 64);
 
@@ -120,4 +126,5 @@ DROP POLICY IF EXISTS "Admin Delete Leaderboard" ON public.rubik_leaderboards;
 CREATE POLICY "Admin Delete Leaderboard"
   ON public.rubik_leaderboards
   FOR DELETE
+  TO anon, authenticated
   USING (true);
