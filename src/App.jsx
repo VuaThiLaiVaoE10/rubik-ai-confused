@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Rubik3DView from './components/Rubik3DView';
 import Solo1v1Arena from './components/Solo1v1Arena';
+import HumanCheckModal from './components/HumanCheckModal';
+import {
+  detectAutomation,
+  isHumanSessionValid,
+  grantHumanSession,
+  revokeHumanSession,
+  isTrustedInput,
+  createBehaviorTracker,
+  evaluateSolveIntegrity
+} from './utils/antiBot';
 
 // ==========================================
 // 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
@@ -251,13 +261,32 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Cổng chống bot: chưa xác minh người thật (hoặc hành vi đáng ngờ) thì chặn lượt bắt đầu và hiện thử thách
+  const requireHuman = useCallback(() => {
+    if (isHumanSessionValid() && !behaviorRef.current.suspicious) return false;
+    setShowHumanCheck(true);
+    return true;
+  }, []);
+  const requireHumanRef = useRef(requireHuman);
+  useEffect(() => { requireHumanRef.current = requireHuman; }, [requireHuman]);
+
+  const handleHumanVerified = () => {
+    grantHumanSession();
+    behaviorRef.current.reset();
+    setShowHumanCheck(false);
+  };
+
   // Mobile pointer/touch events for StackMat touch timer
   const handleTimerPointerDown = useCallback((e) => {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+    if (!isTrustedInput(e)) return; // chặn sự kiện giả lập từ script
 
     const curState = timerStateRef.current;
     const curMode = gameModeRef.current;
     if (curMode === 'solo') return;
+
+    if (curState === 'idle' && requireHumanRef.current()) return;
+    holdStartTsRef.current = performance.now();
 
     if (curState === 'running') {
       stopTimerRef.current();
@@ -290,6 +319,11 @@ export default function App() {
 
   const handleTimerPointerUp = useCallback((e) => {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+    if (!isTrustedInput(e)) return;
+    if (holdStartTsRef.current) {
+      behaviorRef.current.recordHold(performance.now() - holdStartTsRef.current);
+      holdStartTsRef.current = 0;
+    }
     if (touchHoldTimerRef.current) {
       clearTimeout(touchHoldTimerRef.current);
       touchHoldTimerRef.current = null;
@@ -589,6 +623,21 @@ export default function App() {
   const [scannedFaces, setScannedFaces] = useState({});
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
+  // Chế độ hiển thị 3D: 'solving' = chỉ hiện khi bắt đầu giải, 'always' = luôn hiện
+  const [show3DMode, setShow3DMode] = useState(() => localStorage.getItem('rubik_3d_mode') || 'solving');
+  const [linger3D, setLinger3D] = useState(false);
+  const linger3DTimerRef = useRef(null);
+  const handleChange3DMode = (mode) => {
+    setShow3DMode(mode);
+    localStorage.setItem('rubik_3d_mode', mode);
+  };
+
+  // ANTI-BOT
+  const [showHumanCheck, setShowHumanCheck] = useState(false);
+  const behaviorRef = useRef(createBehaviorTracker());
+  const startScrambledRef = useRef(false);
+  const holdStartTsRef = useRef(0);
+  const preCheckRef = useRef(null);
 
   // Refs
   const timerStateRef = useRef('idle');
@@ -621,6 +670,7 @@ export default function App() {
   const currentUserRef = useRef(currentUser);
 
   useEffect(() => { timerStateRef.current = timerState; }, [timerState]);
+  useEffect(() => { preCheckRef.current = preCheckStatus; }, [preCheckStatus]);
   useEffect(() => { cameraActiveRef.current = cameraActive; }, [cameraActive]);
   useEffect(() => { trackedMovesRef.current = trackedMoves; }, [trackedMoves]);
   useEffect(() => {
@@ -689,6 +739,23 @@ export default function App() {
     const isCameraVerified = Boolean(cameraActiveRef.current && cameraHealthRef.current);
     const currentP = puzzleTypeRef.current;
 
+    // ANTI-BOT: đánh giá tính hợp lệ của lượt giải trước khi cho vào Bảng Kỷ Lục
+    const integrity = evaluateSolveIntegrity({
+      sec: finalSec,
+      puzzle: currentP,
+      startedScrambled: startScrambledRef.current,
+      automation: detectAutomation(),
+      behavior: behaviorRef.current
+    });
+    behaviorRef.current.recordSolve(finalSec);
+    if (behaviorRef.current.suspicious) revokeHumanSession(); // buộc xác minh lại ở lượt sau
+    const isRecordEligible = Boolean(isCameraVerified && integrity.ok);
+
+    // Giữ mô hình 3D thêm vài giây sau khi dừng để xem kết quả
+    setLinger3D(true);
+    if (linger3DTimerRef.current) clearTimeout(linger3DTimerRef.current);
+    linger3DTimerRef.current = setTimeout(() => setLinger3D(false), 3000);
+
     const newSolve = {
       id: Date.now(),
       puzzleType: currentP,
@@ -698,7 +765,7 @@ export default function App() {
       moves: isCameraVerified 
         ? (movesRecorded.length > 0 ? movesRecorded.join(' ') : 'Camera AI xác thực') 
         : 'Không dùng Cam (Chưa xác minh)',
-      verified: isCameraVerified
+      verified: isRecordEligible
     };
 
     setSolves(prev => {
@@ -710,7 +777,7 @@ export default function App() {
     // =========================================================================
     // ANTI-CHEAT AUTOMATIC LEADERBOARD RECOGNITION (TỰ ĐỘNG NHẬN DIỆN KỶ LỤC)
     // =========================================================================
-    if (isCameraVerified) {
+    if (isRecordEligible) {
       const cUser = currentUserRef.current;
       const playerName = cUser?.name?.trim() || 'Người chơi ẩn danh';
       const curBoards = leaderboardsRef.current;
@@ -781,7 +848,9 @@ export default function App() {
       // KHÔNG BẬT CAMERA -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
       setLastNotice({
         type: 'warning',
-        text: '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
+        text: !isCameraVerified
+          ? '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
+          : `🛡️ Anti-bot: lượt giải KHÔNG được ghi vào Bảng Kỷ Lục (${integrity.reason}).`
       });
     }
 
@@ -803,6 +872,10 @@ export default function App() {
     setTimerState('running');
     startTimeRef.current = performance.now();
 
+    // ANTI-BOT: ghi nhận camera có thấy khối đã xáo trộn lúc bắt đầu hay không
+    startScrambledRef.current = Boolean(preCheckRef.current && preCheckRef.current.verified);
+    behaviorRef.current.recordStart();
+
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => {
       setTimeMs(performance.now() - startTimeRef.current);
@@ -823,6 +896,7 @@ export default function App() {
     let holdTimeout = null;
 
     const handleKeyDown = (e) => {
+      if (!e.isTrusted) return; // chặn phím giả lập (dispatchEvent) từ bot
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
 
       const currentState = timerStateRef.current;
@@ -838,6 +912,9 @@ export default function App() {
         }
 
         if (e.repeat) return;
+
+        if (currentState === 'idle' && requireHumanRef.current()) return;
+        holdStartTsRef.current = performance.now();
 
         if (currentMode === 'wca' && currentState === 'idle') {
           startInspectionRef.current();
@@ -862,9 +939,14 @@ export default function App() {
     };
 
     const handleKeyUp = (e) => {
+      if (!e.isTrusted) return;
       if (e.code === 'Space') {
         e.preventDefault();
         clearTimeout(holdTimeout);
+        if (holdStartTsRef.current) {
+          behaviorRef.current.recordHold(performance.now() - holdStartTsRef.current);
+          holdStartTsRef.current = 0;
+        }
         const currentState = timerStateRef.current;
 
         if (currentState === 'ready') {
@@ -1694,7 +1776,10 @@ export default function App() {
           ) : (
             <>
             {/* Center-Top: MÀN HÌNH HIỂN THỊ KHỐI 3D AI PHÍA TRÊN (UPPER 3D AI DISPLAY SCREEN) */}
-          {(cameraActive || showUpper3DWhenCamOff) ? (
+          {(() => {
+            const solvingNow = timerState === 'ready' || timerState === 'inspecting' || timerState === 'running' || linger3D;
+            return (cameraActive || showUpper3DWhenCamOff) && (show3DMode === 'always' || solvingNow);
+          })() ? (
             <div style={{
               width: '100%',
               maxWidth: upper3DExpanded ? '720px' : '640px',
@@ -1768,6 +1853,23 @@ export default function App() {
 
                 {/* Các nút điều khiển kích thước & chế độ màn hình 3D phía trên */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleChange3DMode(show3DMode === 'always' ? 'solving' : 'always')}
+                    title="Chuyển giữa: luôn hiện 3D / chỉ hiện khi bắt đầu giải"
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #334155',
+                      background: show3DMode === 'solving' ? 'rgba(34, 197, 94, 0.2)' : '#111c34',
+                      color: show3DMode === 'solving' ? '#4ade80' : '#cbd5e1',
+                      fontSize: '0.66rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {show3DMode === 'solving' ? '⚡ Chỉ hiện khi giải' : '👁 Luôn hiện'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setUpper3DExpanded(v => !v)}
@@ -1995,6 +2097,84 @@ export default function App() {
                 </div>
               </div>
             </div>
+          ) : cameraActive ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '8px 12px',
+              width: '100%',
+              maxWidth: '620px',
+              background: '#090f1d',
+              borderRadius: '12px',
+              border: cameraHealth.isHealthy ? (preCheckStatus.verified ? '1.5px solid #22c55e' : '1px solid #192642') : '1.5px solid #ef4444',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{
+                position: 'relative',
+                width: '120px',
+                height: '90px',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                background: '#020617',
+                border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px solid #38bdf8',
+                flexShrink: 0
+              }}>
+                <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{
+                  position: 'absolute',
+                  top: '23%',
+                  left: '23%',
+                  width: '54%',
+                  height: '54%',
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
+                  gridTemplateRows: `repeat(${currentDim}, 1fr)`,
+                  border: '1.5px dashed rgba(56, 189, 248, 0.85)',
+                  borderRadius: '4px',
+                  pointerEvents: 'none',
+                  boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.3)'
+                }}>
+                  {detectedColors.map((colorKey, idx) => (
+                    <div key={idx} style={{ border: '0.5px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{
+                        width: '5px',
+                        height: '5px',
+                        borderRadius: '50%',
+                        backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent'
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: '180px', fontSize: '0.74rem', lineHeight: 1.4, color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
+                <div style={{ fontWeight: '800', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
+                  {preCheckStatus.verified ? `🟢 ĐÃ CHECK KHỐI ${currentDim}×${currentDim} — SẴN SÀNG` : `🔍 ĐẶT KHỐI ${currentDim}×${currentDim} VÀO KHUNG LƯỚI`}
+                </div>
+                <div>{preCheckStatus.text}</div>
+                <div style={{ marginTop: '4px', color: '#94a3b8' }}>
+                  🧊 Mô hình 3D sẽ tự xuất hiện khi bạn bắt đầu giải.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleChange3DMode('always')}
+                  style={{
+                    marginTop: '5px',
+                    padding: '3px 9px',
+                    borderRadius: '5px',
+                    border: '1px solid #1e293b',
+                    background: '#111c34',
+                    color: '#38bdf8',
+                    fontSize: '0.66rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  👁 Luôn hiện 3D
+                </button>
+              </div>
+            </div>
           ) : (
             <div style={{
               display: 'flex',
@@ -2037,7 +2217,7 @@ export default function App() {
                     flexShrink: 0
                   }}
                 >
-                  <span>🧊 Hiện Khối 3D Phía Trên</span>
+                  <span>🧊 Bật Khối 3D Khi Giải</span>
                 </button>
               </div>
             </div>
@@ -3247,6 +3427,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <HumanCheckModal
+        open={showHumanCheck}
+        onVerified={handleHumanVerified}
+        onCancel={() => setShowHumanCheck(false)}
+      />
 
       {/* ==========================================
           MODAL: MÔ HÌNH 3D RUBIK INTERACTIVE
