@@ -586,6 +586,9 @@ export default function App() {
   const [lastMoveDetected, setLastMoveDetected] = useState('');
   const [cubeVisualMode, setCubeVisualMode] = useState('3d'); // '3d' hoặc '2d'
   const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
+  const [scannedFaces, setScannedFaces] = useState({});
+  const [upper3DExpanded, setUpper3DExpanded] = useState(false);
+  const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
 
   // Refs
   const timerStateRef = useRef('idle');
@@ -596,6 +599,14 @@ export default function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+
+  // Callback ref đảm bảo video luôn nhận stream khi đổi chế độ hiển thị
+  const attachVideoRef = useCallback((node) => {
+    videoRef.current = node;
+    if (node && streamRef.current && node.srcObject !== streamRef.current) {
+      node.srcObject = streamRef.current;
+    }
+  }, []);
   const animFrameRef = useRef(null);
   const prevColorsRef = useRef(null);
   const lastMoveTimeRef = useRef(0);
@@ -615,6 +626,7 @@ export default function App() {
   useEffect(() => {
     puzzleTypeRef.current = puzzleType;
     setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+    setScannedFaces({});
   }, [puzzleType, currentDim]);
   useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
   useEffect(() => { adminSettingsRef.current = adminSettings; }, [adminSettings]);
@@ -1058,6 +1070,23 @@ export default function App() {
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
         const uniqueColorsCount = new Set(validColorsOnly).size;
         const isAllSameColor = validColorsCount === (dim * dim) && uniqueColorsCount === 1;
+
+        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D
+        const faceCodeMap = {
+          white: 'U',
+          yellow: 'D',
+          red: 'R',
+          orange: 'L',
+          green: 'F',
+          blue: 'B'
+        };
+        const mappedFace = faceCodeMap[centerColor];
+        if (mappedFace && validColorsCount >= Math.ceil(dim * dim * 0.75)) {
+          setScannedFaces(prev => ({
+            ...prev,
+            [mappedFace]: [...currentNxNColors]
+          }));
+        }
 
         if (timerStateRef.current === 'idle') {
           if (uniqueColorsCount >= 2) {
@@ -1664,103 +1693,306 @@ export default function App() {
             />
           ) : (
             <>
-            {/* Center-Top: Camera view or 3D Model interactive visualization */}
-          {cameraActive ? (
+            {/* Center-Top: MÀN HÌNH HIỂN THỊ KHỐI 3D AI PHÍA TRÊN (UPPER 3D AI DISPLAY SCREEN) */}
+          {(cameraActive || showUpper3DWhenCamOff) ? (
             <div style={{
+              width: '100%',
+              maxWidth: upper3DExpanded ? '720px' : '640px',
+              background: 'linear-gradient(180deg, #0b1326 0%, #070c18 100%)',
+              borderRadius: '14px',
+              border: cameraActive
+                ? (cameraHealth.isHealthy ? (preCheckStatus.verified ? '1.5px solid #22c55e' : '1.5px solid #38bdf8') : '1.5px solid #ef4444')
+                : '1px solid #1e293b',
+              padding: isMobile ? '10px' : '12px 16px',
+              boxShadow: preCheckStatus.verified
+                ? '0 8px 28px rgba(34, 197, 94, 0.15)'
+                : '0 8px 28px rgba(15, 23, 42, 0.6)',
               display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '6px 14px',
-              background: '#090f1d',
-              borderRadius: '10px',
-              border: cameraHealth.isHealthy ? '1px solid #192642' : '1px solid #ef4444'
+              flexDirection: 'column',
+              gap: '10px',
+              transition: 'all 0.2s ease'
             }}>
-              {/* Khung Camera */}
+              {/* Thanh tiêu đề màn hình 3D phía trên */}
               <div style={{
-                width: '115px',
-                height: '80px',
-                borderRadius: '6px',
-                overflow: 'hidden',
-                background: '#020617',
-                border: '1px solid #334155',
-                flexShrink: 0
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '6px',
+                borderBottom: '1px solid #16223b',
+                paddingBottom: '6px'
               }}>
-                <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: '0.74rem',
+                    fontWeight: '800',
+                    color: preCheckStatus.verified ? '#4ade80' : '#38bdf8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}>
+                    {cameraActive
+                      ? (preCheckStatus.verified ? `🟢 MÀN HÌNH 3D AI: ĐÃ NHẬN DIỆN ${currentDim}×${currentDim}` : `🔍 MÀN HÌNH 3D AI ĐANG QUÉT (${currentDim}×${currentDim})`)
+                      : `🧊 MÀN HÌNH MÔ HÌNH 3D (${PUZZLE_CONFIGS[puzzleType]?.name})`}
+                  </span>
 
-              {/* Mô hình 3D Rubik / 2D Grid */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
-                <div style={{ display: 'flex', gap: '2px', background: '#020617', padding: '1px 3px', borderRadius: '4px', border: '1px solid #1e293b' }}>
-                  <button
-                    onClick={() => setCubeVisualMode('3d')}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '3px',
-                      border: 'none',
-                      background: cubeVisualMode === '3d' ? '#2563eb' : 'transparent',
-                      color: cubeVisualMode === '3d' ? '#ffffff' : '#64748b',
-                      fontSize: '0.62rem',
-                      fontWeight: '700',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    🧊 3D
-                  </button>
-                  <button
-                    onClick={() => setCubeVisualMode('2d')}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '3px',
-                      border: 'none',
-                      background: cubeVisualMode === '2d' ? '#2563eb' : 'transparent',
-                      color: cubeVisualMode === '2d' ? '#ffffff' : '#64748b',
-                      fontSize: '0.62rem',
-                      fontWeight: '700',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    ▦ 2D
-                  </button>
+                  {cameraActive && (
+                    <span style={{
+                      fontSize: '0.68rem',
+                      padding: '2px 7px',
+                      borderRadius: '10px',
+                      background: '#111c34',
+                      border: '1px solid #1e293b',
+                      color: '#cbd5e1',
+                      fontWeight: '600'
+                    }}>
+                      Ô màu rõ: <strong style={{ color: '#38bdf8' }}>{detectedColors.filter(c => c !== 'invalid').length}/{currentDim * currentDim}</strong>
+                      {preCheckStatus.centerFace ? ` • Tâm: ${preCheckStatus.centerFace}` : ''}
+                    </span>
+                  )}
+
+                  {Object.keys(scannedFaces).length > 0 && (
+                    <span style={{
+                      fontSize: '0.66rem',
+                      padding: '2px 7px',
+                      borderRadius: '10px',
+                      background: 'rgba(34, 197, 94, 0.12)',
+                      border: '1px solid rgba(34, 197, 94, 0.35)',
+                      color: '#4ade80',
+                      fontWeight: '700'
+                    }}>
+                      Đã lưu {Object.keys(scannedFaces).length}/6 mặt
+                    </span>
+                  )}
                 </div>
 
-                {cubeVisualMode === '3d' ? (
+                {/* Các nút điều khiển kích thước & chế độ màn hình 3D phía trên */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setUpper3DExpanded(v => !v)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #334155',
+                      background: upper3DExpanded ? '#2563eb' : '#111c34',
+                      color: '#ffffff',
+                      fontSize: '0.66rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {upper3DExpanded ? '🗕 Thu gọn' : '🔍 Phóng to 3D'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShow3DPreviewModal(true)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #1e293b',
+                      background: '#111c34',
+                      color: '#38bdf8',
+                      fontSize: '0.66rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⛶ Toàn màn hình
+                  </button>
+
+                  {!cameraActive && (
+                    <button
+                      type="button"
+                      onClick={() => setShowUpper3DWhenCamOff(false)}
+                      style={{
+                        padding: '3px 7px',
+                        borderRadius: '5px',
+                        border: '1px solid #334155',
+                        background: '#1e293b',
+                        color: '#94a3b8',
+                        fontSize: '0.66rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Ẩn
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Nội dung chính của Màn hình 3D phía trên: Khối 3D Lớn + Khung Cam có Lưới Ngắm AI + Ma trận 2D */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: isMobile ? '10px' : '16px',
+                flexWrap: 'wrap'
+              }}>
+                {/* 1. KHỐI RUBIK 3D TRUNG TÂM HIỂN THỊ RÕ NÉT */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
                   <Rubik3DView
                     dim={currentDim}
                     detectedColors={detectedColors}
+                    scannedFaces={scannedFaces}
                     lastMove={lastMoveDetected}
-                    width={110}
-                    height={85}
+                    width={upper3DExpanded ? (isMobile ? 280 : 310) : (isMobile ? 195 : 225)}
+                    height={upper3DExpanded ? (isMobile ? 205 : 220) : (isMobile ? 150 : 165)}
                   />
-                ) : (
+                </div>
+
+                {/* 2. KHUNG CAMERA AI KÈM LƯỚI TÂM NGẮM TRỰC QUAN */}
+                {cameraActive && (
                   <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '14px' : '18px'})`,
-                    gap: '2px',
-                    background: '#020617',
-                    padding: '3px',
-                    borderRadius: '5px'
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '4px'
                   }}>
-                    {detectedColors.map((colorKey, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          width: currentDim >= 4 ? '14px' : '18px',
-                          height: currentDim >= 4 ? '14px' : '18px',
-                          borderRadius: '2px',
-                          backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#334155'
-                        }}
+                    <div style={{
+                      position: 'relative',
+                      width: upper3DExpanded ? '175px' : (isMobile ? '135px' : '155px'),
+                      height: upper3DExpanded ? '145px' : (isMobile ? '115px' : '130px'),
+                      borderRadius: '10px',
+                      overflow: 'hidden',
+                      background: '#020617',
+                      border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px solid #38bdf8',
+                      flexShrink: 0
+                    }}>
+                      <video
+                        ref={attachVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
-                    ))}
+
+                      {/* Lưới ngắm AI (Aiming Grid) khớp chính xác vùng lấy mẫu 54% của Camera */}
+                      <div style={{
+                        position: 'absolute',
+                        top: '23%',
+                        left: '23%',
+                        width: '54%',
+                        height: '54%',
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
+                        gridTemplateRows: `repeat(${currentDim}, 1fr)`,
+                        border: '1.5px dashed rgba(56, 189, 248, 0.85)',
+                        borderRadius: '4px',
+                        pointerEvents: 'none',
+                        boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.32)'
+                      }}>
+                        {detectedColors.map((colorKey, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              border: '0.5px solid rgba(255,255,255,0.22)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                          >
+                            <span style={{
+                              width: '6px',
+                              height: '6px',
+                              borderRadius: '50%',
+                              backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent',
+                              border: colorKey !== 'invalid' ? '1px solid #000' : 'none'
+                            }} />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{
+                        position: 'absolute',
+                        top: '4px',
+                        left: '6px',
+                        background: 'rgba(2, 6, 23, 0.75)',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontSize: '0.58rem',
+                        color: '#38bdf8',
+                        fontWeight: '700',
+                        pointerEvents: 'none'
+                      }}>
+                        📷 Đặt Rubik vào khung lưới
+                      </div>
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {/* Trạng thái nhận diện AI */}
-              <div style={{ maxWidth: '180px', fontSize: '0.72rem', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
-                <div style={{ fontWeight: '700', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
-                  {preCheckStatus.verified ? `🟢 ĐÃ CHECK KHỐI ${currentDim}×${currentDim}` : `🔍 QUÉT 3D ${currentDim}×${currentDim}`}
+                {/* 3. MA TRẬN MẶT 2D & TRẠNG THÁI NHẬN DIỆN */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  maxWidth: isMobile ? '100%' : '185px',
+                  background: '#090f1d',
+                  padding: '8px 10px',
+                  borderRadius: '10px',
+                  border: '1px solid #16223b'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Lưới 2D đối chiếu nhanh */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '12px' : '15px'})`,
+                      gap: '2px',
+                      background: '#020617',
+                      padding: '4px',
+                      borderRadius: '6px',
+                      border: '1px solid #1e293b',
+                      flexShrink: 0
+                    }}>
+                      {detectedColors.map((colorKey, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            width: currentDim >= 4 ? '12px' : '15px',
+                            height: currentDim >= 4 ? '12px' : '15px',
+                            borderRadius: '2px',
+                            backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#1e293b'
+                          }}
+                        />
+                      ))}
+                    </div>
+
+                    <div style={{ fontSize: '0.7rem', lineHeight: '1.35', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
+                      <div style={{ fontWeight: '800', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
+                        {cameraActive
+                          ? (preCheckStatus.verified ? '✅ ĐÃ XÁC THỰC' : '🔍 ĐANG QUÉT AI')
+                          : '🧊 CHẾ ĐỘ XEM 3D'}
+                      </div>
+                      <div>{cameraActive ? preCheckStatus.text : 'Bật Cam để AI ánh xạ màu thật lên khối 3D.'}</div>
+                    </div>
+                  </div>
+
+                  {Object.keys(scannedFaces).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setScannedFaces({})}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        border: '1px solid #1e293b',
+                        background: '#111c34',
+                        color: '#94a3b8',
+                        fontSize: '0.64rem',
+                        cursor: 'pointer',
+                        width: '100%'
+                      }}
+                    >
+                      🔄 Xóa bộ nhớ màu ({Object.keys(scannedFaces).length} mặt)
+                    </button>
+                  )}
                 </div>
-                <div style={{ lineHeight: '1.3' }}>{preCheckStatus.text}</div>
               </div>
             </div>
           ) : (
@@ -1774,36 +2006,40 @@ export default function App() {
               border: '1px solid rgba(56, 189, 248, 0.2)',
               color: '#38bdf8',
               fontSize: '0.74rem',
-              maxWidth: '560px'
+              maxWidth: '620px',
+              width: '100%',
+              flexWrap: 'wrap',
+              gap: '8px'
             }}>
               <div>
                 {gameMode === 'wca' && '🏆 Chế độ WCA: Bấm Space để bắt đầu 15s Inspection (quan sát)'}
                 {gameMode === 'target' && `⚡ Mục tiêu: Cố gắng hoàn thành trong Sub-${targetSeconds}s!`}
                 {gameMode === 'free' && '🎯 Chế độ Tự Do: Nhấn giữ Spacebar để sẵn sàng giải'}
-                {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI làm trọng tài xác minh'}
+                {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI hiển thị khối 3D phía trên & làm trọng tài'}
               </div>
 
-              <button
-                onClick={() => setShow3DPreviewModal(true)}
-                title="Mở mô hình 3D tương tác của khối Rubik hiện tại"
-                style={{
-                  padding: '3px 9px',
-                  borderRadius: '4px',
-                  background: '#111c34',
-                  border: '1px solid #1e293b',
-                  color: '#38bdf8',
-                  fontSize: '0.7rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  marginLeft: '12px',
-                  flexShrink: 0
-                }}
-              >
-                <span>🧊 Xem Khối 3D</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={() => setShowUpper3DWhenCamOff(true)}
+                  title="Hiển thị màn hình khối 3D ngay phía trên đồng hồ"
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '5px',
+                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '0.7rem',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    flexShrink: 0
+                  }}
+                >
+                  <span>🧊 Hiện Khối 3D Phía Trên</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -2186,6 +2422,7 @@ export default function App() {
               <Rubik3DView
                 dim={currentDim}
                 detectedColors={detectedColors}
+                scannedFaces={scannedFaces}
                 lastMove={lastMoveDetected}
                 width={330}
                 height={240}
@@ -2276,7 +2513,7 @@ export default function App() {
                   background: '#000'
                 }}>
                   <video
-                    ref={videoRef}
+                    ref={attachVideoRef}
                     autoPlay
                     playsInline
                     muted
@@ -3062,6 +3299,7 @@ export default function App() {
             <Rubik3DView
               dim={currentDim}
               detectedColors={detectedColors}
+              scannedFaces={scannedFaces}
               lastMove={lastMoveDetected}
               width={340}
               height={260}
