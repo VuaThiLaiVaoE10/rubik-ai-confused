@@ -1,152 +1,94 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { isTrustedInput } from '../utils/antiBot';
+import React, { useState, useRef, useEffect } from 'react';
+import { isTrustedInput, detectAutomation, getHumanSessionInfo } from '../utils/antiBot';
+import { getSecurityStats } from '../utils/securityShield';
 
-const COLOR_TILES = [
-  { key: 'white',  label: 'TRẮNG', hex: '#f8fafc' },
-  { key: 'yellow', label: 'VÀNG',  hex: '#facc15' },
-  { key: 'red',    label: 'ĐỎ',    hex: '#ef4444' },
-  { key: 'orange', label: 'CAM',   hex: '#f97316' },
-  { key: 'green',  label: 'XANH LÁ', hex: '#22c55e' },
-  { key: 'blue',   label: 'XANH DƯƠNG', hex: '#3b82f6' }
-];
-
-const HOLD_REQUIRED_MS = 1000;
-const MAX_ATTEMPTS = 3;
-const LOCKOUT_MS = 20000;
-
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
+/**
+ * SMART ANTI-BOT & SECURITY SHIELD MODAL (v2.0 — Turnstile Style)
+ * - Gọn nhẹ, hiện đại, chỉ cần 1 chạm ("Tôi là người chơi thật") hoặc kéo thanh trượt.
+ * - Kiểm tra phần cứng isTrusted, bẫy Honeypot ẩn và tín hiệu môi trường trình duyệt.
+ * - Lưu phiên xác minh suốt 24 giờ để không làm gián đoạn lúc bấm Space giải Rubik.
+ */
 export default function HumanCheckModal({ open, onVerified, onCancel }) {
-  const [challenge, setChallenge] = useState(null);
-  const [picked, setPicked] = useState(null);
-  const [holdProgress, setHoldProgress] = useState(0);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'verifying' | 'verified' | 'slider'
+  const [sliderVal, setSliderVal] = useState(0);
+  const [targetVal, setTargetVal] = useState(72);
   const [error, setError] = useState('');
-  const [attempts, setAttempts] = useState(0);
-  const [lockedUntil, setLockedUntil] = useState(0);
-  const [now, setNow] = useState(Date.now());
 
-  const openedAtRef = useRef(0);
-  const holdStartRef = useRef(0);
-  const holdRafRef = useRef(null);
   const honeypotRef = useRef(null);
-
-  const newChallenge = () => {
-    const target = COLOR_TILES[Math.floor(Math.random() * COLOR_TILES.length)];
-    setChallenge({ target, tiles: shuffle(COLOR_TILES) });
-    setPicked(null);
-    setHoldProgress(0);
-    openedAtRef.current = performance.now();
-  };
+  const openedAtRef = useRef(0);
 
   useEffect(() => {
     if (open) {
-      newChallenge();
+      const existing = getHumanSessionInfo();
+      if (existing) {
+        setStatus('verified');
+      } else {
+        setStatus('idle');
+      }
+      setSliderVal(0);
+      setTargetVal(Math.floor(58 + Math.random() * 28)); // 58% -> 86%
       setError('');
+      openedAtRef.current = performance.now();
     }
-    return () => {
-      if (holdRafRef.current) cancelAnimationFrame(holdRafRef.current);
-    };
   }, [open]);
 
-  useEffect(() => {
-    if (!lockedUntil) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [lockedUntil]);
+  if (!open) return null;
 
-  const locked = lockedUntil > now;
-
-  const fail = (msg) => {
-    const nextAttempts = attempts + 1;
-    setAttempts(nextAttempts);
-    setError(msg);
-    if (nextAttempts >= MAX_ATTEMPTS) {
-      setLockedUntil(Date.now() + LOCKOUT_MS);
-      setAttempts(0);
-    }
-    newChallenge();
-  };
-
-  const stopHoldLoop = () => {
-    if (holdRafRef.current) {
-      cancelAnimationFrame(holdRafRef.current);
-      holdRafRef.current = null;
-    }
-  };
-
-  const handleHoldDown = (e) => {
-    if (locked) return;
+  const handleOneClickVerify = (e) => {
     if (!isTrustedInput(e)) {
-      fail('Sự kiện không hợp lệ (nghi ngờ tự động hóa).');
-      return;
-    }
-    if (!picked) {
-      setError('Hãy chọn ô màu được yêu cầu trước.');
-      return;
-    }
-    setError('');
-    holdStartRef.current = performance.now();
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - holdStartRef.current) / HOLD_REQUIRED_MS);
-      setHoldProgress(p);
-      if (p < 1) holdRafRef.current = requestAnimationFrame(tick);
-    };
-    holdRafRef.current = requestAnimationFrame(tick);
-  };
-
-  const handleHoldUp = (e) => {
-    if (locked || !holdStartRef.current) return;
-    stopHoldLoop();
-    const held = performance.now() - holdStartRef.current;
-    holdStartRef.current = 0;
-
-    if (!isTrustedInput(e)) {
-      fail('Sự kiện không hợp lệ (nghi ngờ tự động hóa).');
+      setError('Phát hiện sự kiện giả lập từ script (isTrusted = false).');
       return;
     }
     if (honeypotRef.current && honeypotRef.current.value) {
-      fail('Xác minh thất bại.');
+      setError('Bẫy chống Bot (Honeypot) đã chặn yêu cầu.');
       return;
     }
-    if (held < HOLD_REQUIRED_MS) {
-      setHoldProgress(0);
-      setError('Giữ nút đủ 1 giây rồi mới thả ra.');
-      return;
-    }
-    const totalElapsed = performance.now() - openedAtRef.current;
-    if (totalElapsed < 800) {
-      fail('Thao tác quá nhanh so với con người.');
-      return;
-    }
-    if (!challenge || picked !== challenge.target.key) {
-      fail('Sai ô màu. Hãy thử lại với thử thách mới.');
-      return;
-    }
-    setAttempts(0);
-    onVerified();
+
+    setError('');
+    setStatus('verifying');
+
+    setTimeout(() => {
+      const autoFlags = detectAutomation();
+      if (autoFlags.length > 0) {
+        // Nếu trình duyệt có cờ tự động hóa, yêu cầu kéo thanh trượt khớp khối Rubik
+        setStatus('slider');
+        setError('Môi trường cần xác minh bổ sung: Hãy kéo khối Rubik khớp vào ô đích.');
+        return;
+      }
+
+      setStatus('verified');
+      setTimeout(() => {
+        onVerified();
+      }, 380);
+    }, 320);
   };
 
-  const instruction = useMemo(
-    () => (challenge ? `Chọn ô màu ${challenge.target.label}` : ''),
-    [challenge]
-  );
+  const handleSliderRelease = (e) => {
+    if (!isTrustedInput(e)) {
+      setError('Sự kiện kéo không hợp lệ.');
+      setSliderVal(0);
+      return;
+    }
+    if (Math.abs(sliderVal - targetVal) <= 7) {
+      setError('');
+      setStatus('verified');
+      setTimeout(() => {
+        onVerified();
+      }, 350);
+    } else {
+      setError('Chưa khớp vị trí ô đích, hãy kéo khối 🧊 trùng vào khung vàng!');
+      setSliderVal(0);
+    }
+  };
 
-  if (!open || !challenge) return null;
-
-  const lockSecs = Math.max(0, Math.ceil((lockedUntil - now) / 1000));
+  const stats = getSecurityStats();
+  const sessionInfo = getHumanSessionInfo();
 
   return (
     <div style={{
       position: 'fixed',
       inset: 0,
-      backgroundColor: 'rgba(5, 8, 16, 0.92)',
+      backgroundColor: 'rgba(5, 8, 16, 0.88)',
       backdropFilter: 'blur(8px)',
       display: 'flex',
       alignItems: 'center',
@@ -155,143 +97,254 @@ export default function HumanCheckModal({ open, onVerified, onCancel }) {
     }}>
       <div style={{
         width: '92%',
-        maxWidth: '380px',
-        background: '#0d1629',
-        border: '1px solid #38bdf866',
-        borderRadius: '16px',
-        padding: '22px',
-        boxShadow: '0 20px 50px rgba(0,0,0,0.85)',
-        textAlign: 'center',
+        maxWidth: '410px',
+        background: 'linear-gradient(180deg, #0f1b33 0%, #0a1122 100%)',
+        border: status === 'verified' ? '1.5px solid #22c55e' : '1.5px solid rgba(56, 189, 248, 0.45)',
+        borderRadius: '18px',
+        padding: '22px 24px',
+        boxShadow: '0 24px 60px rgba(0, 0, 0, 0.85)',
         userSelect: 'none',
         WebkitUserSelect: 'none'
       }}>
-        <div style={{ fontSize: '1.8rem', marginBottom: '4px' }}>🛡️</div>
-        <h3 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', color: '#f8fafc' }}>
-          Xác minh bạn là người thật
-        </h3>
-        <p style={{ margin: '0 0 14px 0', fontSize: '0.76rem', color: '#94a3b8', lineHeight: 1.4 }}>
-          Chỉ cần làm 1 lần mỗi phiên (30 phút) trước khi bắt đầu giải.
-        </p>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: status === 'verified'
+                ? 'rgba(34, 197, 94, 0.18)'
+                : 'rgba(56, 189, 248, 0.15)',
+              border: status === 'verified'
+                ? '1px solid #22c55e'
+                : '1px solid rgba(56, 189, 248, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.25rem'
+            }}>
+              {status === 'verified' ? '✅' : '🛡️'}
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: '#f8fafc', fontWeight: '800' }}>
+                Khiên Bảo Vệ Smart Anti-Bot
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.73rem', color: '#94a3b8' }}>
+                Xác thực 1 chạm • Tự động duy trì 24 giờ
+              </p>
+            </div>
+          </div>
 
-        <div style={{ fontSize: '0.9rem', fontWeight: '800', color: '#38bdf8', marginBottom: '10px' }}>
-          Bước 1: {instruction}
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#64748b',
+              fontSize: '1.15rem',
+              cursor: 'pointer'
+            }}
+          >
+            ✕
+          </button>
         </div>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '8px',
-          marginBottom: '14px'
-        }}>
-          {challenge.tiles.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              disabled={locked}
-              onClick={(e) => {
-                if (!isTrustedInput(e)) {
-                  fail('Sự kiện không hợp lệ (nghi ngờ tự động hóa).');
-                  return;
-                }
-                setPicked(t.key);
-                setError('');
-              }}
-              aria-label={`Ô màu ${t.label}`}
-              style={{
-                height: '52px',
-                borderRadius: '10px',
-                background: t.hex,
-                border: picked === t.key ? '3px solid #38bdf8' : '2px solid #1e293b',
-                cursor: locked ? 'not-allowed' : 'pointer',
-                opacity: locked ? 0.4 : 1,
-                boxShadow: picked === t.key ? '0 0 14px rgba(56, 189, 248, 0.55)' : 'none'
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Honeypot: người thật không thấy và không điền; bot tự động điền form sẽ bị bắt */}
+        {/* Honeypot ẩn bắt bot tự điền form */}
         <input
           ref={honeypotRef}
           type="text"
-          name="website"
+          name="rubik_bot_trap_field"
           tabIndex={-1}
           autoComplete="off"
           aria-hidden="true"
           style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, width: 0 }}
         />
 
-        <div style={{ fontSize: '0.9rem', fontWeight: '800', color: '#fbbf24', marginBottom: '8px' }}>
-          Bước 2: Nhấn giữ nút 1 giây rồi thả ra
-        </div>
+        {/* Hộp kiểm 1 chạm phong cách Cloudflare Turnstile */}
+        {status !== 'slider' ? (
+          <div
+            onClick={status === 'idle' ? handleOneClickVerify : undefined}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 16px',
+              borderRadius: '12px',
+              background: '#090f1d',
+              border: status === 'verified'
+                ? '1.5px solid #22c55e'
+                : '1.5px solid #1e293b',
+              cursor: status === 'idle' ? 'pointer' : 'default',
+              transition: 'all 0.2s ease',
+              marginBottom: '14px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '26px',
+                height: '26px',
+                borderRadius: '6px',
+                border: status === 'verified'
+                  ? '2px solid #22c55e'
+                  : status === 'verifying'
+                    ? '2px solid #38bdf8'
+                    : '2px solid #64748b',
+                background: status === 'verified' ? '#22c55e' : '#111c34',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontWeight: '900',
+                fontSize: '0.9rem'
+              }}>
+                {status === 'verified' ? '✓' : status === 'verifying' ? '⏳' : ''}
+              </div>
+              <div>
+                <div style={{ fontSize: '0.88rem', fontWeight: '700', color: '#f8fafc' }}>
+                  {status === 'verified'
+                    ? 'Đã xác minh bạn là Người Chơi Thật'
+                    : status === 'verifying'
+                      ? 'Đang kiểm tra chữ ký thiết bị...'
+                      : 'Bấm vào đây để xác minh nhanh'}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                  {sessionInfo
+                    ? `Xác thực lúc ${sessionInfo.verifiedAt || 'hôm nay'} (${sessionInfo.method})`
+                    : 'Kiểm tra phần cứng isTrusted & chống Script'}
+                </div>
+              </div>
+            </div>
 
-        <button
-          type="button"
-          disabled={locked}
-          onPointerDown={handleHoldDown}
-          onPointerUp={handleHoldUp}
-          onPointerCancel={() => {
-            stopHoldLoop();
-            holdStartRef.current = 0;
-            setHoldProgress(0);
-          }}
-          style={{
-            position: 'relative',
-            width: '100%',
-            height: '48px',
-            borderRadius: '10px',
-            border: 'none',
-            overflow: 'hidden',
-            background: '#1e293b',
-            color: '#ffffff',
-            fontWeight: '800',
-            fontSize: '0.9rem',
-            cursor: locked ? 'not-allowed' : 'pointer',
-            touchAction: 'none'
-          }}
-        >
-          <span style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${holdProgress * 100}%`,
-            background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-            transition: 'none'
-          }} />
-          <span style={{ position: 'relative' }}>
-            {locked ? `Khóa tạm thời ${lockSecs}s` : (holdProgress >= 1 ? 'Thả tay ra!' : 'Giữ để xác minh')}
-          </span>
-        </button>
+            <span style={{
+              fontSize: '0.66rem',
+              padding: '3px 7px',
+              borderRadius: '6px',
+              background: 'rgba(56, 189, 248, 0.1)',
+              color: '#38bdf8',
+              fontWeight: '700'
+            }}>
+              Smart WAF
+            </span>
+          </div>
+        ) : (
+          /* Thanh trượt khớp khối Rubik dự phòng khi nghi ngờ môi trường tự động */
+          <div style={{
+            padding: '14px',
+            borderRadius: '12px',
+            background: '#090f1d',
+            border: '1px solid #1e293b',
+            marginBottom: '14px'
+          }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#fbbf24', marginBottom: '10px' }}>
+              Kéo mảnh Rubik 🧊 trùng vào ô đích màu vàng:
+            </div>
+            <div style={{
+              position: 'relative',
+              height: '42px',
+              background: '#111c34',
+              borderRadius: '8px',
+              marginBottom: '10px',
+              border: '1px solid #1e293b',
+              overflow: 'hidden'
+            }}>
+              {/* Ô đích */}
+              <div style={{
+                position: 'absolute',
+                left: `calc(${targetVal}% - 18px)`,
+                top: '4px',
+                width: '34px',
+                height: '32px',
+                borderRadius: '6px',
+                border: '2px dashed #facc15',
+                background: 'rgba(250, 204, 21, 0.15)'
+              }} />
+              {/* Khối Rubik di chuyển */}
+              <div style={{
+                position: 'absolute',
+                left: `calc(${sliderVal}% - 16px)`,
+                top: '5px',
+                width: '32px',
+                height: '30px',
+                borderRadius: '6px',
+                background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '1rem',
+                boxShadow: '0 2px 8px rgba(56, 189, 248, 0.5)'
+              }}>
+                🧊
+              </div>
+            </div>
+            <input
+              type="range"
+              min={5}
+              max={92}
+              value={sliderVal}
+              onChange={(e) => setSliderVal(Number(e.target.value))}
+              onPointerUp={handleSliderRelease}
+              onKeyUp={handleSliderRelease}
+              style={{ width: '100%', cursor: 'pointer' }}
+            />
+          </div>
+        )}
+
+        {/* Thông số bảo vệ thời gian thực */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: '8px',
+          marginBottom: '12px'
+        }}>
+          <div style={{ background: '#111c34', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid #192642' }}>
+            <div style={{ fontSize: '0.66rem', color: '#64748b' }}>Chặn Bot Spam</div>
+            <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#38bdf8' }}>{stats.blockedBotRequests}</div>
+          </div>
+          <div style={{ background: '#111c34', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid #192642' }}>
+            <div style={{ fontSize: '0.66rem', color: '#64748b' }}>Chặn Nguồn Độc</div>
+            <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#4ade80' }}>{stats.blockedMaliciousPayloads}</div>
+          </div>
+          <div style={{ background: '#111c34', padding: '8px', borderRadius: '8px', textAlign: 'center', border: '1px solid #192642' }}>
+            <div style={{ fontSize: '0.66rem', color: '#64748b' }}>Tường Lửa P2P</div>
+            <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#c084fc' }}>{stats.blockedP2PFloods}</div>
+          </div>
+        </div>
 
         {error && (
           <div style={{
-            marginTop: '10px',
-            padding: '7px 10px',
+            marginBottom: '12px',
+            padding: '8px 10px',
             borderRadius: '8px',
-            background: '#ef444422',
+            background: 'rgba(239, 68, 68, 0.15)',
             border: '1px solid #ef4444',
             color: '#fca5a5',
-            fontSize: '0.76rem'
+            fontSize: '0.75rem',
+            textAlign: 'center'
           }}>
             ⚠️ {error}
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{
-            marginTop: '12px',
-            background: 'none',
-            border: 'none',
-            color: '#64748b',
-            fontSize: '0.78rem',
-            cursor: 'pointer'
-          }}
-        >
-          Hủy
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              padding: '7px 16px',
+              borderRadius: '7px',
+              border: '1px solid #1e293b',
+              background: '#111c34',
+              color: '#cbd5e1',
+              fontSize: '0.78rem',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            Đóng
+          </button>
+        </div>
       </div>
     </div>
   );

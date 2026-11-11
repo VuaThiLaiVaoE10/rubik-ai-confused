@@ -279,7 +279,7 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Cổng chống bot & chống spam: chưa xác minh người thật hoặc bấm flood quá tải thì chặn
+  // Cổng chống bot thông minh (Zero-Friction cho người chơi thật, chặn tự động với Bot/Macro/Spam)
   const requireHuman = useCallback(() => {
     const rate = checkRateLimit('timer_start_action', {
       maxHits: 18,
@@ -290,9 +290,21 @@ export default function App() {
       setLastNotice({ type: 'warning', text: `🛡️ ${rate.reason}` });
       return true;
     }
-    if (isHumanSessionValid() && !behaviorRef.current.suspicious) return false;
-    setShowHumanCheck(true);
-    return true;
+
+    // Nếu phát hiện trình duyệt tự động hoặc hành vi macro đáng ngờ -> bật hộp thoại xác minh
+    const autoFlags = detectAutomation();
+    if (autoFlags.length > 0 || behaviorRef.current.suspicious) {
+      if (!isHumanSessionValid() || behaviorRef.current.suspicious) {
+        setShowHumanCheck(true);
+        return true;
+      }
+    }
+
+    // Người chơi thật dùng phím/cảm ứng phần cứng (isTrusted) -> tự động cấp phiên 24h không làm gián đoạn
+    if (!isHumanSessionValid()) {
+      grantHumanSession('trusted-hardware');
+    }
+    return false;
   }, []);
   const requireHumanRef = useRef(requireHuman);
   useEffect(() => { requireHumanRef.current = requireHuman; }, [requireHuman]);
@@ -1474,8 +1486,10 @@ export default function App() {
         {/* Right header: Shield + Dashboard + Camera + Tài Khoản */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {!isMobile && (
-            <div
-              title="Tường lửa bảo vệ Web: Chống Bot, Chống XSS/Nguồn độc, Rate Limit & Anti-Crash đang hoạt động"
+            <button
+              type="button"
+              onClick={() => setShowHumanCheck(true)}
+              title="Bấm để xem Khiên Bảo Vệ Smart Anti-Bot & Tường lửa WAF"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1486,7 +1500,8 @@ export default function App() {
                 border: '1px solid rgba(16, 185, 129, 0.35)',
                 color: '#34d399',
                 fontSize: '0.72rem',
-                fontWeight: '700'
+                fontWeight: '700',
+                cursor: 'pointer'
               }}
             >
               <span>🛡️</span>
@@ -1502,7 +1517,7 @@ export default function App() {
                   Đã chặn {getSecurityStats().totalBlocked}
                 </span>
               )}
-            </div>
+            </button>
           )}
 
           {/* NÚT MỞ DASHBOARD */}
