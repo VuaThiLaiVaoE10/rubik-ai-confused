@@ -207,7 +207,33 @@ export function createBehaviorTracker() {
 }
 
 // 5. Kiểm tra tính hợp lệ của một lượt giải trước khi ghi vào Bảng Kỷ Lục
-export function evaluateSolveIntegrity({ sec, puzzle, behavior }) {
+export function evaluateSolveIntegrity({
+  sec,
+  puzzle,
+  startedScrambled = false,
+  cubeMovesSeen = 0,
+  cubeStateChanged = false,
+  automation = [],
+  behavior
+}) {
+  if (Array.isArray(automation) && automation.length > 0) {
+    return {
+      ok: false,
+      reason: `Phát hiện công cụ tự động hóa trình duyệt (${automation.join(', ')})`
+    };
+  }
+  if (!startedScrambled) {
+    return {
+      ok: false,
+      reason: 'Chưa xác thực khối Rubik thật đã xáo trộn trước Camera AI trước khi bấm giờ'
+    };
+  }
+  if (!cubeStateChanged || cubeMovesSeen < 2) {
+    return {
+      ok: false,
+      reason: 'Camera AI không nhận diện thấy khối Rubik thật xoay/biến đổi trạng thái trong lúc giải (chống dùng vật thể thường hoặc ảnh tĩnh)'
+    };
+  }
   const minSec = MIN_HUMAN_SOLVE_SEC[puzzle] ?? 2.0;
   if (sec < minSec) {
     return {

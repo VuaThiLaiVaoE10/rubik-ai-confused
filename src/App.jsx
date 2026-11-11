@@ -161,16 +161,82 @@ function rgbToHsv(r, g, b) {
   return { h, s, v };
 }
 
-function classifyHsvColor(h, s, v, rawBrightness) {
-  if (rawBrightness < 35 || v < 0.20) return 'invalid';
-  if (s < 0.22 && v > 0.55 && rawBrightness > 100) return 'white';
-  if (s > 0.30) {
-    if (h >= 345 || h < 14) return 'red';
-    if (h >= 14 && h < 38) return 'orange';
-    if (h >= 38 && h < 75) return 'yellow';
-    if (h >= 75 && h < 165) return 'green';
-    if (h >= 165 && h < 260) return 'blue';
+// Phân loại màu Sticker Rubik chuẩn WCA + Lọc chống nhận nhầm da người / tường / đồ vật thường
+function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev) {
+  const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+  const { h, s, v } = rgbToHsv(avgR, avgG, avgB);
+
+  // 1. Loại bỏ vùng tối hoặc vùng có bề mặt gồ ghề/nhiều chi tiết (mặt người, tóc, quần áo, đồ vật)
+  // Sticker nhựa Rubik thật có màu sắc đồng nhất cao trong lòng mỗi ô (cellStdDev thấp)
+  if (rawBrightness < 42 || v < 0.24 || cellStdDev > 25) return 'invalid';
+
+  // 2. Bộ lọc CHỐNG NHẬN NHẦM DA NGƯỜI, GỖ, TƯỜNG VÀNG NHẠT (Anti-Skin & Anti-Background Filter)
+  // Da người & ánh đèn vàng trong phòng có đặc trưng R > G > B với độ bão hòa trung bình (s < 0.64)
+  const isSkinOrWarmAmbient =
+    avgR > avgG &&
+    avgG > avgB &&
+    h >= 4 &&
+    h < 42 &&
+    (s < 0.64 || (avgR - avgG < 65 && avgG - avgB > 6 && v < 0.88));
+  if (isSkinOrWarmAmbient) return 'invalid';
+
+  // 3. Nhận diện màu Trắng (White Sticker): phải sáng rõ, rất phẳng (cellStdDev <= 16) và trung tính
+  const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
+  if (s <= 0.14 && v >= 0.72 && rawBrightness >= 170 && rgbSpread <= 28 && cellStdDev <= 16) {
+    return 'white';
   }
+
+  // 4. Nhận diện 5 màu sắc rực chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương) với ngưỡng bão hòa cao
+  if (
+    (h >= 346 || h < 10) &&
+    s >= 0.60 &&
+    v >= 0.40 &&
+    avgR > avgG * 1.72 &&
+    avgR > avgB * 1.72
+  ) {
+    return 'red';
+  }
+  if (
+    h >= 11 &&
+    h < 35 &&
+    s >= 0.65 &&
+    v >= 0.60 &&
+    avgR > avgB * 2.1 &&
+    avgG > avgB * 1.25
+  ) {
+    return 'orange';
+  }
+  if (
+    h >= 40 &&
+    h < 72 &&
+    s >= 0.50 &&
+    v >= 0.60 &&
+    avgR > avgB * 1.6 &&
+    avgG > avgB * 1.6
+  ) {
+    return 'yellow';
+  }
+  if (
+    h >= 82 &&
+    h < 160 &&
+    s >= 0.48 &&
+    v >= 0.35 &&
+    avgG > avgR * 1.22 &&
+    avgG > avgB * 1.15
+  ) {
+    return 'green';
+  }
+  if (
+    h >= 188 &&
+    h < 255 &&
+    s >= 0.50 &&
+    v >= 0.35 &&
+    avgB > avgR * 1.32 &&
+    avgB > avgG * 1.12
+  ) {
+    return 'blue';
+  }
+
   return 'invalid';
 }
 
@@ -834,12 +900,19 @@ export default function App() {
     localStorage.setItem('rubik_3d_mode', mode);
   };
 
-  // ANTI-BOT
+  // ANTI-BOT & ANTI-FAKE OBJECT (STRICT 3-STAGE RUBIK CUBE VERIFICATION)
   const [showHumanCheck, setShowHumanCheck] = useState(false);
   const behaviorRef = useRef(createBehaviorTracker());
   const startScrambledRef = useRef(false);
   const holdStartTsRef = useRef(0);
   const preCheckRef = useRef(null);
+  const validCubeStreakRef = useRef(0);
+  const solvedStreakRef = useRef(0);
+  const lastCubeVerifiedAtRef = useRef(0);
+  const initialCubeColorsRef = useRef(null);
+  const lastValidCubeColorsRef = useRef(null);
+  const cubeMovesSeenRef = useRef(0);
+  const cubeStateChangedRef = useRef(false);
 
   // Refs
   const timerStateRef = useRef('idle');
@@ -941,11 +1014,13 @@ export default function App() {
     const isCameraVerified = Boolean(cameraActiveRef.current && cameraHealthRef.current);
     const currentP = puzzleTypeRef.current;
 
-    // ANTI-BOT: đánh giá tính hợp lệ của lượt giải trước khi cho vào Bảng Kỷ Lục
+    // ANTI-BOT & ANTI-FAKE OBJECT: đánh giá 3 tầng tính hợp lệ của lượt giải trước khi cho vào Bảng Kỷ Lục
     const integrity = evaluateSolveIntegrity({
       sec: finalSec,
       puzzle: currentP,
       startedScrambled: startScrambledRef.current,
+      cubeMovesSeen: cubeMovesSeenRef.current,
+      cubeStateChanged: cubeStateChangedRef.current,
       automation: detectAutomation(),
       behavior: behaviorRef.current
     });
@@ -964,9 +1039,11 @@ export default function App() {
       time: finalSec,
       penalty: penaltyText,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
-      moves: isCameraVerified 
-        ? (movesRecorded.length > 0 ? movesRecorded.join(' ') : 'Camera AI xác thực') 
-        : 'Không dùng Cam (Chưa xác minh)',
+      moves: isRecordEligible
+        ? (movesRecorded.length > 0 ? movesRecorded.join(' ') : `Camera AI (${cubeMovesSeenRef.current} nhịp xoay)`)
+        : isCameraVerified
+          ? 'Chưa đủ chuẩn Rubik AI (Luyện tập)'
+          : 'Không dùng Cam (Chưa xác minh)',
       verified: isRecordEligible
     };
 
@@ -1064,12 +1141,30 @@ export default function App() {
         }
       }
     } else {
-      // KHÔNG BẬT CAMERA -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
+      // KHÔNG BẬT CAMERA HOẶC KHÔNG PHẢI KHỐI RUBIK THẬT -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
       setLastNotice({
         type: 'warning',
         text: !isCameraVerified
           ? '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
-          : `🛡️ Anti-bot: lượt giải KHÔNG được ghi vào Bảng Kỷ Lục (${integrity.reason}).`
+          : `🚫 TỪ CHỐI GHI KỶ LỤC: ${integrity.reason}!`
+      });
+    }
+
+    // Reset toàn bộ trạng thái xác thực khối Rubik sau mỗi lượt giải để chống dùng lại kết quả cũ
+    startScrambledRef.current = false;
+    lastCubeVerifiedAtRef.current = 0;
+    validCubeStreakRef.current = 0;
+    solvedStreakRef.current = 0;
+    cubeMovesSeenRef.current = 0;
+    cubeStateChangedRef.current = false;
+    initialCubeColorsRef.current = null;
+    lastValidCubeColorsRef.current = null;
+    if (cameraActiveRef.current) {
+      setPreCheckStatus({
+        verified: false,
+        text: `🔍 Đưa khối Rubik đã xáo trộn vào khung lưới để xác nhận lượt tiếp theo...`,
+        isScrambled: false,
+        centerFace: null
       });
     }
 
@@ -1085,15 +1180,31 @@ export default function App() {
       inspectionIntervalRef.current = null;
     }
 
+    const now = performance.now();
     setTimeMs(0);
     setTrackedMoves([]);
     setLastMoveDetected('');
     setTimerState('running');
-    startTimeRef.current = performance.now();
+    startTimeRef.current = now;
 
-    // ANTI-BOT: ghi nhận camera có thấy khối đã xáo trộn lúc bắt đầu hay không
-    startScrambledRef.current = Boolean(preCheckRef.current && preCheckRef.current.verified);
+    // ANTI-BOT & ANTI-FAKE OBJECT: chỉ công nhận đã check khối nếu vừa xác thực Rubik thật trong vòng 25 giây
+    const isFreshPreCheck =
+      Boolean(preCheckRef.current && preCheckRef.current.verified) &&
+      lastCubeVerifiedAtRef.current > 0 &&
+      now - lastCubeVerifiedAtRef.current <= 25000;
+
+    startScrambledRef.current = isFreshPreCheck;
+    cubeMovesSeenRef.current = 0;
+    cubeStateChangedRef.current = false;
+    solvedStreakRef.current = 0;
     behaviorRef.current.recordStart();
+
+    if (cameraActiveRef.current && !isFreshPreCheck) {
+      setLastNotice({
+        type: 'warning',
+        text: '⚠️ Chưa nhận diện khối Rubik thật đã xáo trộn trước Camera — Lượt này chỉ tính Luyện Tập (không ghi Bảng Kỷ Lục)!'
+      });
+    }
 
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => {
@@ -1310,7 +1421,10 @@ export default function App() {
         const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
 
         const currentNxNColors = [];
+        const cellStats = [];
         let validColorsCount = 0;
+        let vividColorsCount = 0;
+        let centerLumSum = 0;
 
         for (let row = 0; row < dim; row++) {
           for (let col = 0; col < dim; col++) {
@@ -1318,6 +1432,9 @@ export default function App() {
             const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
             let rSum = 0, gSum = 0, bSum = 0, count = 0;
+            const rSamples = [];
+            const gSamples = [];
+            const bSamples = [];
 
             for (let dy = -sampleRadius; dy <= sampleRadius; dy += 2) {
               for (let dx = -sampleRadius; dx <= sampleRadius; dx += 2) {
@@ -1325,9 +1442,15 @@ export default function App() {
                 const py = cy + dy;
                 if (px >= 0 && px < w && py >= 0 && py < h) {
                   const idx = (py * w + px) * 4;
-                  rSum += frameImg[idx];
-                  gSum += frameImg[idx + 1];
-                  bSum += frameImg[idx + 2];
+                  const r = frameImg[idx];
+                  const g = frameImg[idx + 1];
+                  const b = frameImg[idx + 2];
+                  rSum += r;
+                  gSum += g;
+                  bSum += b;
+                  rSamples.push(r);
+                  gSamples.push(g);
+                  bSamples.push(b);
                   count++;
                 }
               }
@@ -1337,28 +1460,114 @@ export default function App() {
               const avgR = rSum / count;
               const avgG = gSum / count;
               const avgB = bSum / count;
-              const rawB = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-              const hsv = rgbToHsv(avgR, avgG, avgB);
-              const colorKey = classifyHsvColor(hsv.h, hsv.s, hsv.v, rawB);
+
+              // Tính độ lệch chuẩn màu sắc nội ô (cellStdDev) để loại bỏ bề mặt gồ ghề/da mặt/đồ vật
+              let varSum = 0;
+              for (let k = 0; k < count; k++) {
+                const dr = rSamples[k] - avgR;
+                const dg = gSamples[k] - avgG;
+                const db = bSamples[k] - avgB;
+                varSum += (dr * dr + dg * dg + db * db) / 3;
+              }
+              const cellStdDev = Math.sqrt(varSum / count);
+              const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev);
+              const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+              centerLumSum += cellLum;
 
               currentNxNColors.push(colorKey);
-              if (colorKey !== 'invalid') validColorsCount++;
+              cellStats.push({ avgR, avgG, avgB, cellStdDev, colorKey, cellLum });
+              if (colorKey !== 'invalid') {
+                validColorsCount++;
+                if (colorKey !== 'white') vividColorsCount++;
+              }
             } else {
               currentNxNColors.push('invalid');
+              cellStats.push({ avgR: 0, avgG: 0, avgB: 0, cellStdDev: 999, colorKey: 'invalid', cellLum: 0 });
             }
           }
         }
 
         setDetectedColors(currentNxNColors);
 
-        const minStickersRequired = Math.floor(dim * dim * 0.6);
+        // Kiểm tra biên độ tương phản sắc nét giữa các ô kề nhau khác màu (Sharp Adjacent Sticker Edges)
+        // Khối Rubik thật có ranh giới màu sắc tách biệt rõ giữa 2 ô kề nhau (dist >= 65), khác hẳn vùng chuyển màu mượt trên mặt người/tường
+        let sharpAdjacentEdges = 0;
+        for (let r = 0; r < dim; r++) {
+          for (let c = 0; c < dim; c++) {
+            const idxA = r * dim + c;
+            const cellA = cellStats[idxA];
+            if (!cellA || cellA.colorKey === 'invalid') continue;
+
+            const neighbors = [];
+            if (c + 1 < dim) neighbors.push(r * dim + (c + 1));
+            if (r + 1 < dim) neighbors.push((r + 1) * dim + c);
+
+            for (const idxB of neighbors) {
+              const cellB = cellStats[idxB];
+              if (!cellB || cellB.colorKey === 'invalid') continue;
+              if (cellA.colorKey !== cellB.colorKey) {
+                const rgbDist = Math.hypot(
+                  cellA.avgR - cellB.avgR,
+                  cellA.avgG - cellB.avgG,
+                  cellA.avgB - cellB.avgB
+                );
+                if (rgbDist >= 65) sharpAdjacentEdges++;
+              }
+            }
+          }
+        }
+
+        // Đo độ tương phản khe rãnh nhựa (Seam Contrast) giữa các viên Rubik để chống dùng tường trắng/áo phẳng
+        let seamDiffSum = 0;
+        let seamSamples = 0;
+        const avgCenterLum = centerLumSum / (dim * dim);
+        for (let k = 1; k < dim; k++) {
+          const seamX = Math.floor(startX + k * cellSize);
+          const seamY = Math.floor(startY + k * cellSize);
+          for (let t = 0.15; t <= 0.85; t += 0.35) {
+            const py = Math.floor(startY + t * boxSize);
+            const px = Math.floor(startX + t * boxSize);
+            if (seamX >= 0 && seamX < w && py >= 0 && py < h) {
+              const idx1 = (py * w + seamX) * 4;
+              const lum1 = 0.299 * frameImg[idx1] + 0.587 * frameImg[idx1 + 1] + 0.114 * frameImg[idx1 + 2];
+              seamDiffSum += Math.abs(avgCenterLum - lum1);
+              seamSamples++;
+            }
+            if (px >= 0 && px < w && seamY >= 0 && seamY < h) {
+              const idx2 = (seamY * w + px) * 4;
+              const lum2 = 0.299 * frameImg[idx2] + 0.587 * frameImg[idx2 + 1] + 0.114 * frameImg[idx2 + 2];
+              seamDiffSum += Math.abs(avgCenterLum - lum2);
+              seamSamples++;
+            }
+          }
+        }
+        const gridSeamContrast = seamSamples > 0 ? seamDiffSum / seamSamples : 0;
+
+        const now = performance.now();
+        const minStickersRequired = Math.ceil(dim * dim * 0.78); // 3x3 cần tối thiểu 7/9 ô sticker chuẩn
+        const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.44)); // 3x3 cần tối thiểu 4 ô màu rực (không phải trắng)
+
         if (validColorsCount < minStickersRequired) {
-          setPreCheckStatus({
-            verified: false,
-            text: `🔍 Đang đợi khối ${dim}×${dim} trước camera...`,
-            isScrambled: false,
-            centerFace: null
-          });
+          validCubeStreakRef.current = 0;
+          solvedStreakRef.current = 0;
+          if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
+            const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
+            if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0) {
+              setPreCheckStatus(prev => ({
+                ...prev,
+                verified: true,
+                text: `🟢 ĐÃ XÁC THỰC KHỐI ${dim}×${dim} — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s hiệu lực)`
+              }));
+            } else {
+              if (lastCubeVerifiedAtRef.current > 0) lastCubeVerifiedAtRef.current = 0;
+              setPreCheckStatus({
+                verified: false,
+                text: `🔍 Đưa khối Rubik ${dim}×${dim} thật (đã xáo trộn) vào khớp khung lưới camera...`,
+                isScrambled: false,
+                centerFace: null
+              });
+            }
+          }
           prevColorsRef.current = null;
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
@@ -1370,9 +1579,25 @@ export default function App() {
         const centerName = centerDef ? centerDef.name : 'Không rõ';
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
         const uniqueColorsCount = new Set(validColorsOnly).size;
-        const isAllSameColor = validColorsCount === (dim * dim) && uniqueColorsCount === 1;
+        const isAllSameColor =
+          validColorsCount === dim * dim &&
+          uniqueColorsCount === 1 &&
+          (centerColor !== 'white' || gridSeamContrast >= 9);
 
-        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D
+        // Điều kiện nghiêm ngặt để công nhận 1 mặt Rubik ĐÃ XÁO TRỘN THẬT:
+        // - Đủ số ô sticker phẳng chuẩn (>= 7/9 ô với 3x3)
+        // - Có ít nhất 3 màu WCA khác nhau (với 3x3/4x4/5x5) hoặc >= 2 màu (với 2x2)
+        // - Có ít nhất 4 ô màu sắc rực rỡ (vividColorsCount >= 4) để loại trừ tường trắng/áo trắng
+        // - Có ít nhất 3 cặp ô kề nhau tách màu sắc nét (sharpAdjacentEdges >= 3)
+        const minUniqueForScramble = dim === 2 ? 2 : 3;
+        const minSharpEdges = dim === 2 ? 2 : 3;
+        const isGenuineScrambledCube =
+          validColorsCount >= minStickersRequired &&
+          vividColorsCount >= minVividRequired &&
+          uniqueColorsCount >= minUniqueForScramble &&
+          sharpAdjacentEdges >= minSharpEdges;
+
+        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D khi xác nhận đúng cấu trúc Rubik
         const faceCodeMap = {
           white: 'U',
           yellow: 'D',
@@ -1382,38 +1607,127 @@ export default function App() {
           blue: 'B'
         };
         const mappedFace = faceCodeMap[centerColor];
-        if (mappedFace && validColorsCount >= Math.ceil(dim * dim * 0.75)) {
+        if (mappedFace && (isGenuineScrambledCube || isAllSameColor)) {
           setScannedFaces(prev => ({
             ...prev,
             [mappedFace]: [...currentNxNColors]
           }));
         }
 
-        if (timerStateRef.current === 'idle') {
-          if (uniqueColorsCount >= 2) {
-            setPreCheckStatus({
-              verified: true,
-              text: `🟢 ĐÃ CHECK KHỐI ${dim}×${dim}: Đã xáo trộn hợp lệ! Sẵn sàng bấm giờ.`,
-              isScrambled: true,
-              centerFace: centerName
-            });
-          } else if (isAllSameColor) {
-            setPreCheckStatus({
-              verified: false,
-              text: `⚠️ Khối ${dim}×${dim} đang ở trạng thái hoàn thành`,
-              isScrambled: false,
-              centerFace: centerName
-            });
+        if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
+          if (isGenuineScrambledCube) {
+            validCubeStreakRef.current += 1;
+            if (validCubeStreakRef.current >= 4) {
+              lastCubeVerifiedAtRef.current = now;
+              initialCubeColorsRef.current = [...currentNxNColors];
+              lastValidCubeColorsRef.current = [...currentNxNColors];
+              if (timerStateRef.current === 'inspecting') {
+                startScrambledRef.current = true;
+              }
+              setPreCheckStatus({
+                verified: true,
+                text: `🟢 ĐÃ CHECK KHỐI ${dim}×${dim} THẬT (${uniqueColorsCount} màu sắc nét): Sẵn sàng bấm giờ!`,
+                isScrambled: true,
+                centerFace: centerName
+              });
+            } else {
+              setPreCheckStatus({
+                verified: false,
+                text: `⏳ Đang kiểm tra cấu trúc khối Rubik ${dim}×${dim} (${validCubeStreakRef.current}/4)... Giữ ổn định!`,
+                isScrambled: false,
+                centerFace: centerName
+              });
+            }
+          } else {
+            validCubeStreakRef.current = 0;
+            if (isAllSameColor) {
+              setPreCheckStatus({
+                verified: false,
+                text: `⚠️ Khối ${dim}×${dim} đang ở trạng thái đồng màu — Hãy xáo trộn khối trước khi giải!`,
+                isScrambled: false,
+                centerFace: centerName
+              });
+            } else if (lastCubeVerifiedAtRef.current === 0 || now - lastCubeVerifiedAtRef.current > 25000) {
+              setPreCheckStatus({
+                verified: false,
+                text: `🚫 Vật thể trước camera chưa khớp chuẩn khối Rubik ${dim}×${dim} đã xáo trộn (cần >= ${minUniqueForScramble} màu sticker rõ nét)`,
+                isScrambled: false,
+                centerFace: null
+              });
+            }
           }
         }
 
-        const now = performance.now();
-        if (
-          timerStateRef.current === 'running' &&
-          isAllSameColor &&
-          (now - startTimeRef.current > 2500)
-        ) {
-          stopTimerRef.current();
+        // THEO DÕI BIẾN ĐỔI TRẠNG THÁI RUBIK THẬT TRONG LÚC ĐANG GIẢI (CHỐNG VẬT THỂ TĨNH / GIAN LẬN)
+        if (timerStateRef.current === 'running') {
+          const isValidRubikFrameDuringSolve =
+            (validColorsCount >= Math.ceil(dim * dim * 0.67) &&
+              vividColorsCount >= Math.max(2, Math.floor(dim * dim * 0.33)) &&
+              sharpAdjacentEdges >= 2) ||
+            isAllSameColor;
+
+          if (isValidRubikFrameDuringSolve) {
+            const initColors = initialCubeColorsRef.current;
+            const prevValid = lastValidCubeColorsRef.current;
+
+            let diffFromInitial = 0;
+            if (Array.isArray(initColors) && initColors.length === currentNxNColors.length) {
+              for (let i = 0; i < currentNxNColors.length; i++) {
+                if (
+                  currentNxNColors[i] !== 'invalid' &&
+                  initColors[i] !== 'invalid' &&
+                  currentNxNColors[i] !== initColors[i]
+                ) {
+                  diffFromInitial++;
+                }
+              }
+            }
+
+            let diffFromPrev = 0;
+            if (Array.isArray(prevValid) && prevValid.length === currentNxNColors.length) {
+              for (let i = 0; i < currentNxNColors.length; i++) {
+                if (
+                  currentNxNColors[i] !== 'invalid' &&
+                  prevValid[i] !== 'invalid' &&
+                  currentNxNColors[i] !== prevValid[i]
+                ) {
+                  diffFromPrev++;
+                }
+              }
+            } else if (diffFromInitial >= 2) {
+              diffFromPrev = diffFromInitial;
+            }
+
+            if (diffFromInitial >= 2 && diffFromPrev >= 2 && now - lastMoveTimeRef.current >= 140) {
+              cubeMovesSeenRef.current += 1;
+              cubeStateChangedRef.current = true;
+              lastMoveTimeRef.current = now;
+              lastValidCubeColorsRef.current = [...currentNxNColors];
+
+              const moveSymbol = mappedFace || 'U';
+              setLastMoveDetected(moveSymbol);
+              setTrackedMoves(prev => (prev.length < 120 ? [...prev, moveSymbol] : prev));
+            }
+          }
+
+          // Chỉ tự động dừng đồng hồ khi:
+          // 1) Đã xác thực khối Rubik xáo trộn lúc đầu (startScrambledRef.current === true)
+          // 2) Đã ghi nhận ít nhất 2 lần xoay biến đổi trạng thái khối Rubik trong lúc giải
+          // 3) Mặt Rubik đồng màu chuẩn giữ ổn định >= 3 khung hình liên tiếp sau 2.8 giây
+          if (
+            isAllSameColor &&
+            startScrambledRef.current &&
+            cubeStateChangedRef.current &&
+            cubeMovesSeenRef.current >= 2 &&
+            now - startTimeRef.current > 2800
+          ) {
+            solvedStreakRef.current += 1;
+            if (solvedStreakRef.current >= 3) {
+              stopTimerRef.current();
+            }
+          } else {
+            solvedStreakRef.current = 0;
+          }
         }
 
         prevColorsRef.current = currentNxNColors;
