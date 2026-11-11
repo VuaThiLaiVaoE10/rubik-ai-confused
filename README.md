@@ -39,17 +39,21 @@ Hệ thống hỗ trợ đầy đủ 4 khối tiêu chuẩn (**2×2 Pocket Cube*
 
 ---
 
-## 2. Màn Hình Khối Rubik 3D Phía Trên & Thị Giác Máy Tính AI
+## 2. Màn Hình Khối Rubik 3D Phía Trên & Thị Giác Máy Tính AI Bám Đuổi Chuyển Động
 
-- **Phân tích không gian màu `RGB → HSV` (`src/App.jsx`):**
-  - Lấy mẫu trực tiếp từ luồng video webcam qua `HTML5 Canvas` trong vùng lưới ngắm trung tâm (`54%` khung hình).
-  - Tự động kiểm tra **Độ sáng (`Brightness`)** và **Độ tương phản (`Contrast`)** để chống gian lận che camera hoặc tắt đèn.
-- **Màn hình Khối 3D Phía Trên (`src/components/Rubik3DView.jsx`):**
-  - Dựng mô hình `N×N×N` bằng **Three.js WebGL** với lõi nhựa đen độ tương phản cao, các miếng dán màu (stickers) nổi 3D và khung viền xanh phát sáng định vị mặt trước đang quét.
-  - **Nhớ màu đủ 6 mặt (`scannedFaces`):** Tự động nhận diện màu tâm (`U, D, F, B, L, R`) để lưu và ghép đủ 6 mặt lên mô hình 3D khi người chơi xoay khối Rubik trước camera.
-  - **2 Chế độ hiển thị thông minh:**
-    - `🎯 Hiện khi bắt đầu giải`: Màn hình 3D tự động bung ra khi giữ phím chuẩn bị giải / đang giải (và giữ lại 3 giây sau khi dừng để đối chiếu kết quả), giúp giao diện luôn gọn gàng lúc nghỉ.
-    - `👁️ Luôn hiện 3D`: Hiển thị liên tục màn hình 3D phía trên đồng hồ.
+- **Bám đuổi chuyển động đa vùng & đa tỷ lệ (`locateDynamicRubikBox` & `evaluateRubikGridCandidate` trong `src/App.jsx`):**
+  - Quét **Heatmap cụm màu sticker** toàn khung hình kết hợp **Kalman/EMA Velocity Prediction** (dự đoán quỹ đạo di chuyển tay) và 9 vùng tìm kiếm đa tỷ lệ (trái/phải/trên/dưới, xa/gần).
+  - Khung lưới ngắm AI tự động di chuyển bám theo khối Rubik (`🎯 Đang bám (X%, Y%)`) ngay cả khi người chơi vung tay hoặc lật khối.
+  - **Khử nhòe chuyển động 3 khung hình (`3-Frame Temporal Motion Stabilizer`):** Tự động khôi phục các ô bị nhòe nhẹ khi di chuyển nhanh để chiếu chính xác lên mô hình 3D.
+- **Bộ lọc Chống Gian Lận Vật Thể Thường / Da Người / Tường (`classifyRubikStickerCell`):**
+  - Kiểm tra độ phẳng màu nội ô (`cellStdDev <= 25`, riêng màu trắng `<= 16`), biên độ nhảy màu sắc nét giữa các viên kề nhau (`sharpAdjacentEdges >= 3`, `rgbDist >= 62`) và độ tương phản rãnh nhựa (`gridSeamContrast`), loại bỏ 100% trường hợp quay camera vào mặt người, bàn tay, quần áo hoặc tường trống.
+- **Khóa Đồng Hồ Bắt Buộc Camera AI & Phân Tích Lên Mô Hình 3D (`requireCameraAndCubeToSolve`):**
+  - **Đồng hồ mặc định khóa (`🔒 ĐỒNG HỒ ĐANG KHÓA`)** khi chưa bật Camera hoặc chưa đưa khối Rubik đã xáo trộn vào xác minh trên Mô hình 3D (áp dụng cho cả phím `Spacebar`, bàn chạm Mobile và chế độ Solo 1v1).
+  - Nếu người chơi tắt Camera giữa chừng khi đang giải, hệ thống lập tức hủy lượt giải.
+  - Trong lúc giải, Camera AI bắt buộc phải ghi nhận sự biến đổi trạng thái xoay khối Rubik thật (`cubeStateChanged = true`, `cubeMovesSeen >= 2`) mới công nhận kết quả vào Lịch sử (`PB`, `Ao5`, `Ao12`) và Bảng Kỷ Lục.
+- **Màn hình Khối 3D Tương Tác & Tự Động Xác Minh (`src/components/Rubik3DView.jsx`):**
+  - Dựng mô hình `N×N×N` bằng **Three.js WebGL** tự động nghiêng theo hướng di chuyển thực tế của khối Rubik trên tay người chơi.
+  - **Nhớ màu đủ 6 mặt (`scannedFaces`) & Xác minh trạng thái 3D (`model3DVerification`):** Tự động nhận diện màu tâm (`U, D, F, B, L, R`) để ghép đủ 6 mặt lên mô hình 3D và hiển thị huy hiệu xác minh trực tiếp (`🎯 BÁM 3D KHI DI CHUYỂN` / `✅ 3D XÁC MINH ĐÚNG` / `🏆 MẶT 3D ĐỒNG MÀU`).
 
 ---
 
@@ -100,12 +104,12 @@ Hệ thống hỗ trợ đầy đủ 4 khối tiêu chuẩn (**2×2 Pocket Cube*
 
 ## 6. Tối Ưu Chuyên Sâu Cho Điện Thoại Android & iOS
 
-- **Cuộn trang mượt mà (`touch-action: pan-y` & `-webkit-overflow-scrolling: touch`):**
+- **Cuộn trang mượt mà 2 chiều (`touch-action: pan-x pan-y` & `-webkit-overflow-scrolling: touch`):**
   - Tự động nhận diện thiết bị cảm ứng Android & iOS (kể cả khi xoay ngang hoặc bật chế độ *Trang web cho máy tính*).
   - Tự động hủy trạng thái giữ đồng hồ nếu ngón tay vuốt quá `12px`, giúp người dùng lướt lên/xuống xem trang mượt mà không bị bấm giờ nhầm.
-- **Bàn đặt tay Speedcubing (`🖐️ ĐẶT & GIỮ TAY TẠI ĐÂY ĐỂ GIẢI`) & Thanh điều hướng 4 Tab đáy màn hình:**
-  - Chuyển đổi tức thì giữa 4 tab: **`⏱️ Đồng Hồ`**, **`📊 Lịch Sử`**, **`🏆 Bảng Điểm`**, và **`🧊 3D & Cam`**.
-  - Hỗ trợ nút chuyển đổi **`🔄 Camera Trước / Camera Sau`** (`facingMode: 'user' | 'environment'`) và cảm ứng xoay khối Rubik 3D `360°` bằng 1 ngón tay, thu phóng bằng 2 ngón tay.
+- **Thanh Header tự động xuống dòng (`flex-wrap`) & Thanh điều hướng 5 Tab đáy màn hình:**
+  - Chuyển đổi tức thì giữa 5 mục: **`⏱️ Đồng Hồ`**, **`📊 Lịch Sử`**, **`🏆 Bảng Điểm`**, **`🧊 3D & Cam`**, và **`👤 Đăng Nhập / Tài Khoản`**.
+  - Nút mở khóa nhanh **`📷 BẬT CAMERA AI ĐỂ MỞ KHÓA ĐỒNG HỒ`**, nút chuyển đổi **`🔄 Camera Trước / Camera Sau`** (`facingMode: 'user' | 'environment'`) và cảm ứng xoay khối Rubik 3D `360°` bằng 1 ngón tay, thu phóng bằng 2 ngón tay.
 
 ---
 
