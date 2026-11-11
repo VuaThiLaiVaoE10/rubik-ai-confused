@@ -162,16 +162,16 @@ function rgbToHsv(r, g, b) {
 }
 
 // Phân loại màu Sticker Rubik chuẩn WCA + Lọc chống nhận nhầm da người / tường / đồ vật thường
-function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev) {
+// Hỗ trợ motionTolerance (khi khối đang di chuyển trên tay) nhưng vẫn khóa chặt da người & tường
+function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0) {
   const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
   const { h, s, v } = rgbToHsv(avgR, avgG, avgB);
+  const maxAllowedStd = 25 + motionTolerance;
 
   // 1. Loại bỏ vùng tối hoặc vùng có bề mặt gồ ghề/nhiều chi tiết (mặt người, tóc, quần áo, đồ vật)
-  // Sticker nhựa Rubik thật có màu sắc đồng nhất cao trong lòng mỗi ô (cellStdDev thấp)
-  if (rawBrightness < 42 || v < 0.24 || cellStdDev > 25) return 'invalid';
+  if (rawBrightness < 42 || v < 0.24 || cellStdDev > maxAllowedStd) return 'invalid';
 
   // 2. Bộ lọc CHỐNG NHẬN NHẦM DA NGƯỜI, GỖ, TƯỜNG VÀNG NHẠT (Anti-Skin & Anti-Background Filter)
-  // Da người & ánh đèn vàng trong phòng có đặc trưng R > G > B với độ bão hòa trung bình (s < 0.64)
   const isSkinOrWarmAmbient =
     avgR > avgG &&
     avgG > avgB &&
@@ -180,64 +180,320 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev) {
     (s < 0.64 || (avgR - avgG < 65 && avgG - avgB > 6 && v < 0.88));
   if (isSkinOrWarmAmbient) return 'invalid';
 
-  // 3. Nhận diện màu Trắng (White Sticker): phải sáng rõ, rất phẳng (cellStdDev <= 16) và trung tính
+  // 3. Nhận diện màu Trắng (White Sticker): phải sáng rõ, phẳng và trung tính
   const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
-  if (s <= 0.14 && v >= 0.72 && rawBrightness >= 170 && rgbSpread <= 28 && cellStdDev <= 16) {
+  if (
+    s <= 0.14 &&
+    v >= 0.72 &&
+    rawBrightness >= 170 &&
+    rgbSpread <= 28 &&
+    cellStdDev <= 16 + motionTolerance * 0.5
+  ) {
     return 'white';
   }
 
-  // 4. Nhận diện 5 màu sắc rực chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương) với ngưỡng bão hòa cao
+  // 4. Nhận diện 5 màu sắc rực chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương)
   if (
     (h >= 346 || h < 10) &&
-    s >= 0.60 &&
-    v >= 0.40 &&
-    avgR > avgG * 1.72 &&
-    avgR > avgB * 1.72
+    s >= 0.58 &&
+    v >= 0.38 &&
+    avgR > avgG * 1.68 &&
+    avgR > avgB * 1.68
   ) {
     return 'red';
   }
   if (
     h >= 11 &&
     h < 35 &&
-    s >= 0.65 &&
-    v >= 0.60 &&
-    avgR > avgB * 2.1 &&
-    avgG > avgB * 1.25
+    s >= 0.63 &&
+    v >= 0.58 &&
+    avgR > avgB * 2.05 &&
+    avgG > avgB * 1.22
   ) {
     return 'orange';
   }
   if (
     h >= 40 &&
     h < 72 &&
-    s >= 0.50 &&
-    v >= 0.60 &&
-    avgR > avgB * 1.6 &&
-    avgG > avgB * 1.6
+    s >= 0.48 &&
+    v >= 0.58 &&
+    avgR > avgB * 1.55 &&
+    avgG > avgB * 1.55
   ) {
     return 'yellow';
   }
   if (
     h >= 82 &&
     h < 160 &&
-    s >= 0.48 &&
-    v >= 0.35 &&
-    avgG > avgR * 1.22 &&
-    avgG > avgB * 1.15
+    s >= 0.46 &&
+    v >= 0.34 &&
+    avgG > avgR * 1.20 &&
+    avgG > avgB * 1.14
   ) {
     return 'green';
   }
   if (
     h >= 188 &&
     h < 255 &&
-    s >= 0.50 &&
-    v >= 0.35 &&
-    avgB > avgR * 1.32 &&
-    avgB > avgG * 1.12
+    s >= 0.48 &&
+    v >= 0.34 &&
+    avgB > avgR * 1.30 &&
+    avgB > avgG * 1.10
   ) {
     return 'blue';
   }
 
   return 'invalid';
+}
+
+// Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
+function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0) {
+  const cellSize = boxSize / dim;
+  const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
+  const currentNxNColors = [];
+  const cellStats = [];
+  let validColorsCount = 0;
+  let vividColorsCount = 0;
+  let centerLumSum = 0;
+
+  for (let row = 0; row < dim; row++) {
+    for (let col = 0; col < dim; col++) {
+      const cx = Math.floor(startX + col * cellSize + cellSize / 2);
+      const cy = Math.floor(startY + row * cellSize + cellSize / 2);
+
+      let rSum = 0, gSum = 0, bSum = 0, count = 0;
+      const rSamples = [];
+      const gSamples = [];
+      const bSamples = [];
+
+      for (let dy = -sampleRadius; dy <= sampleRadius; dy += 2) {
+        for (let dx = -sampleRadius; dx <= sampleRadius; dx += 2) {
+          const px = cx + dx;
+          const py = cy + dy;
+          if (px >= 0 && px < w && py >= 0 && py < h) {
+            const idx = (py * w + px) * 4;
+            const r = frameImg[idx];
+            const g = frameImg[idx + 1];
+            const b = frameImg[idx + 2];
+            rSum += r;
+            gSum += g;
+            bSum += b;
+            rSamples.push(r);
+            gSamples.push(g);
+            bSamples.push(b);
+            count++;
+          }
+        }
+      }
+
+      if (count > 0) {
+        const avgR = rSum / count;
+        const avgG = gSum / count;
+        const avgB = bSum / count;
+
+        let varSum = 0;
+        for (let k = 0; k < count; k++) {
+          const dr = rSamples[k] - avgR;
+          const dg = gSamples[k] - avgG;
+          const db = bSamples[k] - avgB;
+          varSum += (dr * dr + dg * dg + db * db) / 3;
+        }
+        const cellStdDev = Math.sqrt(varSum / count);
+        const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance);
+        const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+        centerLumSum += cellLum;
+
+        currentNxNColors.push(colorKey);
+        cellStats.push({ avgR, avgG, avgB, cellStdDev, colorKey, cellLum });
+        if (colorKey !== 'invalid') {
+          validColorsCount++;
+          if (colorKey !== 'white') vividColorsCount++;
+        }
+      } else {
+        currentNxNColors.push('invalid');
+        cellStats.push({ avgR: 0, avgG: 0, avgB: 0, cellStdDev: 999, colorKey: 'invalid', cellLum: 0 });
+      }
+    }
+  }
+
+  let sharpAdjacentEdges = 0;
+  for (let r = 0; r < dim; r++) {
+    for (let c = 0; c < dim; c++) {
+      const idxA = r * dim + c;
+      const cellA = cellStats[idxA];
+      if (!cellA || cellA.colorKey === 'invalid') continue;
+
+      const neighbors = [];
+      if (c + 1 < dim) neighbors.push(r * dim + (c + 1));
+      if (r + 1 < dim) neighbors.push((r + 1) * dim + c);
+
+      for (const idxB of neighbors) {
+        const cellB = cellStats[idxB];
+        if (!cellB || cellB.colorKey === 'invalid') continue;
+        if (cellA.colorKey !== cellB.colorKey) {
+          const rgbDist = Math.hypot(
+            cellA.avgR - cellB.avgR,
+            cellA.avgG - cellB.avgG,
+            cellA.avgB - cellB.avgB
+          );
+          if (rgbDist >= 62) sharpAdjacentEdges++;
+        }
+      }
+    }
+  }
+
+  let seamDiffSum = 0;
+  let seamSamples = 0;
+  const avgCenterLum = centerLumSum / (dim * dim);
+  for (let k = 1; k < dim; k++) {
+    const seamX = Math.floor(startX + k * cellSize);
+    const seamY = Math.floor(startY + k * cellSize);
+    for (let t = 0.15; t <= 0.85; t += 0.35) {
+      const py = Math.floor(startY + t * boxSize);
+      const px = Math.floor(startX + t * boxSize);
+      if (seamX >= 0 && seamX < w && py >= 0 && py < h) {
+        const idx1 = (py * w + seamX) * 4;
+        const lum1 = 0.299 * frameImg[idx1] + 0.587 * frameImg[idx1 + 1] + 0.114 * frameImg[idx1 + 2];
+        seamDiffSum += Math.abs(avgCenterLum - lum1);
+        seamSamples++;
+      }
+      if (px >= 0 && px < w && seamY >= 0 && seamY < h) {
+        const idx2 = (seamY * w + px) * 4;
+        const lum2 = 0.299 * frameImg[idx2] + 0.587 * frameImg[idx2 + 1] + 0.114 * frameImg[idx2 + 2];
+        seamDiffSum += Math.abs(avgCenterLum - lum2);
+        seamSamples++;
+      }
+    }
+  }
+  const gridSeamContrast = seamSamples > 0 ? seamDiffSum / seamSamples : 0;
+  const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
+  const uniqueColorsCount = new Set(validOnly).size;
+
+  // Điểm cấu trúc khối Rubik để chọn vùng bám đuổi tốt nhất khi khối di chuyển
+  const score =
+    validColorsCount * 4 +
+    vividColorsCount * 3.5 +
+    sharpAdjacentEdges * 6 +
+    uniqueColorsCount * 5 +
+    (gridSeamContrast >= 8 ? 6 : 0);
+
+  return {
+    startX,
+    startY,
+    boxSize,
+    currentNxNColors,
+    validColorsCount,
+    vividColorsCount,
+    uniqueColorsCount,
+    sharpAdjacentEdges,
+    gridSeamContrast,
+    score
+  };
+}
+
+// Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker) trên toàn khung hình
+function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
+  const minSide = Math.min(w, h);
+  const baseSize = minSide * 0.52;
+
+  // 1. Quét nhanh Heatmap các điểm màu sticker Rubik rực rỡ trên toàn khung hình (15 x 11 điểm)
+  let weightSum = 0;
+  let wxSum = 0;
+  let wySum = 0;
+  let minHitX = w, maxHitX = 0, minHitY = h, maxHitY = 0;
+  let vividHits = 0;
+
+  const cols = 15;
+  const rows = 11;
+  for (let r = 1; r < rows - 1; r++) {
+    const py = Math.floor((r / (rows - 1)) * h);
+    for (let c = 1; c < cols - 1; c++) {
+      const px = Math.floor((c / (cols - 1)) * w);
+      const idx = (py * w + px) * 4;
+      const idxR = (py * w + Math.min(w - 1, px + 3)) * 4;
+      const idxD = (Math.min(h - 1, py + 3) * w + px) * 4;
+
+      const avgR = (frameImg[idx] + frameImg[idxR] + frameImg[idxD]) / 3;
+      const avgG = (frameImg[idx + 1] + frameImg[idxR + 1] + frameImg[idxD + 1]) / 3;
+      const avgB = (frameImg[idx + 2] + frameImg[idxR + 2] + frameImg[idxD + 2]) / 3;
+      const localDiff =
+        (Math.abs(frameImg[idx] - frameImg[idxR]) +
+          Math.abs(frameImg[idx + 1] - frameImg[idxR + 1]) +
+          Math.abs(frameImg[idx + 2] - frameImg[idxR + 2])) /
+        3;
+
+      const cKey = classifyRubikStickerCell(avgR, avgG, avgB, localDiff, 4);
+      if (cKey !== 'invalid' && cKey !== 'white') {
+        const wt = 3.0;
+        weightSum += wt;
+        wxSum += px * wt;
+        wySum += py * wt;
+        vividHits++;
+        if (px < minHitX) minHitX = px;
+        if (px > maxHitX) maxHitX = px;
+        if (py < minHitY) minHitY = py;
+        if (py > maxHitY) maxHitY = py;
+      }
+    }
+  }
+
+  const candidates = [];
+  const pushCandidate = (cx, cy, size, motionTol = 0) => {
+    const clampedSize = Math.max(minSide * 0.36, Math.min(minSide * 0.68, size));
+    const sx = Math.max(4, Math.min(w - clampedSize - 4, cx - clampedSize / 2));
+    const sy = Math.max(4, Math.min(h - clampedSize - 4, cy - clampedSize / 2));
+    candidates.push({ sx, sy, size: clampedSize, motionTol });
+  };
+
+  // Ứng viên 1: Vị trí trung tâm mặc định
+  pushCandidate(w / 2, h / 2, baseSize, 0);
+
+  // Ứng viên 2: Vị trí vừa khóa ở khung hình trước + dự đoán vận tốc di chuyển (Kalman/EMA Velocity)
+  if (prevTracker && prevTracker.cx > 0) {
+    const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.85;
+    const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.85;
+    pushCandidate(predCx, predCy, prevTracker.size || baseSize, 3);
+    pushCandidate(prevTracker.cx, prevTracker.cy, prevTracker.size || baseSize, 2);
+  }
+
+  // Ứng viên 3: Tâm cụm màu Sticker (Heatmap Centroid) khi người chơi đưa khối Rubik sang trái/phải/trên/dưới/xa/gần
+  if (vividHits >= 2 && weightSum > 0) {
+    const heatCx = wxSum / weightSum;
+    const heatCy = wySum / weightSum;
+    const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
+    const adaptiveSize = span > minSide * 0.18 ? span * 1.32 : baseSize;
+    pushCandidate(heatCx, heatCy, adaptiveSize, 3);
+    pushCandidate(heatCx, heatCy, baseSize, 3);
+    pushCandidate(heatCx, heatCy, minSide * 0.42, 3);
+  }
+
+  // Ứng viên 4..9: Lưới tìm kiếm đa vị trí quanh khung hình để bắt nhanh khi vung tay di chuyển
+  const shiftX = w * 0.15;
+  const shiftY = h * 0.14;
+  pushCandidate(w / 2 - shiftX, h / 2, baseSize * 0.92, 2);
+  pushCandidate(w / 2 + shiftX, h / 2, baseSize * 0.92, 2);
+  pushCandidate(w / 2, h / 2 - shiftY, baseSize * 0.92, 2);
+  pushCandidate(w / 2, h / 2 + shiftY, baseSize * 0.92, 2);
+  pushCandidate(w / 2, h / 2, minSide * 0.42, 2);
+
+  let bestEval = null;
+  for (const cand of candidates) {
+    const res = evaluateRubikGridCandidate(
+      frameImg,
+      w,
+      h,
+      dim,
+      cand.sx,
+      cand.sy,
+      cand.size,
+      cand.motionTol
+    );
+    if (!bestEval || res.score > bestEval.score) {
+      bestEval = res;
+    }
+  }
+
+  return bestEval;
 }
 
 // Accurate WCA Average of N
@@ -891,14 +1147,41 @@ export default function App() {
   const [scannedFaces, setScannedFaces] = useState({});
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
-  // Chế độ hiển thị 3D: 'solving' = chỉ hiện khi bắt đầu giải, 'always' = luôn hiện
-  const [show3DMode, setShow3DMode] = useState(() => localStorage.getItem('rubik_3d_mode') || 'solving');
+  // Chế độ hiển thị 3D: mặc định 'always' để khi di chuyển khối trước Camera luôn phân tích trực tiếp lên mô hình 3D
+  const [show3DMode, setShow3DMode] = useState(() => localStorage.getItem('rubik_3d_mode_v2') || 'always');
   const [linger3D, setLinger3D] = useState(false);
   const linger3DTimerRef = useRef(null);
   const handleChange3DMode = (mode) => {
     setShow3DMode(mode);
-    localStorage.setItem('rubik_3d_mode', mode);
+    localStorage.setItem('rubik_3d_mode_v2', mode);
   };
+
+  // Trạng thái bám đuổi chuyển động (Dynamic Object Tracking Box) & Xác minh Mô hình 3D
+  const [trackingBox, setTrackingBox] = useState({
+    leftPct: 23,
+    topPct: 23,
+    widthPct: 54,
+    heightPct: 54,
+    cxPct: 50,
+    cyPct: 50,
+    isLocked: false,
+    isMoving: false,
+    speed: 0
+  });
+  const [model3DVerification, setModel3DVerification] = useState({
+    verified: false,
+    badgeText: '🔍 ĐANG QUÉT 3D',
+    statusTitle: 'Chưa khóa khối Rubik trên Mô hình 3D',
+    detailText: 'Di chuyển khối Rubik vào trước Camera để AI tự động bám theo & phân tích lên mô hình 3D.',
+    facesCount: 0,
+    validStickers: 0
+  });
+  const trackerStateRef = useRef({ cx: 0, cy: 0, size: 0, vx: 0, vy: 0 });
+  const temporalBufferRef = useRef([]);
+  const scannedFacesRef = useRef({});
+  useEffect(() => {
+    scannedFacesRef.current = scannedFaces;
+  }, [scannedFaces]);
 
   // ANTI-BOT & ANTI-FAKE OBJECT (STRICT 3-STAGE RUBIK CUBE VERIFICATION)
   const [showHumanCheck, setShowHumanCheck] = useState(false);
@@ -1414,138 +1697,101 @@ export default function App() {
         }
 
         const dim = currentDim;
-        const boxSize = Math.min(w, h) * 0.54;
-        const startX = (w - boxSize) / 2;
-        const startY = (h - boxSize) / 2;
-        const cellSize = boxSize / dim;
-        const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
+        const bestRegion = locateDynamicRubikBox(frameImg, w, h, dim, trackerStateRef.current);
+        const startX = bestRegion.startX;
+        const startY = bestRegion.startY;
+        const boxSize = bestRegion.boxSize;
+        const foundCx = startX + boxSize / 2;
+        const foundCy = startY + boxSize / 2;
 
-        const currentNxNColors = [];
-        const cellStats = [];
-        let validColorsCount = 0;
-        let vividColorsCount = 0;
-        let centerLumSum = 0;
+        // Cập nhật bộ bám đuổi chuyển động (Kalman/EMA Smoothing) để khung lưới tự động chạy theo khối Rubik
+        const prevTr = trackerStateRef.current;
+        const hasCubeSignal = bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.55) && bestRegion.vividColorsCount >= 2;
+        let smoothCx = w / 2;
+        let smoothCy = h / 2;
+        let smoothSize = Math.min(w, h) * 0.52;
+        let moveSpeed = 0;
 
-        for (let row = 0; row < dim; row++) {
-          for (let col = 0; col < dim; col++) {
-            const cx = Math.floor(startX + col * cellSize + cellSize / 2);
-            const cy = Math.floor(startY + row * cellSize + cellSize / 2);
-
-            let rSum = 0, gSum = 0, bSum = 0, count = 0;
-            const rSamples = [];
-            const gSamples = [];
-            const bSamples = [];
-
-            for (let dy = -sampleRadius; dy <= sampleRadius; dy += 2) {
-              for (let dx = -sampleRadius; dx <= sampleRadius; dx += 2) {
-                const px = cx + dx;
-                const py = cy + dy;
-                if (px >= 0 && px < w && py >= 0 && py < h) {
-                  const idx = (py * w + px) * 4;
-                  const r = frameImg[idx];
-                  const g = frameImg[idx + 1];
-                  const b = frameImg[idx + 2];
-                  rSum += r;
-                  gSum += g;
-                  bSum += b;
-                  rSamples.push(r);
-                  gSamples.push(g);
-                  bSamples.push(b);
-                  count++;
-                }
-              }
-            }
-
-            if (count > 0) {
-              const avgR = rSum / count;
-              const avgG = gSum / count;
-              const avgB = bSum / count;
-
-              // Tính độ lệch chuẩn màu sắc nội ô (cellStdDev) để loại bỏ bề mặt gồ ghề/da mặt/đồ vật
-              let varSum = 0;
-              for (let k = 0; k < count; k++) {
-                const dr = rSamples[k] - avgR;
-                const dg = gSamples[k] - avgG;
-                const db = bSamples[k] - avgB;
-                varSum += (dr * dr + dg * dg + db * db) / 3;
-              }
-              const cellStdDev = Math.sqrt(varSum / count);
-              const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev);
-              const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-              centerLumSum += cellLum;
-
-              currentNxNColors.push(colorKey);
-              cellStats.push({ avgR, avgG, avgB, cellStdDev, colorKey, cellLum });
-              if (colorKey !== 'invalid') {
-                validColorsCount++;
-                if (colorKey !== 'white') vividColorsCount++;
-              }
-            } else {
-              currentNxNColors.push('invalid');
-              cellStats.push({ avgR: 0, avgG: 0, avgB: 0, cellStdDev: 999, colorKey: 'invalid', cellLum: 0 });
-            }
+        if (hasCubeSignal) {
+          if (prevTr.cx > 0) {
+            const rawVx = foundCx - prevTr.cx;
+            const rawVy = foundCy - prevTr.cy;
+            moveSpeed = Math.hypot(rawVx, rawVy);
+            smoothCx = prevTr.cx + rawVx * 0.48;
+            smoothCy = prevTr.cy + rawVy * 0.48;
+            smoothSize = prevTr.size + (boxSize - prevTr.size) * 0.42;
+            trackerStateRef.current = {
+              cx: smoothCx,
+              cy: smoothCy,
+              size: smoothSize,
+              vx: rawVx * 0.6,
+              vy: rawVy * 0.6
+            };
+          } else {
+            smoothCx = foundCx;
+            smoothCy = foundCy;
+            smoothSize = boxSize;
+            trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
           }
+        } else {
+          // Đưa khung lưới từ từ về trung tâm khi không có khối Rubik trong khung hình
+          smoothCx = prevTr.cx > 0 ? prevTr.cx + (w / 2 - prevTr.cx) * 0.25 : w / 2;
+          smoothCy = prevTr.cy > 0 ? prevTr.cy + (h / 2 - prevTr.cy) * 0.25 : h / 2;
+          smoothSize = Math.min(w, h) * 0.52;
+          trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
         }
+
+        const leftPct = Math.max(4, Math.min(92, ((smoothCx - smoothSize / 2) / w) * 100));
+        const topPct = Math.max(4, Math.min(92, ((smoothCy - smoothSize / 2) / h) * 100));
+        const widthPct = Math.max(25, Math.min(72, (smoothSize / w) * 100));
+        const heightPct = Math.max(25, Math.min(72, (smoothSize / h) * 100));
+        const cxPct = Math.round((smoothCx / w) * 100);
+        const cyPct = Math.round((smoothCy / h) * 100);
+        const isMovingNow = moveSpeed >= 4.5;
+
+        setTrackingBox({
+          leftPct: Number(leftPct.toFixed(1)),
+          topPct: Number(topPct.toFixed(1)),
+          widthPct: Number(widthPct.toFixed(1)),
+          heightPct: Number(heightPct.toFixed(1)),
+          cxPct,
+          cyPct,
+          isLocked: hasCubeSignal,
+          isMoving: isMovingNow,
+          speed: Math.round(moveSpeed)
+        });
+
+        // Bộ lọc Khử nhòe Chuyển động (3-Frame Temporal Stabilizer) giúp bắt nét màu lên Mô hình 3D ngay cả khi đang di chuyển khối
+        let currentNxNColors = [...bestRegion.currentNxNColors];
+        if (hasCubeSignal) {
+          temporalBufferRef.current.push(currentNxNColors);
+          if (temporalBufferRef.current.length > 3) temporalBufferRef.current.shift();
+
+          if (temporalBufferRef.current.length >= 2) {
+            currentNxNColors = currentNxNColors.map((col, idx) => {
+              if (col !== 'invalid') return col;
+              // Khôi phục ô bị nhòe do vung tay từ khung hình liền kề trước đó
+              for (let b = temporalBufferRef.current.length - 2; b >= 0; b--) {
+                const prevCol = temporalBufferRef.current[b][idx];
+                if (prevCol && prevCol !== 'invalid') return prevCol;
+              }
+              return 'invalid';
+            });
+          }
+        } else {
+          temporalBufferRef.current = [];
+        }
+
+        const validColorsCount = currentNxNColors.filter((c) => c !== 'invalid').length;
+        const vividColorsCount = currentNxNColors.filter((c) => c !== 'invalid' && c !== 'white').length;
+        const sharpAdjacentEdges = bestRegion.sharpAdjacentEdges;
+        const gridSeamContrast = bestRegion.gridSeamContrast;
 
         setDetectedColors(currentNxNColors);
 
-        // Kiểm tra biên độ tương phản sắc nét giữa các ô kề nhau khác màu (Sharp Adjacent Sticker Edges)
-        // Khối Rubik thật có ranh giới màu sắc tách biệt rõ giữa 2 ô kề nhau (dist >= 65), khác hẳn vùng chuyển màu mượt trên mặt người/tường
-        let sharpAdjacentEdges = 0;
-        for (let r = 0; r < dim; r++) {
-          for (let c = 0; c < dim; c++) {
-            const idxA = r * dim + c;
-            const cellA = cellStats[idxA];
-            if (!cellA || cellA.colorKey === 'invalid') continue;
-
-            const neighbors = [];
-            if (c + 1 < dim) neighbors.push(r * dim + (c + 1));
-            if (r + 1 < dim) neighbors.push((r + 1) * dim + c);
-
-            for (const idxB of neighbors) {
-              const cellB = cellStats[idxB];
-              if (!cellB || cellB.colorKey === 'invalid') continue;
-              if (cellA.colorKey !== cellB.colorKey) {
-                const rgbDist = Math.hypot(
-                  cellA.avgR - cellB.avgR,
-                  cellA.avgG - cellB.avgG,
-                  cellA.avgB - cellB.avgB
-                );
-                if (rgbDist >= 65) sharpAdjacentEdges++;
-              }
-            }
-          }
-        }
-
-        // Đo độ tương phản khe rãnh nhựa (Seam Contrast) giữa các viên Rubik để chống dùng tường trắng/áo phẳng
-        let seamDiffSum = 0;
-        let seamSamples = 0;
-        const avgCenterLum = centerLumSum / (dim * dim);
-        for (let k = 1; k < dim; k++) {
-          const seamX = Math.floor(startX + k * cellSize);
-          const seamY = Math.floor(startY + k * cellSize);
-          for (let t = 0.15; t <= 0.85; t += 0.35) {
-            const py = Math.floor(startY + t * boxSize);
-            const px = Math.floor(startX + t * boxSize);
-            if (seamX >= 0 && seamX < w && py >= 0 && py < h) {
-              const idx1 = (py * w + seamX) * 4;
-              const lum1 = 0.299 * frameImg[idx1] + 0.587 * frameImg[idx1 + 1] + 0.114 * frameImg[idx1 + 2];
-              seamDiffSum += Math.abs(avgCenterLum - lum1);
-              seamSamples++;
-            }
-            if (px >= 0 && px < w && seamY >= 0 && seamY < h) {
-              const idx2 = (seamY * w + px) * 4;
-              const lum2 = 0.299 * frameImg[idx2] + 0.587 * frameImg[idx2 + 1] + 0.114 * frameImg[idx2 + 2];
-              seamDiffSum += Math.abs(avgCenterLum - lum2);
-              seamSamples++;
-            }
-          }
-        }
-        const gridSeamContrast = seamSamples > 0 ? seamDiffSum / seamSamples : 0;
-
         const now = performance.now();
-        const minStickersRequired = Math.ceil(dim * dim * 0.78); // 3x3 cần tối thiểu 7/9 ô sticker chuẩn
-        const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.44)); // 3x3 cần tối thiểu 4 ô màu rực (không phải trắng)
+        const minStickersRequired = Math.ceil(dim * dim * 0.75); // 3x3 cần >= 7/9 ô sticker hợp lệ
+        const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.44)); // 3x3 cần >= 4 ô màu rực (không phải trắng)
 
         if (validColorsCount < minStickersRequired) {
           validCubeStreakRef.current = 0;
@@ -1556,15 +1802,23 @@ export default function App() {
               setPreCheckStatus(prev => ({
                 ...prev,
                 verified: true,
-                text: `🟢 ĐÃ XÁC THỰC KHỐI ${dim}×${dim} — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s hiệu lực)`
+                text: `🟢 ĐÃ KHÓA LÊN MÔ HÌNH 3D (${dim}×${dim}) — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
               }));
             } else {
               if (lastCubeVerifiedAtRef.current > 0) lastCubeVerifiedAtRef.current = 0;
               setPreCheckStatus({
                 verified: false,
-                text: `🔍 Đưa khối Rubik ${dim}×${dim} thật (đã xáo trộn) vào khớp khung lưới camera...`,
+                text: `🔍 Đưa hoặc di chuyển khối Rubik ${dim}×${dim} trước camera để AI tự bám theo & phân tích lên 3D...`,
                 isScrambled: false,
                 centerFace: null
+              });
+              setModel3DVerification({
+                verified: false,
+                badgeText: '🔍 ĐỢI KHỐI RUBIK',
+                statusTitle: 'Đang tìm khối Rubik trong vùng Camera...',
+                detailText: 'Bạn có thể cầm di chuyển khối Rubik tự nhiên; khung lưới AI sẽ tự bám theo và chiếu lên Mô hình 3D.',
+                facesCount: Object.keys(scannedFacesRef.current || {}).length,
+                validStickers: validColorsCount
               });
             }
           }
@@ -1584,11 +1838,7 @@ export default function App() {
           uniqueColorsCount === 1 &&
           (centerColor !== 'white' || gridSeamContrast >= 9);
 
-        // Điều kiện nghiêm ngặt để công nhận 1 mặt Rubik ĐÃ XÁO TRỘN THẬT:
-        // - Đủ số ô sticker phẳng chuẩn (>= 7/9 ô với 3x3)
-        // - Có ít nhất 3 màu WCA khác nhau (với 3x3/4x4/5x5) hoặc >= 2 màu (với 2x2)
-        // - Có ít nhất 4 ô màu sắc rực rỡ (vividColorsCount >= 4) để loại trừ tường trắng/áo trắng
-        // - Có ít nhất 3 cặp ô kề nhau tách màu sắc nét (sharpAdjacentEdges >= 3)
+        // Điều kiện công nhận 1 mặt Rubik ĐÃ XÁO TRỘN THẬT (hỗ trợ cả khi đang di chuyển khối trên tay)
         const minUniqueForScramble = dim === 2 ? 2 : 3;
         const minSharpEdges = dim === 2 ? 2 : 3;
         const isGenuineScrambledCube =
@@ -1597,7 +1847,7 @@ export default function App() {
           uniqueColorsCount >= minUniqueForScramble &&
           sharpAdjacentEdges >= minSharpEdges;
 
-        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D khi xác nhận đúng cấu trúc Rubik
+        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D ngay khi bắt được khối (kể cả khi đang di chuyển)
         const faceCodeMap = {
           white: 'U',
           yellow: 'D',
@@ -1606,18 +1856,46 @@ export default function App() {
           green: 'F',
           blue: 'B'
         };
-        const mappedFace = faceCodeMap[centerColor];
-        if (mappedFace && (isGenuineScrambledCube || isAllSameColor)) {
-          setScannedFaces(prev => ({
-            ...prev,
+        const mappedFace = faceCodeMap[centerColor] || 'F';
+        let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
+        if (isGenuineScrambledCube || isAllSameColor) {
+          const nextFaces = {
+            ...(scannedFacesRef.current || {}),
             [mappedFace]: [...currentNxNColors]
-          }));
+          };
+          scannedFacesRef.current = nextFaces;
+          updatedFacesCount = Object.keys(nextFaces).length;
+          setScannedFaces(nextFaces);
+        }
+
+        // Phân tích & xác minh trực tiếp trên Mô hình 3D (3D Model Verification Analyzer)
+        if (isGenuineScrambledCube) {
+          setModel3DVerification({
+            verified: true,
+            badgeText: isMovingNow ? '🎯 BÁM 3D KHI DI CHUYỂN' : '✅ 3D XÁC MINH ĐÚNG',
+            statusTitle: `✅ Mô hình 3D xác minh ĐÚNG khối ${dim}×${dim} (${uniqueColorsCount} màu WCA, Tâm ${centerName})`,
+            detailText: `Khớp ${validColorsCount}/${dim * dim} ô sticker lên 3D • Đã lưu ${updatedFacesCount}/6 mặt • Tọa độ bám: (${cxPct}%, ${cyPct}%)${isMovingNow ? ' [Đang di chuyển]' : ''}`,
+            facesCount: updatedFacesCount,
+            validStickers: validColorsCount
+          });
+        } else if (isAllSameColor) {
+          setModel3DVerification({
+            verified: startScrambledRef.current && cubeStateChangedRef.current,
+            badgeText: '🏆 MẶT 3D ĐỒNG MÀU',
+            statusTitle: `🧊 Mô hình 3D nhận diện mặt ${centerName} đã đồng màu (${dim}×${dim})`,
+            detailText: startScrambledRef.current
+              ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) lên Mô hình 3D!`
+              : `Khối trên Mô hình 3D đang ở trạng thái hoàn thành — Hãy xáo trộn khối để bắt đầu giải!`,
+            facesCount: updatedFacesCount,
+            validStickers: validColorsCount
+          });
         }
 
         if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
           if (isGenuineScrambledCube) {
             validCubeStreakRef.current += 1;
-            if (validCubeStreakRef.current >= 4) {
+            // Bắt nhạy ngay trong 2 khung hình liên tiếp kể cả khi người chơi đang di chuyển khối Rubik
+            if (validCubeStreakRef.current >= 2) {
               lastCubeVerifiedAtRef.current = now;
               initialCubeColorsRef.current = [...currentNxNColors];
               lastValidCubeColorsRef.current = [...currentNxNColors];
@@ -1626,14 +1904,14 @@ export default function App() {
               }
               setPreCheckStatus({
                 verified: true,
-                text: `🟢 ĐÃ CHECK KHỐI ${dim}×${dim} THẬT (${uniqueColorsCount} màu sắc nét): Sẵn sàng bấm giờ!`,
+                text: `🟢 ĐÃ BẮT & XÁC MINH LÊN 3D (${uniqueColorsCount} màu, Tâm ${centerName})${isMovingNow ? ' [Đang bám chuyển động]' : ''}: Sẵn sàng bấm giờ!`,
                 isScrambled: true,
                 centerFace: centerName
               });
             } else {
               setPreCheckStatus({
                 verified: false,
-                text: `⏳ Đang kiểm tra cấu trúc khối Rubik ${dim}×${dim} (${validCubeStreakRef.current}/4)... Giữ ổn định!`,
+                text: `🎯 Đã bắt được khối tại (${cxPct}%, ${cyPct}%) — Đang đồng bộ lên Mô hình 3D...`,
                 isScrambled: false,
                 centerFace: centerName
               });
@@ -2533,12 +2811,14 @@ export default function App() {
                     detectedColors={detectedColors}
                     scannedFaces={scannedFaces}
                     lastMove={lastMoveDetected}
+                    trackingBox={trackingBox}
+                    modelVerification={model3DVerification}
                     width={upper3DExpanded ? (isMobile ? 280 : 310) : (isMobile ? 195 : 225)}
                     height={upper3DExpanded ? (isMobile ? 205 : 220) : (isMobile ? 150 : 165)}
                   />
                 </div>
 
-                {/* 2. KHUNG CAMERA AI KÈM LƯỚI TÂM NGẮM TRỰC QUAN */}
+                {/* 2. KHUNG CAMERA AI KÈM KHUNG LƯỚI TỰ ĐỘNG BÁM THEO CHUYỂN ĐỘNG RUBIK */}
                 {cameraActive && (
                   <div style={{
                     display: 'flex',
@@ -2564,17 +2844,22 @@ export default function App() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
 
-                      {/* Lưới ngắm AI (Aiming Grid) khớp chính xác vùng lấy mẫu 54% của Camera */}
+                      {/* Lưới ngắm AI động (Dynamic Tracking Grid) tự động chạy bám theo khối Rubik khi di chuyển */}
                       <div style={{
                         position: 'absolute',
-                        top: '23%',
-                        left: '23%',
-                        width: '54%',
-                        height: '54%',
+                        top: `${trackingBox.topPct}%`,
+                        left: `${trackingBox.leftPct}%`,
+                        width: `${trackingBox.widthPct}%`,
+                        height: `${trackingBox.heightPct}%`,
+                        transition: 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                         display: 'grid',
                         gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                         gridTemplateRows: `repeat(${currentDim}, 1fr)`,
-                        border: '1.5px dashed rgba(56, 189, 248, 0.85)',
+                        border: preCheckStatus.verified
+                          ? '2px solid #22c55e'
+                          : trackingBox.isLocked
+                            ? '2px solid #38bdf8'
+                            : '1.5px dashed rgba(56, 189, 248, 0.85)',
                         borderRadius: '4px',
                         pointerEvents: 'none',
                         boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.32)'
@@ -2604,31 +2889,33 @@ export default function App() {
                         position: 'absolute',
                         top: '4px',
                         left: '6px',
-                        background: 'rgba(2, 6, 23, 0.75)',
+                        background: 'rgba(2, 6, 23, 0.82)',
                         padding: '1px 6px',
                         borderRadius: '4px',
-                        fontSize: '0.58rem',
-                        color: '#38bdf8',
+                        fontSize: '0.56rem',
+                        color: trackingBox.isLocked ? '#4ade80' : '#38bdf8',
                         fontWeight: '700',
                         pointerEvents: 'none'
                       }}>
-                        📷 Đặt Rubik vào khung lưới
+                        {trackingBox.isLocked
+                          ? `🎯 Đang bám (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
+                          : '📷 Tự động bắt khi di chuyển'}
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* 3. MA TRẬN MẶT 2D & TRẠNG THÁI NHẬN DIỆN */}
+                {/* 3. MA TRẬN MẶT 2D & PHÂN TÍCH XÁC MINH TRÊN MÔ HÌNH 3D */}
                 <div style={{
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   gap: '6px',
-                  maxWidth: isMobile ? '100%' : '185px',
+                  maxWidth: isMobile ? '100%' : '215px',
                   background: '#090f1d',
                   padding: '8px 10px',
                   borderRadius: '10px',
-                  border: '1px solid #16223b'
+                  border: model3DVerification.verified ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid #16223b'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {/* Lưới 2D đối chiếu nhanh */}
@@ -2655,13 +2942,13 @@ export default function App() {
                       ))}
                     </div>
 
-                    <div style={{ fontSize: '0.7rem', lineHeight: '1.35', color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
-                      <div style={{ fontWeight: '800', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
-                        {cameraActive
-                          ? (preCheckStatus.verified ? '✅ ĐÃ XÁC THỰC' : '🔍 ĐANG QUÉT AI')
-                          : '🧊 CHẾ ĐỘ XEM 3D'}
+                    <div style={{ fontSize: '0.68rem', lineHeight: '1.35', color: preCheckStatus.verified ? '#4ade80' : '#e2e8f0' }}>
+                      <div style={{ fontWeight: '800', marginBottom: '2px', color: model3DVerification.verified ? '#4ade80' : '#38bdf8' }}>
+                        {cameraActive ? model3DVerification.statusTitle : '🧊 CHẾ ĐỘ XEM 3D'}
                       </div>
-                      <div>{cameraActive ? preCheckStatus.text : 'Bật Cam để AI ánh xạ màu thật lên khối 3D.'}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.64rem' }}>
+                        {cameraActive ? model3DVerification.detailText : 'Bật Cam để AI bám theo khối Rubik & phân tích lên mô hình 3D.'}
+                      </div>
                     </div>
                   </div>
 
@@ -2680,7 +2967,7 @@ export default function App() {
                         width: '100%'
                       }}
                     >
-                      🔄 Xóa bộ nhớ màu ({Object.keys(scannedFaces).length} mặt)
+                      🔄 Xóa bộ nhớ 3D ({Object.keys(scannedFaces).length}/6 mặt đã phân tích)
                     </button>
                   )}
                 </div>
@@ -2712,14 +2999,15 @@ export default function App() {
                 <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 <div style={{
                   position: 'absolute',
-                  top: '23%',
-                  left: '23%',
-                  width: '54%',
-                  height: '54%',
+                  top: `${trackingBox.topPct}%`,
+                  left: `${trackingBox.leftPct}%`,
+                  width: `${trackingBox.widthPct}%`,
+                  height: `${trackingBox.heightPct}%`,
+                  transition: 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                   display: 'grid',
                   gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                   gridTemplateRows: `repeat(${currentDim}, 1fr)`,
-                  border: '1.5px dashed rgba(56, 189, 248, 0.85)',
+                  border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px dashed rgba(56, 189, 248, 0.85)',
                   borderRadius: '4px',
                   pointerEvents: 'none',
                   boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.3)'
@@ -4322,6 +4610,8 @@ export default function App() {
               detectedColors={detectedColors}
               scannedFaces={scannedFaces}
               lastMove={lastMoveDetected}
+              trackingBox={trackingBox}
+              modelVerification={model3DVerification}
               width={340}
               height={260}
             />

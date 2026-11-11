@@ -27,6 +27,8 @@ export default function Rubik3DView({
   detectedColors = [],
   scannedFaces = null,
   lastMove = '',
+  trackingBox = null,
+  modelVerification = null,
   width = 240,
   height = 185,
   autoSpin360 = false,
@@ -41,6 +43,9 @@ export default function Rubik3DView({
     D: [],
     B: []
   });
+  const frontFrameMatRef = useRef(null);
+  const trackingBoxRef = useRef(trackingBox);
+  const lastValidFrontRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const cubeGroupRef = useRef(null);
@@ -51,6 +56,10 @@ export default function Rubik3DView({
   useEffect(() => {
     spinModeRef.current = spinMode;
   }, [spinMode]);
+
+  useEffect(() => {
+    trackingBoxRef.current = trackingBox;
+  }, [trackingBox]);
 
   // Reset camera to optimal front-top-right 3D angle for watching AI recognition
   const handleResetView = (e) => {
@@ -266,14 +275,15 @@ export default function Rubik3DView({
     // Subtle glowing frame around the Front (+Z) AI-scanned face so user knows which side mirrors the camera
     const frameSize = dim * gap + 0.06;
     const edgesGeom = new THREE.EdgesGeometry(new THREE.PlaneGeometry(frameSize, frameSize));
-    const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.55 });
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.75 });
+    frontFrameMatRef.current = edgesMat;
     const frontFrame = new THREE.LineSegments(edgesGeom, edgesMat);
     frontFrame.position.set(0, 0, (dim * gap) / 2 + 0.04);
     cubeGroup.add(frontFrame);
 
     faceMaterialsRef.current = matsByFace;
 
-    // 6. Animation Loop: Gentle front-facing oscillation (or 360 spin if toggled)
+    // 6. Animation Loop: Real-time 3D Motion Tracking & Gentle Oscillation
     let animId;
     let isDragging = false;
     let clock = 0;
@@ -289,9 +299,22 @@ export default function Rubik3DView({
         if (spinModeRef.current) {
           cubeGroupRef.current.rotation.y += 0.008;
         } else {
-          // Gentle breathing motion keeping the AI-scanned Front face clearly oriented toward the viewer
-          cubeGroupRef.current.rotation.y = Math.sin(clock * 0.8) * 0.12;
-          cubeGroupRef.current.rotation.x = Math.cos(clock * 0.6) * 0.05;
+          const tb = trackingBoxRef.current;
+          if (tb && tb.isLocked) {
+            // Bám theo góc nghiêng/di chuyển thực tế của khối Rubik trong khung hình camera
+            const offsetX = ((tb.cxPct ?? 50) - 50) / 50; // -1 .. +1
+            const offsetY = ((tb.cyPct ?? 50) - 50) / 50; // -1 .. +1
+            const targetRotY = -offsetX * 0.48 + Math.sin(clock * 1.1) * 0.05;
+            const targetRotX = offsetY * 0.35 + Math.cos(clock * 0.9) * 0.04;
+            cubeGroupRef.current.rotation.y += (targetRotY - cubeGroupRef.current.rotation.y) * 0.18;
+            cubeGroupRef.current.rotation.x += (targetRotX - cubeGroupRef.current.rotation.x) * 0.18;
+          } else {
+            // Gentle breathing motion keeping the AI-scanned Front face clearly oriented toward the viewer
+            const targetRotY = Math.sin(clock * 0.8) * 0.12;
+            const targetRotX = Math.cos(clock * 0.6) * 0.05;
+            cubeGroupRef.current.rotation.y += (targetRotY - cubeGroupRef.current.rotation.y) * 0.1;
+            cubeGroupRef.current.rotation.x += (targetRotX - cubeGroupRef.current.rotation.x) * 0.1;
+          }
         }
       }
 
@@ -311,20 +334,60 @@ export default function Rubik3DView({
     };
   }, [dim, width, height]);
 
-  // Real-time update of Front (+Z) stickers and optional stored 6-face colors
+  // Real-time update of Front (+Z) stickers and stored 6-face colors (với cơ chế giữ màu khi khối đang di chuyển nhanh)
   useEffect(() => {
     const mats = faceMaterialsRef.current;
     if (!mats || !mats.F) return;
 
-    detectedColors.forEach((colorKey, idx) => {
-      const mat = mats.F[idx];
-      if (mat) {
-        const hex = COLOR_MAP[colorKey] || DEFAULT_FACES.F;
-        mat.color.setHex(hex);
+    const validCount = detectedColors.filter((c) => c && c !== 'invalid').length;
+    const minKeep = Math.ceil(dim * dim * 0.55);
+
+    if (validCount >= minKeep) {
+      const merged = detectedColors.map((c, idx) => {
+        if (c && c !== 'invalid') return c;
+        return lastValidFrontRef.current?.[idx] || 'invalid';
+      });
+      lastValidFrontRef.current = merged;
+      merged.forEach((colorKey, idx) => {
+        const mat = mats.F[idx];
+        if (mat) {
+          mat.color.setHex(COLOR_MAP[colorKey] || DEFAULT_FACES.F);
+        }
+      });
+    } else if (lastValidFrontRef.current && scannedFaces && Object.keys(scannedFaces).length > 0) {
+      // Giữ nguyên mặt vừa bắt được trên mô hình 3D khi tay người chơi đang di chuyển nhanh giữa 2 vị trí
+      lastValidFrontRef.current.forEach((colorKey, idx) => {
+        const mat = mats.F[idx];
+        if (mat) {
+          mat.color.setHex(COLOR_MAP[colorKey] || DEFAULT_FACES.F);
+        }
+      });
+    } else {
+      detectedColors.forEach((colorKey, idx) => {
+        const mat = mats.F[idx];
+        if (mat) {
+          mat.color.setHex(COLOR_MAP[colorKey] || DEFAULT_FACES.F);
+        }
+      });
+    }
+
+    if (frontFrameMatRef.current) {
+      if (modelVerification?.verified) {
+        frontFrameMatRef.current.color.setHex(0x22c55e);
+        frontFrameMatRef.current.opacity = 0.95;
+      } else if (trackingBox?.isLocked) {
+        frontFrameMatRef.current.color.setHex(0x38bdf8);
+        frontFrameMatRef.current.opacity = 0.85;
+      } else {
+        frontFrameMatRef.current.color.setHex(0x64748b);
+        frontFrameMatRef.current.opacity = 0.45;
       }
-    });
+    }
 
     if (scannedFaces) {
+      if (Object.keys(scannedFaces).length === 0) {
+        lastValidFrontRef.current = null;
+      }
       ['R', 'L', 'U', 'D', 'B'].forEach((faceCode) => {
         const faceArr = scannedFaces[faceCode];
         if (Array.isArray(faceArr) && mats[faceCode]) {
@@ -337,7 +400,7 @@ export default function Rubik3DView({
         }
       });
     }
-  }, [detectedColors, scannedFaces]);
+  }, [detectedColors, scannedFaces, dim, modelVerification, trackingBox]);
 
   return (
     <div
@@ -351,8 +414,14 @@ export default function Rubik3DView({
         borderRadius: '12px',
         overflow: 'hidden',
         background: 'radial-gradient(circle at 50% 45%, #111c34 0%, #050811 100%)',
-        border: '1px solid #1e293b',
-        boxShadow: 'inset 0 0 24px rgba(56, 189, 248, 0.08)',
+        border: modelVerification?.verified
+          ? '1.5px solid #22c55e'
+          : trackingBox?.isLocked
+            ? '1.5px solid #38bdf8'
+            : '1px solid #1e293b',
+        boxShadow: modelVerification?.verified
+          ? 'inset 0 0 24px rgba(34, 197, 94, 0.16)'
+          : 'inset 0 0 24px rgba(56, 189, 248, 0.08)',
         touchAction: 'none'
       }}
     >
@@ -364,20 +433,55 @@ export default function Rubik3DView({
           position: 'absolute',
           top: '6px',
           left: '8px',
+          right: '8px',
           display: 'flex',
           alignItems: 'center',
-          gap: '5px',
-          background: 'rgba(9, 15, 29, 0.78)',
-          border: '1px solid rgba(56, 189, 248, 0.3)',
-          padding: '2px 7px',
-          borderRadius: '6px',
-          fontSize: '0.65rem',
-          fontWeight: '700',
-          color: '#38bdf8',
+          justifyContent: 'space-between',
+          gap: '4px',
           pointerEvents: 'none'
         }}
       >
-        <span>🧊 MÔ HÌNH 3D {dim}×{dim}</span>
+        <span
+          style={{
+            background: 'rgba(9, 15, 29, 0.82)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            padding: '2px 6px',
+            borderRadius: '6px',
+            fontSize: '0.62rem',
+            fontWeight: '700',
+            color: '#38bdf8'
+          }}
+        >
+          🧊 3D {dim}×{dim}
+        </span>
+
+        {modelVerification && (
+          <span
+            style={{
+              background: modelVerification.verified
+                ? 'rgba(20, 83, 45, 0.88)'
+                : trackingBox?.isLocked
+                  ? 'rgba(30, 58, 138, 0.88)'
+                  : 'rgba(15, 23, 42, 0.82)',
+              border: modelVerification.verified
+                ? '1px solid #22c55e'
+                : trackingBox?.isLocked
+                  ? '1px solid #38bdf8'
+                  : '1px solid #334155',
+              padding: '2px 6px',
+              borderRadius: '6px',
+              fontSize: '0.6rem',
+              fontWeight: '800',
+              color: modelVerification.verified
+                ? '#4ade80'
+                : trackingBox?.isLocked
+                  ? '#7dd3fc'
+                  : '#94a3b8'
+            }}
+          >
+            {modelVerification.badgeText}
+          </span>
+        )}
       </div>
 
       {/* Bottom Interactive Controls */}
