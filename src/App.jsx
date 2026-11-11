@@ -230,20 +230,33 @@ export default function App() {
     };
   });
 
-    // ==========================================
-  // MOBILE RESPONSIVENESS & TOUCHPAD CONTROLS
   // ==========================================
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 860);
+  // MOBILE RESPONSIVENESS & TOUCHPAD CONTROLS (TỐI ƯU ANDROID & iOS)
+  // ==========================================
+  const detectMobileDevice = () => {
+    if (typeof window === 'undefined') return false;
+    if (window.innerWidth <= 920) return true;
+    const isCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const isMobileUA = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    return Boolean((isCoarse || isMobileUA) && window.innerWidth <= 1280);
+  };
+
+  const [isMobile, setIsMobile] = useState(detectMobileDevice);
   const [mobileTab, setMobileTab] = useState('timer'); // 'timer' | 'stats' | 'leaderboard' | '3d'
   const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' | 'environment'
   const touchHoldTimerRef = useRef(null);
+  const pointerStartPosRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth <= 860);
+      setIsMobile(detectMobileDevice());
     };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
   }, []);
 
   // Web Audio sound synthesizer for responsive feedback
@@ -315,10 +328,19 @@ export default function App() {
     setShowHumanCheck(false);
   };
 
-  // Mobile pointer/touch events for StackMat touch timer
+  // Mobile pointer/touch events for StackMat touch timer (hỗ trợ cuộn trang mượt trên Android/iOS)
   const handleTimerPointerDown = useCallback((e) => {
-    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+    if (
+      e.target.tagName === 'BUTTON' ||
+      e.target.closest('button') ||
+      e.target.tagName === 'CANVAS' ||
+      e.target.closest('.rubik-3d-interactive')
+    ) {
+      return;
+    }
     if (!isTrustedInput(e)) return; // chặn sự kiện giả lập từ script
+
+    pointerStartPosRef.current = { x: e.clientX || 0, y: e.clientY || 0 };
 
     const curState = timerStateRef.current;
     const curMode = gameModeRef.current;
@@ -329,7 +351,6 @@ export default function App() {
 
     if (curState === 'running') {
       stopTimerRef.current();
-        playAppSound('stop');
       playAppSound('stop');
       return;
     }
@@ -356,8 +377,30 @@ export default function App() {
     }
   }, [playAppSound]);
 
+  // Nếu người dùng vuốt ngón tay để cuộn trang (> 12px) khi đang chạm, hủy trạng thái holding để cuộn mượt
+  const handleTimerPointerMove = useCallback((e) => {
+    if (timerStateRef.current !== 'holding') return;
+    const dx = Math.abs((e.clientX || 0) - pointerStartPosRef.current.x);
+    const dy = Math.abs((e.clientY || 0) - pointerStartPosRef.current.y);
+    if (dx > 12 || dy > 12) {
+      if (touchHoldTimerRef.current) {
+        clearTimeout(touchHoldTimerRef.current);
+        touchHoldTimerRef.current = null;
+      }
+      holdStartTsRef.current = 0;
+      setTimerState(gameModeRef.current === 'wca' ? 'inspecting' : 'idle');
+    }
+  }, []);
+
   const handleTimerPointerUp = useCallback((e) => {
-    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+    if (
+      e.target.tagName === 'BUTTON' ||
+      e.target.closest('button') ||
+      e.target.tagName === 'CANVAS' ||
+      e.target.closest('.rubik-3d-interactive')
+    ) {
+      return;
+    }
     if (!isTrustedInput(e)) return;
     if (holdStartTsRef.current) {
       behaviorRef.current.recordHold(performance.now() - holdStartTsRef.current);
@@ -1434,14 +1477,16 @@ export default function App() {
 
   return (
     <div style={{
-      width: '100vw',
-      height: '100vh',
+      width: '100%',
+      minHeight: '100dvh',
+      height: isMobile ? 'auto' : '100vh',
       backgroundColor: '#090f1d',
       color: '#e2e8f0',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      overflowY: isMobile ? 'visible' : 'hidden',
+      overflowX: 'hidden',
       userSelect: 'none'
     }}>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -1667,21 +1712,21 @@ export default function App() {
       </header>
 
       {/* ==========================================
-          MAIN 3-COLUMN WORKSPACE
+          MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN ANDROID & iOS)
       ========================================== */}
       <div style={{
         flex: 1,
         display: isMobile ? 'flex' : 'grid',
         flexDirection: isMobile ? 'column' : undefined,
         gridTemplateColumns: isMobile ? undefined : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px'),
-        padding: isMobile ? '8px 10px 72px 10px' : '12px 20px',
+        padding: isMobile ? '8px 10px 88px 10px' : '12px 20px',
         gap: '12px',
-        overflowY: isMobile ? 'auto' : 'hidden',
+        overflowY: isMobile ? 'visible' : 'hidden',
         overflowX: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
         {(!isMobile || mobileTab === 'stats') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden', width: isMobile ? '100%' : undefined }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: isMobile ? 'visible' : 'hidden', width: isMobile ? '100%' : undefined }}>
           <div style={{
             backgroundColor: '#0d1629',
             border: '1px solid #192642',
@@ -2437,14 +2482,17 @@ export default function App() {
           {/* Center-Middle: GIANT TIMER & SPEEDCUBING TOUCHPAD */}
           <div
             onPointerDown={handleTimerPointerDown}
+            onPointerMove={handleTimerPointerMove}
             onPointerUp={handleTimerPointerUp}
             onPointerCancel={handleTimerPointerUp}
-            className="touch-timer-surface"
+            className={timerState === 'ready' || timerState === 'running' ? 'touch-timer-pad-active' : 'touch-timer-surface'}
             style={{
               cursor: 'pointer',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
+              width: '100%',
+              padding: isMobile ? '14px 8px' : '8px 0',
               margin: 'auto 0'
             }}
           >
@@ -2465,22 +2513,79 @@ export default function App() {
 
             <div style={{
               marginTop: '10px',
-              fontSize: '0.95rem',
+              fontSize: isMobile ? '0.86rem' : '0.95rem',
+              textAlign: 'center',
               fontWeight: '700',
               color: timerState === 'inspecting'
                 ? '#f59e0b'
                 : (timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b'))
             }}>
-              {timerState === 'inspecting' && '⏱️ ĐANG QUAN SÁT (15s WCA) — GIỮ SPACE ĐỂ SẴN SÀNG!'}
-              {timerState === 'ready' && '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!'}
-              {timerState === 'holding' && '○ Giữ thêm một chút...'}
-              {timerState === 'running' && 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)'}
+              {timerState === 'inspecting' && (isMobile ? '⏱️ ĐANG QUAN SÁT (15s) — CHẠM GIỮ ĐỂ SẴN SÀNG!' : '⏱️ ĐANG QUAN SÁT (15s WCA) — GIỮ SPACE ĐỂ SẴN SÀNG!')}
+              {timerState === 'ready' && (isMobile ? '● SẴN SÀNG — THẢ TAY ĐỂ BẮT ĐẦU!' : '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!')}
+              {timerState === 'holding' && '○ Giữ yên thêm một chút... (Vuốt để cuộn trang)'}
+              {timerState === 'running' && (isMobile ? '⚡ Đang tính giờ... Chạm bất kỳ đâu để DỪNG!' : 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)')}
               {timerState === 'idle' && (
-                gameMode === 'wca' 
-                  ? 'Nhấn Space để bắt đầu 15s quan sát (Inspection)' 
-                  : `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`
+                isMobile
+                  ? `✋ Chạm giữ bàn phím cảm ứng bên dưới để giải ${PUZZLE_CONFIGS[puzzleType]?.name}`
+                  : (gameMode === 'wca' 
+                      ? 'Nhấn Space để bắt đầu 15s quan sát (Inspection)' 
+                      : `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`)
               )}
             </div>
+
+            {/* BÀN ĐẶT TAY SPEEDCUBING DÀNH RIÊNG CHO ĐIỆN THOẠI ANDROID / iOS */}
+            {isMobile && (
+              <div
+                style={{
+                  marginTop: '14px',
+                  width: '100%',
+                  maxWidth: '340px',
+                  padding: '16px 14px',
+                  borderRadius: '14px',
+                  background: timerState === 'ready'
+                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.28), rgba(22, 163, 74, 0.18))'
+                    : timerState === 'holding'
+                      ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15))'
+                      : timerState === 'running'
+                        ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(185, 28, 28, 0.15))'
+                        : 'linear-gradient(180deg, #111c34 0%, #0b1324 100%)',
+                  border: timerState === 'ready'
+                    ? '2px solid #22c55e'
+                    : timerState === 'holding'
+                      ? '2px solid #f59e0b'
+                      : timerState === 'running'
+                        ? '2px solid #ef4444'
+                        : '1.5px dashed #38bdf866',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  color: timerState === 'ready'
+                    ? '#4ade80'
+                    : timerState === 'holding'
+                      ? '#fbbf24'
+                      : timerState === 'running'
+                        ? '#f87171'
+                        : '#38bdf8',
+                  fontWeight: '800',
+                  fontSize: '0.86rem',
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.4)'
+                }}
+              >
+                <span style={{ fontSize: '1.25rem' }}>
+                  {timerState === 'running' ? '🛑' : timerState === 'ready' ? '🟢' : '🖐️'}
+                </span>
+                <span>
+                  {timerState === 'running'
+                    ? 'CHẠM ĐỂ DỪNG ĐỒNG HỒ'
+                    : timerState === 'ready'
+                      ? 'THẢ TAY RA ĐỂ CHẠY!'
+                      : timerState === 'holding'
+                        ? 'ĐANG GIỮ TAY...'
+                        : 'ĐẶT & GIỮ TAY TẠI ĐÂY ĐỂ GIẢI'}
+                </span>
+              </div>
+            )}
 
             
             {/* Quick summary stats bar on mobile */}

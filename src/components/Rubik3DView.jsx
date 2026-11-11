@@ -80,17 +80,24 @@ export default function Rubik3DView({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.domElement.style.touchAction = 'none';
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 2. OrbitControls
+    // 2. OrbitControls (Hỗ trợ cảm ứng 1 ngón xoay 360° & 2 ngón zoom trên Android/iOS)
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.enableRotate = true;
+    controls.rotateSpeed = 0.95;
     controls.enableZoom = true;
     controls.enablePan = false;
     controls.minDistance = dim * 1.6;
     controls.maxDistance = dim * 4.5;
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_ROTATE
+    };
     controlsRef.current = controls;
 
     // 3. High-Contrast Studio Lighting
@@ -334,6 +341,9 @@ export default function Rubik3DView({
 
   return (
     <div
+      className="rubik-3d-interactive"
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
       style={{
         position: 'relative',
         width,
@@ -342,10 +352,11 @@ export default function Rubik3DView({
         overflow: 'hidden',
         background: 'radial-gradient(circle at 50% 45%, #111c34 0%, #050811 100%)',
         border: '1px solid #1e293b',
-        boxShadow: 'inset 0 0 24px rgba(56, 189, 248, 0.08)'
+        boxShadow: 'inset 0 0 24px rgba(56, 189, 248, 0.08)',
+        touchAction: 'none'
       }}
     >
-      <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab' }} />
+      <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' }} />
 
       {/* Top-Left Live Badge */}
       <div
