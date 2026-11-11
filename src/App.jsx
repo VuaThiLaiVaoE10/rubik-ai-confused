@@ -644,6 +644,42 @@ export default function App() {
   const requireHumanRef = useRef(requireHuman);
   useEffect(() => { requireHumanRef.current = requireHuman; }, [requireHuman]);
 
+  // CHỐT CHẶN BẮT BUỘC: Phải BẬT CAMERA AI và XÁC MINH KHỐI RUBIK TRÊN MÔ HÌNH 3D mới được phép bấm đồng hồ giải!
+  const requireCameraAndCubeToSolve = useCallback(() => {
+    if (!cameraActiveRef.current) {
+      setLastNotice({
+        type: 'warning',
+        text: '📷 BẮT BUỘC BẬT CAMERA AI: Bạn phải nhấn "📷 Bật Cam" và đưa khối Rubik vào xác minh trên Mô hình 3D thì mới được giải!'
+      });
+      return true;
+    }
+    if (!cameraHealthRef.current) {
+      setLastNotice({
+        type: 'warning',
+        text: '⚠️ CAMERA CHƯA ĐỦ ĐIỀU KIỆN: Camera đang bị che tối hoặc mờ. Vui lòng kiểm tra ống kính trước khi bấm giờ!'
+      });
+      return true;
+    }
+    const now = performance.now();
+    const isCubeVerifiedFresh =
+      Boolean(preCheckRef.current && preCheckRef.current.verified) &&
+      lastCubeVerifiedAtRef.current > 0 &&
+      now - lastCubeVerifiedAtRef.current <= 25000;
+
+    if (!isCubeVerifiedFresh) {
+      setLastNotice({
+        type: 'warning',
+        text: `🧊 CHƯA XÁC MINH KHỐI RUBIK TRÊN 3D: Hãy đưa hoặc di chuyển khối Rubik ${puzzleTypeRef.current} (đã xáo trộn) trước Camera để AI phân tích lên Mô hình 3D trước khi bấm đồng hồ!`
+      });
+      return true;
+    }
+    return false;
+  }, []);
+  const requireCameraToSolveRef = useRef(requireCameraAndCubeToSolve);
+  useEffect(() => {
+    requireCameraToSolveRef.current = requireCameraAndCubeToSolve;
+  }, [requireCameraAndCubeToSolve]);
+
   const handleHumanVerified = () => {
     grantHumanSession();
     behaviorRef.current.reset();
@@ -668,14 +704,16 @@ export default function App() {
     const curMode = gameModeRef.current;
     if (curMode === 'solo') return;
 
-    if (curState === 'idle' && requireHumanRef.current()) return;
-    holdStartTsRef.current = performance.now();
-
     if (curState === 'running') {
       stopTimerRef.current();
       playAppSound('stop');
       return;
     }
+
+    // BẮT BUỘC PHẢI BẬT CAMERA AI & XÁC MINH KHỐI RUBIK TRÊN MÔ HÌNH 3D MỚI ĐƯỢC GIẢI
+    if (requireCameraToSolveRef.current()) return;
+    if (curState === 'idle' && requireHumanRef.current()) return;
+    holdStartTsRef.current = performance.now();
 
     if (curState === 'inspecting') {
       setTimerState('holding');
@@ -835,11 +873,12 @@ export default function App() {
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
 
-  // History & Solves (Không lưu dữ liệu giả, bắt đầu hoàn toàn sạch)
+  // History & Solves (Chỉ giữ các lượt giải đã bật Camera AI & xác minh hợp lệ)
   const [solves, setSolves] = useState(() => {
     try {
       const saved = localStorage.getItem('rubik_solves_hcc_clean');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed.filter((s) => s && s.verified === true) : [];
     } catch {
       return [];
     }
@@ -1322,19 +1361,18 @@ export default function App() {
       time: finalSec,
       penalty: penaltyText,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
-      moves: isRecordEligible
-        ? (movesRecorded.length > 0 ? movesRecorded.join(' ') : `Camera AI (${cubeMovesSeenRef.current} nhịp xoay)`)
-        : isCameraVerified
-          ? 'Chưa đủ chuẩn Rubik AI (Luyện tập)'
-          : 'Không dùng Cam (Chưa xác minh)',
-      verified: isRecordEligible
+      moves: movesRecorded.length > 0 ? movesRecorded.join(' ') : `Camera AI (${cubeMovesSeenRef.current} nhịp xoay)`,
+      verified: true
     };
 
-    setSolves(prev => {
-      const updated = [newSolve, ...prev];
-      localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
-      return updated;
-    });
+    // CHỈ LƯU VÀO LỊCH SỬ / PB / AO5 KHI ĐÃ QUA ĐỦ 3 TẦNG XÁC MINH CAMERA AI & MÔ HÌNH 3D
+    if (isRecordEligible) {
+      setSolves(prev => {
+        const updated = [newSolve, ...prev];
+        localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
+        return updated;
+      });
+    }
 
     // =========================================================================
     // ANTI-CHEAT AUTOMATIC LEADERBOARD RECOGNITION (TỰ ĐỘNG NHẬN DIỆN KỶ LỤC)
@@ -1526,6 +1564,8 @@ export default function App() {
 
         if (e.repeat) return;
 
+        // BẮT BUỘC PHẢI BẬT CAMERA AI & XÁC MINH KHỐI RUBIK TRÊN MÔ HÌNH 3D MỚI ĐƯỢC BẤM ĐỒNG HỒ GIẢI
+        if (requireCameraToSolveRef.current()) return;
         if (currentState === 'idle' && requireHumanRef.current()) return;
         holdStartTsRef.current = performance.now();
 
@@ -1587,6 +1627,23 @@ export default function App() {
   // Camera Handler
   const toggleCamera = async () => {
     if (cameraActive) {
+      // Nếu đang bấm giờ giải mà tắt Camera -> hủy ngay lượt giải đó
+      if (timerStateRef.current !== 'idle') {
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+        }
+        if (inspectionIntervalRef.current) {
+          clearInterval(inspectionIntervalRef.current);
+          inspectionIntervalRef.current = null;
+        }
+        setTimerState('idle');
+        setTimeMs(0);
+        setLastNotice({
+          type: 'warning',
+          text: '🚫 ĐÃ HỦY LƯỢT GIẢI: Bạn đã tắt Camera AI khi đang giải nên đồng hồ bị hủy!'
+        });
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
@@ -1594,10 +1651,12 @@ export default function App() {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       setCameraActive(false);
       cameraHealthRef.current = false;
+      startScrambledRef.current = false;
+      lastCubeVerifiedAtRef.current = 0;
       setCameraHealth({ isHealthy: false, reason: 'Camera đã tắt', brightness: 0, contrast: 0 });
       setPreCheckStatus({
         verified: false,
-        text: 'Camera đã tắt — Chế độ tính giờ WCA thủ công',
+        text: '🔒 Đã tắt Camera — Bắt buộc Bật Cam & xác minh khối Rubik trên 3D mới được giải',
         isScrambled: false,
         centerFace: null
       });
@@ -3057,44 +3116,43 @@ export default function App() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '6px 14px',
-              borderRadius: '8px',
-              background: 'rgba(56, 189, 248, 0.08)',
-              border: '1px solid rgba(56, 189, 248, 0.2)',
-              color: '#38bdf8',
-              fontSize: '0.74rem',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1.5px solid rgba(239, 68, 68, 0.45)',
+              color: '#fca5a5',
+              fontSize: '0.76rem',
+              fontWeight: '700',
               maxWidth: '620px',
               width: '100%',
               flexWrap: 'wrap',
               gap: '8px'
             }}>
               <div>
-                {gameMode === 'wca' && '🏆 Chế độ WCA: Bấm Space để bắt đầu 15s Inspection (quan sát)'}
-                {gameMode === 'target' && `⚡ Mục tiêu: Cố gắng hoàn thành trong Sub-${targetSeconds}s!`}
-                {gameMode === 'free' && '🎯 Chế độ Tự Do: Nhấn giữ Spacebar để sẵn sàng giải'}
-                {gameMode === 'ai' && '🤖 Chế độ AI: Bật camera để AI hiển thị khối 3D phía trên & làm trọng tài'}
+                🔒 <strong>ĐỒNG HỒ ĐANG KHÓA:</strong> Bắt buộc phải bật Camera AI và xác minh khối Rubik trên Mô hình 3D mới được phép bấm giờ giải!
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
-                  onClick={() => setShowUpper3DWhenCamOff(true)}
-                  title="Hiển thị màn hình khối 3D ngay phía trên đồng hồ"
+                  type="button"
+                  onClick={toggleCamera}
                   style={{
-                    padding: '4px 10px',
-                    borderRadius: '5px',
-                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                    border: 'none',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                    border: '1px solid #4ade80',
                     color: '#ffffff',
-                    fontSize: '0.7rem',
-                    fontWeight: '700',
+                    fontSize: '0.74rem',
+                    fontWeight: '800',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
-                    flexShrink: 0
+                    gap: '5px',
+                    flexShrink: 0,
+                    boxShadow: '0 4px 14px rgba(34, 197, 94, 0.35)'
                   }}
                 >
-                  <span>🧊 Bật Khối 3D Khi Giải</span>
+                  <span>📷 Bật Camera AI & Mô Hình 3D Ngay</span>
                 </button>
               </div>
             </div>
@@ -3108,7 +3166,7 @@ export default function App() {
             onPointerCancel={handleTimerPointerUp}
             className={timerState === 'ready' || timerState === 'running' ? 'touch-timer-pad-active' : 'touch-timer-surface'}
             style={{
-              cursor: 'pointer',
+              cursor: cameraActive && preCheckStatus.verified ? 'pointer' : 'not-allowed',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -3125,7 +3183,15 @@ export default function App() {
               lineHeight: 1,
               color: timerState === 'inspecting' 
                 ? (inspectionSeconds <= 3 ? '#ef4444' : '#f59e0b')
-                : (timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#ffffff')),
+                : timerState === 'ready'
+                  ? '#22c55e'
+                  : timerState === 'holding'
+                    ? '#f59e0b'
+                    : !cameraActive
+                      ? '#475569'
+                      : !preCheckStatus.verified && timerState === 'idle'
+                        ? '#94a3b8'
+                        : '#ffffff',
               textShadow: timerState === 'ready' ? '0 0 45px rgba(34, 197, 94, 0.5)' : 'none',
               transition: 'color 0.1s ease'
             }}>
@@ -3134,28 +3200,64 @@ export default function App() {
 
             <div style={{
               marginTop: '10px',
-              fontSize: isMobile ? '0.86rem' : '0.95rem',
+              fontSize: isMobile ? '0.84rem' : '0.92rem',
               textAlign: 'center',
               fontWeight: '700',
               color: timerState === 'inspecting'
                 ? '#f59e0b'
-                : (timerState === 'ready' ? '#22c55e' : (timerState === 'holding' ? '#f59e0b' : '#64748b'))
+                : timerState === 'ready'
+                  ? '#22c55e'
+                  : timerState === 'holding'
+                    ? '#f59e0b'
+                    : !cameraActive
+                      ? '#f87171'
+                      : !preCheckStatus.verified
+                        ? '#38bdf8'
+                        : '#4ade80'
             }}>
               {timerState === 'inspecting' && (isMobile ? '⏱️ ĐANG QUAN SÁT (15s) — CHẠM GIỮ ĐỂ SẴN SÀNG!' : '⏱️ ĐANG QUAN SÁT (15s WCA) — GIỮ SPACE ĐỂ SẴN SÀNG!')}
               {timerState === 'ready' && (isMobile ? '● SẴN SÀNG — THẢ TAY ĐỂ BẮT ĐẦU!' : '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!')}
               {timerState === 'holding' && '○ Giữ yên thêm một chút... (Vuốt để cuộn trang)'}
               {timerState === 'running' && (isMobile ? '⚡ Đang tính giờ... Chạm bất kỳ đâu để DỪNG!' : 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)')}
               {timerState === 'idle' && (
-                isMobile
-                  ? `✋ Chạm giữ bàn phím cảm ứng bên dưới để giải ${PUZZLE_CONFIGS[puzzleType]?.name}`
-                  : (gameMode === 'wca' 
-                      ? 'Nhấn Space để bắt đầu 15s quan sát (Inspection)' 
-                      : `Giữ phím SPACE để chuẩn bị giải ${PUZZLE_CONFIGS[puzzleType]?.name}`)
+                !cameraActive
+                  ? '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
+                  : !preCheckStatus.verified
+                    ? `🔍 Đưa hoặc di chuyển khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera để mở khóa đồng hồ`
+                    : isMobile
+                      ? `🟢 ĐÃ XÁC MINH KHỐI ${PUZZLE_CONFIGS[puzzleType]?.name} — Chạm giữ bên dưới để giải!`
+                      : `🟢 ĐÃ XÁC MINH KHỐI ${PUZZLE_CONFIGS[puzzleType]?.name} — Giữ phím SPACE để giải!`
               )}
             </div>
 
-            {/* BÀN ĐẶT TAY SPEEDCUBING DÀNH RIÊNG CHO ĐIỆN THOẠI ANDROID / iOS */}
-            {isMobile && (
+            {/* NÚT MỞ KHÓA CAMERA HOẶC BÀN ĐẶT TAY SPEEDCUBING */}
+            {!cameraActive && timerState === 'idle' ? (
+              <button
+                type="button"
+                onClick={toggleCamera}
+                style={{
+                  marginTop: '14px',
+                  width: '100%',
+                  maxWidth: '350px',
+                  padding: '15px 16px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                  border: '2px solid #4ade80',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 6px 24px rgba(34, 197, 94, 0.35)'
+                }}
+              >
+                <span style={{ fontSize: '1.25rem' }}>📷</span>
+                <span>BẬT CAMERA AI ĐỂ MỞ KHÓA ĐỒNG HỒ</span>
+              </button>
+            ) : isMobile ? (
               <div
                 style={{
                   marginTop: '14px',
@@ -3169,14 +3271,18 @@ export default function App() {
                       ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15))'
                       : timerState === 'running'
                         ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(185, 28, 28, 0.15))'
-                        : 'linear-gradient(180deg, #111c34 0%, #0b1324 100%)',
+                        : preCheckStatus.verified
+                          ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.16), rgba(15, 23, 42, 0.95))'
+                          : 'linear-gradient(180deg, #111c34 0%, #0b1324 100%)',
                   border: timerState === 'ready'
                     ? '2px solid #22c55e'
                     : timerState === 'holding'
                       ? '2px solid #f59e0b'
                       : timerState === 'running'
                         ? '2px solid #ef4444'
-                        : '1.5px dashed #38bdf866',
+                        : preCheckStatus.verified
+                          ? '2px solid #22c55e'
+                          : '1.5px dashed #f59e0b88',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -3187,14 +3293,22 @@ export default function App() {
                       ? '#fbbf24'
                       : timerState === 'running'
                         ? '#f87171'
-                        : '#38bdf8',
+                        : preCheckStatus.verified
+                          ? '#4ade80'
+                          : '#fbbf24',
                   fontWeight: '800',
-                  fontSize: '0.86rem',
+                  fontSize: '0.84rem',
                   boxShadow: '0 6px 20px rgba(0,0,0,0.4)'
                 }}
               >
                 <span style={{ fontSize: '1.25rem' }}>
-                  {timerState === 'running' ? '🛑' : timerState === 'ready' ? '🟢' : '🖐️'}
+                  {timerState === 'running'
+                    ? '🛑'
+                    : timerState === 'ready'
+                      ? '🟢'
+                      : preCheckStatus.verified
+                        ? '🖐️'
+                        : '🔒'}
                 </span>
                 <span>
                   {timerState === 'running'
@@ -3203,10 +3317,12 @@ export default function App() {
                       ? 'THẢ TAY RA ĐỂ CHẠY!'
                       : timerState === 'holding'
                         ? 'ĐANG GIỮ TAY...'
-                        : 'ĐẶT & GIỮ TAY TẠI ĐÂY ĐỂ GIẢI'}
+                        : preCheckStatus.verified
+                          ? 'ĐẶT & GIỮ TAY TẠI ĐÂY ĐỂ GIẢI'
+                          : 'ĐƯA RUBIK VÀO CAM ĐỂ MỞ KHÓA'}
                 </span>
               </div>
-            )}
+            ) : null}
 
             
             {/* Quick summary stats bar on mobile */}

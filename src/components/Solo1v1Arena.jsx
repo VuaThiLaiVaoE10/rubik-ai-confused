@@ -471,6 +471,11 @@ export default function Solo1v1Arena({
       return;
     }
 
+    if (!cameraActive || !cameraHealth?.isHealthy) {
+      addReactionToast('📷', 'Bắt buộc phải Bật Camera AI hoạt động tốt mới được bấm giờ giải Solo 1v1!', true);
+      return;
+    }
+
     if (myTimerState === 'idle' || myTimerState === 'done') {
       if (!spacePressedRef.current) {
         spacePressedRef.current = true;
