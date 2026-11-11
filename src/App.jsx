@@ -11,6 +11,17 @@ import {
   createBehaviorTracker,
   evaluateSolveIntegrity
 } from './utils/antiBot';
+import {
+  getCloudConfig,
+  saveCloudConfig,
+  isCloudConfigured,
+  fetchCloudLeaderboard,
+  submitVerifiedSolveToCloud,
+  deleteCloudEntryAdmin,
+  clearCloudBoardAdmin,
+  testCloudConnection,
+  SUPABASE_SCHEMA_SQL
+} from './utils/cloudBackend';
 
 // ==========================================
 // 1. WCA SCRAMBLE GENERATOR (2x2, 3x3, 4x4, 5x5)
@@ -375,6 +386,13 @@ export default function App() {
   const [editCompSub, setEditCompSub] = useState(adminSettings.subTitle);
   const [editSpaceHoldMs, setEditSpaceHoldMs] = useState(adminSettings.spaceHoldMs);
 
+  // Cấu hình Supabase Cloud Backend (Bảng Kỷ Lục Toàn Cầu + Anti-Cheat Server)
+  const [cloudUrlInput, setCloudUrlInput] = useState(() => getCloudConfig().url);
+  const [cloudKeyInput, setCloudKeyInput] = useState(() => getCloudConfig().anonKey);
+  const [cloudStatus, setCloudStatus] = useState(() => isCloudConfigured() ? 'connected' : 'unconfigured');
+  const [cloudTestNotice, setCloudTestNotice] = useState(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+
   // Thông báo nhận diện kỷ lục AI thời gian thực (Toast Banner)
   const [lastNotice, setLastNotice] = useState(null);
 
@@ -474,6 +492,90 @@ export default function App() {
     }
   };
 
+  // Đồng bộ Bảng Kỷ Lục từ Supabase Cloud về máy
+  const syncLeaderboardFromCloud = useCallback(async (targetBoardId) => {
+    const bId = targetBoardId || activeBoardId;
+    if (!isCloudConfigured()) {
+      setCloudStatus('unconfigured');
+      return;
+    }
+    setCloudStatus('syncing');
+    const res = await fetchCloudLeaderboard(bId);
+    if (!res.ok) {
+      setCloudStatus('error');
+      return;
+    }
+    setCloudStatus('connected');
+
+    setLeaderboards(prevBoards => {
+      const cur = prevBoards[bId] || { id: bId, title: 'Bảng Kỷ Lục AI Chính Thức', entries: [] };
+      const mergedMap = new Map();
+
+      // Ưu tiên dữ liệu स्थानीय + Cloud: giữ kỷ lục nhanh nhất (best thấp nhất) cho mỗi (name, puzzleType)
+      for (const item of (cur.entries || [])) {
+        const key = `${item.name.trim().toLowerCase()}__${item.puzzleType || '3x3'}`;
+        mergedMap.set(key, item);
+      }
+      for (const cloudItem of (res.entries || [])) {
+        const key = `${cloudItem.name.trim().toLowerCase()}__${cloudItem.puzzleType || '3x3'}`;
+        const existing = mergedMap.get(key);
+        if (!existing || cloudItem.best <= existing.best) {
+          mergedMap.set(key, cloudItem);
+        }
+      }
+
+      const mergedEntries = Array.from(mergedMap.values()).sort((a, b) => a.best - b.best);
+      const updated = {
+        ...prevBoards,
+        [bId]: {
+          ...cur,
+          entries: mergedEntries
+        }
+      };
+      localStorage.setItem('rubik_multi_leaderboards_clean', JSON.stringify(updated));
+      return updated;
+    });
+  }, [activeBoardId]);
+
+  useEffect(() => {
+    if (isCloudConfigured()) {
+      syncLeaderboardFromCloud(activeBoardId);
+      const interval = setInterval(() => {
+        syncLeaderboardFromCloud(activeBoardId);
+      }, 25000);
+      return () => clearInterval(interval);
+    }
+  }, [activeBoardId, syncLeaderboardFromCloud]);
+
+  const handleTestAndSaveCloud = async () => {
+    const saved = saveCloudConfig({ url: cloudUrlInput, anonKey: cloudKeyInput });
+    if (!saved.url || !saved.anonKey) {
+      setCloudStatus('unconfigured');
+      setCloudTestNotice({ type: 'warning', text: 'Đã ngắt kết nối Cloud (chế độ Local).' });
+      return;
+    }
+    setCloudTestNotice({ type: 'info', text: '⏳ Đang kiểm tra kết nối Supabase Cloud...' });
+    const check = await testCloudConnection(saved.url, saved.anonKey);
+    if (check.ok) {
+      setCloudStatus('connected');
+      setCloudTestNotice({ type: 'success', text: `✅ ${check.message}` });
+      syncLeaderboardFromCloud(activeBoardId);
+    } else {
+      setCloudStatus('error');
+      setCloudTestNotice({ type: 'error', text: `⚠️ ${check.reason}` });
+    }
+  };
+
+  const handleCopySupabaseSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SUPABASE_SCHEMA_SQL);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 3000);
+    } catch {
+      alert('Không thể copy tự động, bạn có thể mở file supabase/schema.sql trong dự án.');
+    }
+  };
+
   const handleSelectPuzzle = (type) => {
     setPuzzleType(type);
     localStorage.setItem('rubik_puzzle_type', type);
@@ -524,14 +626,23 @@ export default function App() {
     }
   };
 
-  const handleDeleteEntry = (entryId) => {
+  const handleDeleteEntry = async (entryId) => {
     if (!currentBoard) return;
+    const targetEntry = currentBoard.entries.find(e => e.id === entryId);
     const filtered = currentBoard.entries.filter(e => e.id !== entryId);
     const updated = {
       ...leaderboards,
       [activeBoardId]: { ...currentBoard, entries: filtered }
     };
     saveLeaderboards(updated);
+
+    if (targetEntry && isCloudConfigured()) {
+      await deleteCloudEntryAdmin({
+        boardId: activeBoardId,
+        playerName: targetEntry.name,
+        puzzleType: targetEntry.puzzleType || '3x3'
+      });
+    }
   };
 
   const handleToggleVerifyEntry = (entryId) => {
@@ -550,7 +661,7 @@ export default function App() {
   };
 
   // Xóa sạch toàn bộ kỷ lục trong bảng hiện tại (Dành riêng cho Admin Khoa)
-  const handleClearCurrentBoard = () => {
+  const handleClearCurrentBoard = async () => {
     if (!isKhoaAdmin || !currentBoard) return;
     if (window.confirm(`Bạn có chắc muốn xóa sạch toàn bộ tên và kỷ lục trong bảng "${currentBoard.title}" không?`)) {
       const updated = {
@@ -558,6 +669,9 @@ export default function App() {
         [activeBoardId]: { ...currentBoard, entries: [] }
       };
       saveLeaderboards(updated);
+      if (isCloudConfigured()) {
+        await clearCloudBoardAdmin(activeBoardId);
+      }
       alert(`🧹 Đã xóa sạch toàn bộ dữ liệu trong "${currentBoard.title}"! Bảng đã trở về trạng thái trống.`);
     }
   };
@@ -842,6 +956,23 @@ export default function App() {
             }
           };
           saveLeaderboards(updatedBoards);
+
+          // ĐỒNG BỘ LÊN CLOUD BACKEND (SUPABASE + ANTI-CHEAT PROOF HASH SHA-256)
+          submitVerifiedSolveToCloud({
+            boardId: bId,
+            playerName,
+            playerEmail: cUser?.email || 'guest@cuber.vn',
+            puzzleType: currentP,
+            bestTime: finalSec,
+            avgTime: finalSec,
+            scramble,
+            cameraVerified: true,
+            startedScrambled: startScrambledRef.current
+          }).then((cloudRes) => {
+            if (cloudRes?.ok) {
+              setCloudStatus('connected');
+            }
+          });
         }
       }
     } else {
@@ -2375,7 +2506,7 @@ export default function App() {
           </div>
 
           {/* Trạng thái Chống Gian Lận (Anti-Cheat) & Bộ Lọc */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 8px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 6px 0' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -2423,6 +2554,56 @@ export default function App() {
                 Tất cả
               </button>
             </div>
+          </div>
+
+          {/* Thanh trạng thái Cloud Backend Global Sync */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '4px 8px',
+            marginBottom: '6px',
+            borderRadius: '6px',
+            background: '#090f1d',
+            border: '1px solid #16223b',
+            fontSize: '0.68rem'
+          }}>
+            <span style={{
+              color: cloudStatus === 'connected' ? '#38bdf8' : (cloudStatus === 'error' ? '#f87171' : '#94a3b8'),
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+              <span>☁️</span>
+              <span>
+                {cloudStatus === 'connected'
+                  ? 'Cloud Global: Đã đồng bộ Supabase (Anti-Cheat SHA-256)'
+                  : cloudStatus === 'syncing'
+                    ? 'Đang đồng bộ kỷ lục toàn cầu...'
+                    : cloudStatus === 'error'
+                      ? 'Cloud: Chưa tạo bảng SQL hoặc lỗi kết nối'
+                      : 'Chế độ: Local + Anti-Bot (Gắn Cloud trong Quản trị)'}
+              </span>
+            </span>
+
+            {isCloudConfigured() && (
+              <button
+                type="button"
+                onClick={() => syncLeaderboardFromCloud(activeBoardId)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#38bdf8',
+                  fontSize: '0.68rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  padding: '0 4px'
+                }}
+              >
+                🔄 Đồng bộ
+              </button>
+            )}
           </div>
 
           {/* Table Header */}
@@ -3245,7 +3426,7 @@ export default function App() {
               </div>
 
               {/* ĐỘ NHẠY PHÍM SPACEBAR */}
-              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid #1a2a4c' }}>
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #1a2a4c' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#4ade80' }}>
                   ⏱️ 3. Thời gian giữ phím Spacebar để Ready (Xanh lá)
                 </h4>
@@ -3268,6 +3449,120 @@ export default function App() {
                   <option value={350}>350ms — Chuẩn WCA quốc tế (csTimer)</option>
                   <option value={550}>550ms — Giữ chắc tay (Tránh bấm nhầm)</option>
                 </select>
+              </div>
+
+              {/* KẾT NỐI CLOUD BACKEND SUPABASE + SERVER ANTI-CHEAT */}
+              <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#38bdf8' }}>
+                    ☁️ 4. Kết Nối Cloud Backend (Supabase + Anti-Cheat Server)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={handleCopySupabaseSql}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '5px',
+                      background: copiedSql ? '#16a34a' : '#1e293b',
+                      border: '1px solid #38bdf8',
+                      color: '#f8fafc',
+                      fontSize: '0.72rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {copiedSql ? '✅ Đã Copy SQL!' : '📋 Copy SQL Tạo Bảng + Trigger'}
+                  </button>
+                </div>
+
+                <p style={{ margin: '0 0 10px 0', fontSize: '0.73rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                  Đồng bộ Bảng Xếp Hạng Toàn Cầu 24/7 (ngay cả khi bạn tắt máy) kèm PostgreSQL Trigger kiểm tra chữ ký SHA-256 & chặn gian lận từ phía Server.
+                </p>
+
+                <div style={{ marginBottom: '8px' }}>
+                  <label style={{ display: 'block', fontSize: '0.73rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Supabase Project URL:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://xyzcompany.supabase.co"
+                    value={cloudUrlInput}
+                    onChange={(e) => setCloudUrlInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.8rem',
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.73rem', color: '#94a3b8', marginBottom: '4px' }}>
+                    Supabase Anon Public Key:
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    value={cloudKeyInput}
+                    onChange={(e) => setCloudKeyInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '5px',
+                      background: '#090f1d',
+                      border: '1px solid #192642',
+                      color: '#f8fafc',
+                      fontSize: '0.8rem',
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleTestAndSaveCloud}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '6px',
+                      background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                      border: 'none',
+                      color: '#ffffff',
+                      fontWeight: '700',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔌 Kiểm tra & Lưu Kết Nối Cloud
+                  </button>
+                </div>
+
+                {cloudTestNotice && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.74rem',
+                    fontWeight: '600',
+                    background: cloudTestNotice.type === 'success'
+                      ? 'rgba(34, 197, 94, 0.15)'
+                      : cloudTestNotice.type === 'error'
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : 'rgba(56, 189, 248, 0.15)',
+                    color: cloudTestNotice.type === 'success'
+                      ? '#4ade80'
+                      : cloudTestNotice.type === 'error'
+                        ? '#f87171'
+                        : '#38bdf8'
+                  }}>
+                    {cloudTestNotice.text}
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
