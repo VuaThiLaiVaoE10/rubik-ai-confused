@@ -45,12 +45,13 @@ const PUZZLE_CONFIGS = {
   '7x7': { id: '7x7', name: '7×7×7', label: '7×7 Master Cube WCA', dim: 7, defaultMoves: 100 }
 };
 
-// Cấu hình Hồ sơ Bề mặt & Chất liệu cho MỌI LOẠI RUBIK trên thị trường
+// Cấu hình Hồ sơ Bề mặt & Chất liệu theo Hệ màu HSV (Hue - Saturation - Value) cho MỌI LOẠI RUBIK
 const CUBE_SURFACE_PROFILES = {
   auto: {
     id: 'auto',
-    name: '✨ Tự động AI (Mọi loại)',
-    desc: 'Tự động cân bằng trắng, khử lóa UV, hỗ trợ Stickerless, Nhám, Viền đen, Carbon & Pastel',
+    name: '✨ Tự động HSV (Mọi loại)',
+    shortLabel: '✨ Auto HSV',
+    desc: 'Hệ màu HSV cân bằng trắng tự động, quét bước sóng Hue 0-360°, hỗ trợ mọi dòng Rubik',
     glareFactor: 0.65,
     satScale: 1.12,
     minSat: 0.17,
@@ -58,8 +59,9 @@ const CUBE_SURFACE_PROFILES = {
   },
   uv: {
     id: 'uv',
-    name: '💎 Phủ Bóng UV / Fluoro',
-    desc: 'Chuyên trị GAN UV, Moyu WRM UV, Tornado Pioneer UV bị bóng đèn trần & màu Neon rực',
+    name: '💎 Phủ Bóng UV / Fluoro (HSV)',
+    shortLabel: '💎 Phủ UV (HSV)',
+    desc: 'Tối ưu HSV cho GAN UV, Moyu WRM UV, Tornado Pioneer UV: lọc đốm lóa, giữ nguyên Hue chuẩn',
     glareFactor: 0.78,
     satScale: 1.22,
     minSat: 0.16,
@@ -67,8 +69,9 @@ const CUBE_SURFACE_PROFILES = {
   },
   frosted: {
     id: 'frosted',
-    name: '🧊 Nhựa Nhám / Stickerless',
-    desc: 'Tối ưu cho RS3M, QiYi, YJ bề mặt nhám mờ (Frosted Matte) dưới ánh đèn phòng',
+    name: '🧊 Nhựa Nhám / Stickerless (HSV)',
+    shortLabel: '🧊 Nhựa Nhám (HSV)',
+    desc: 'Tăng cường Saturation HSV cho RS3M, QiYi, YJ bề mặt nhám mờ (Frosted Matte)',
     glareFactor: 0.55,
     satScale: 1.28,
     minSat: 0.15,
@@ -76,8 +79,9 @@ const CUBE_SURFACE_PROFILES = {
   },
   classic: {
     id: 'classic',
-    name: '⬛ Viền Đen / Carbon Fiber',
-    desc: 'Quét vành ngoài + tâm để đọc chuẩn Rubik dán decal viền nhựa đen dày hoặc dán vân Carbon',
+    name: '⬛ Viền Đen / Carbon (HSV)',
+    shortLabel: '⬛ Viền Đen (HSV)',
+    desc: 'Lọc Value tối (V < 0.16) cho Rubik dán decal viền nhựa đen dày hoặc dán vân Carbon',
     glareFactor: 0.50,
     satScale: 1.18,
     minSat: 0.18,
@@ -85,8 +89,9 @@ const CUBE_SURFACE_PROFILES = {
   },
   pastel: {
     id: 'pastel',
-    name: '🍬 Pastel / Macaron / Candy',
-    desc: 'Phân tách cực nhạy các tông màu Pastel / Macaron dịu nhẹ không bị nhầm sang màu Trắng',
+    name: '🍬 Pastel / Macaron (HSV)',
+    shortLabel: '🍬 Pastel (HSV)',
+    desc: 'Mở rộng dải Saturation HSV cực nhạy cho các tông màu Pastel/Macaron dịu nhẹ',
     glareFactor: 0.45,
     satScale: 1.65,
     minSat: 0.10,
@@ -417,113 +422,92 @@ function removeUvSpecularGlare(r, g, b, surfaceProfileKey = 'auto') {
 }
 
 // Bộ phân loại màu Đa Không Gian (De-Glared HSV + CIE L*a*b* + Opponent Channels)
-// Nhận diện chuẩn xác MỌI LOẠI RUBIK: UV Coated, Stickerless Frosted, Viền đen cổ điển, Carbon Fiber, Pastel/Macaron
+// ==========================================
+// HỆ MÀU HSV CHUẨN (HUE - SATURATION - VALUE) CHO NHẬN DIỆN RUBIK
+// ==========================================
+// Chuyển đổi toàn diện sang không gian màu HSV:
+// - H (Hue: 0°..360°): Sắc độ màu quang phổ, bất biến tuyệt đối với bóng râm & góc chiếu sáng.
+// - S (Saturation: 0.0..1.0): Độ bão hòa sắc tố nhựa nhân tạo Rubik.
+// - V (Value: 0.0..1.0): Độ sáng của điểm ảnh.
 function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0, surfaceProfileKey = 'auto') {
   const prof = CUBE_SURFACE_PROFILES[surfaceProfileKey] || CUBE_SURFACE_PROFILES.auto;
-  const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-  const rawHsv = rgbToHsv(avgR, avgG, avgB);
-  const lab = rgbToLab(avgR, avgG, avgB);
   const maxAllowedStd = 55 + motionTolerance;
 
-  if (rawBrightness < 24 || rawHsv.v < 0.14 || cellStdDev > maxAllowedStd) return 'invalid';
+  // 1. Chuyển đổi trực tiếp RGB sang không gian màu HSV
+  const rawHsv = rgbToHsv(avgR, avgG, avgB);
+  const deGlared = removeUvSpecularGlare(avgR, avgG, avgB, surfaceProfileKey);
+  const { h, s, v } = rgbToHsv(deGlared.r, deGlared.g, deGlared.b);
 
-  // Lọc bỏ ngay nếu mang sắc thái da người / mặt người
+  // 2. Lọc bỏ các ô quá tối (bóng tối, rãnh khối, viền đen) hoặc nhiễu chập chờn
+  if (v < 0.16 || rawHsv.v < 0.15 || cellStdDev > maxAllowedStd) return 'invalid';
+
+  // 3. Lọc bỏ sắc thái da người / mặt người
   if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
     return 'invalid';
   }
 
-  const deGlared = removeUvSpecularGlare(avgR, avgG, avgB, surfaceProfileKey);
-  const { h, s, v } = rgbToHsv(deGlared.r, deGlared.g, deGlared.b);
-  const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
-
-  // 1. Nhận diện màu Trắng (White Sticker — kiểm tra cả độ trung tính CIE L*a*b* chromaLab thấp)
-  const isNeutralWhite =
+  // 4. MÀU TRẮNG (WHITE STICKER) TRONG HỆ HSV:
+  // Đặc trưng vật lý: Độ bão hòa Saturation rất thấp (S <= 0.22), Độ sáng Value cao (V >= 0.46)
+  const isHsvWhite =
     surfaceProfileKey === 'pastel'
-      ? (rawHsv.s <= 0.14 && lab.chromaLab <= 12 && rawBrightness >= 140)
-      : ((rawHsv.s <= 0.22 && lab.chromaLab <= 16 && rawBrightness >= 135 && rgbSpread <= 38) ||
-         (rawHsv.s <= 0.26 && lab.chromaLab <= 18 && rawBrightness >= 170 && rgbSpread <= 45));
+      ? (s <= 0.16 && v >= 0.50)
+      : (s <= 0.22 && v >= 0.46);
 
-  if (isNeutralWhite && cellStdDev <= 40 + motionTolerance * 0.7) {
+  if (isHsvWhite && cellStdDev <= 40 + motionTolerance * 0.7) {
     return 'white';
   }
 
-  // Nếu độ bão hòa quá thấp -> không phải sticker màu nhựa nhân tạo
-  const minChromaRequired = surfaceProfileKey === 'pastel' ? 14 : 26;
-  if (s < prof.minSat || rgbSpread < minChromaRequired || lab.chromaLab < 14) return 'invalid';
+  // Nếu không phải màu trắng mà Saturation quá thấp (tường xám, nền mờ, ánh đèn nhạt) -> Bỏ qua
+  const minSatRequired = surfaceProfileKey === 'pastel' ? 0.14 : (prof.minSat || 0.20);
+  if (s < minSatRequired || v < 0.20) {
+    return 'invalid';
+  }
 
-  const cb = 128 - 0.168736 * avgR - 0.331264 * avgG + 0.5 * avgB;
-  const cr = 128 + 0.5 * avgR - 0.418688 * avgG - 0.081312 * avgB;
+  // 5. PHÂN LOẠI 5 MÀU CÒN LẠI DỰA TRÊN DẢI HUE [0°..360°] & ĐỘ BÃO HÒA SATURATION TRONG HỆ HSV:
 
-  // 2. VÀNG (Yellow / Lemon Fluorescent / Pastel Yellow):
-  // Đặc trưng vật lý nhựa Rubik: Cả R và G đều rất cao (R, G >= 90), R >= G * 0.62 (vàng luôn có R chiếm phần lớn G, khác hẳn xanh lá có R < 55% G).
-  // Kênh B thấp rõ rệt (R > B * 1.22 && G > B * 1.22).
-  // b* dương cao (b* >= 16), Hue 35°..84° (vàng chanh huỳnh quang GAN/Moyu đạt Hue 76°..82°).
-  // ĐẶT TRƯỚC XANH LÁ để triệt để loại bỏ lỗi vàng chanh bị nhận nhầm thành xanh!
-  const isYellowCandidate =
-    (h >= 35 && h <= 84 && deGlared.r >= 90 && deGlared.g >= 90) ||
-    (lab.b >= 20 && deGlared.r >= 85 && deGlared.g >= 85 && deGlared.r > deGlared.b * 1.20 && deGlared.g > deGlared.b * 1.20);
-
-  if (isYellowCandidate) {
-    const rToGRatio = deGlared.r / Math.max(deGlared.g, 1);
-    const isLemonOrWarmYellow =
-      rToGRatio >= 0.62 &&
-      deGlared.r > deGlared.b * 1.22 &&
-      deGlared.g > deGlared.b * 1.22 &&
-      (surfaceProfileKey === 'pastel' || cb <= 95 || lab.b >= 16);
-
-    if (isLemonOrWarmYellow) {
+  // [A] MÀU VÀNG (YELLOW):
+  // Dải Hue HSV: 36° đến 80° (bao quát từ vàng đậm 42°, vàng chanh 55° đến vàng chanh huỳnh quang GAN/Moyu ở 72°..78°)
+  // Saturation HSV: S >= 0.26, Value HSV: V >= 0.38
+  // ĐẶT TRƯỚC XANH LÁ để đảm bảo màu vàng chanh huỳnh quang không bị bắt nhầm sang xanh!
+  if (h >= 36 && h <= 80) {
+    if (s >= 0.26 && v >= 0.38) {
       return 'yellow';
     }
   }
 
-  // 3. XANH DƯƠNG (Blue / Cobalt / UV Sky Blue): b* âm rõ rệt hoặc Hue 175°..278°
-  if ((h >= 175 && h < 278) || (lab.b <= -10 && deGlared.b > deGlared.r * 1.20)) {
-    if (deGlared.b >= deGlared.g * 0.96 && deGlared.b > deGlared.r * 1.18 && deGlared.b >= 75) {
-      return 'blue';
+  // [B] MÀU CAM (ORANGE):
+  // Dải Hue HSV: 10° đến 35° (nằm giữa Đỏ và Vàng)
+  // Saturation HSV: S >= 0.36, Value HSV: V >= 0.35
+  if (h >= 10 && h < 36) {
+    if (s >= 0.36 && v >= 0.35) {
+      return 'orange';
     }
   }
 
-  // 4. XANH LÁ (Green / Lime Fluoro / Mint Pastel):
-  // Đặc trưng vật lý nhựa Rubik xanh lá: Kênh G vượt trội hoàn toàn so với R (G > R * 1.30, tức R/G < 0.70).
-  // a* âm rõ rệt (a* <= -14), Hue từ 82° đến 172°.
-  if ((h >= 82 && h < 172) || (lab.a <= -14 && deGlared.g > deGlared.r * 1.35 && deGlared.g > deGlared.b * 1.05)) {
-    if (deGlared.g > deGlared.r * 1.30 && deGlared.g >= deGlared.b * 1.02 && deGlared.g >= 75) {
+  // [C] MÀU ĐỎ (RED):
+  // Dải Hue HSV: Quấn quanh góc 0°/360°: [338°..360°] hoặc [0°..10°)
+  // Saturation HSV: S >= 0.38, Value HSV: V >= 0.26
+  if (h >= 338 || h < 10) {
+    if (s >= 0.38 && v >= 0.26) {
+      return 'red';
+    }
+  }
+
+  // [D] MÀU XANH LÁ (GREEN):
+  // Dải Hue HSV: 81° đến 170° (dải xanh lục, tách bạch 100% với Vàng <= 80°)
+  // Saturation HSV: S >= 0.28, Value HSV: V >= 0.25
+  if (h >= 81 && h < 170) {
+    if (s >= 0.28 && v >= 0.25) {
       return 'green';
     }
   }
 
-  // 5. CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..38°
-  // Khối Rubik thật có kênh Blue cực thấp (B/R <= 0.38) và Cr bão hòa cao, khác hẳn màu da người
-  if (h >= 9 && h < 38) {
-    if (h >= 35 && deGlared.g > deGlared.r * 0.85) {
-      return 'yellow';
-    }
-    if (h < 13 && avgG < avgR * 0.35 && lab.b < 22) {
-      return 'red';
-    }
-    const isRealRubikOrange =
-      surfaceProfileKey === 'pastel'
-        ? (deGlared.r > deGlared.b * 1.30 && deGlared.g >= deGlared.b * 1.04)
-        : (deGlared.r > deGlared.b * 1.65 && deGlared.g >= deGlared.b * 1.10 && (avgB / Math.max(avgR, 1)) <= 0.38 && rgbSpread >= 60);
-
-    if (isRealRubikOrange) {
-      return 'orange';
-    }
-  }
-
-  // 6. ĐỎ (Red / Crimson / UV Pinkish-Red / Dark Classic Red): Hue >= 315° hoặc < 12°
-  // Khối Rubik thật có G và B thấp rõ rệt so với R (G/R <= 0.48), không bao giờ có G cao như da người
-  if (h >= 315 || h < 12) {
-    if (h >= 7 && h < 12 && avgG > avgR * 0.44 && avgR > 185 && lab.b >= 26) {
-      return 'orange';
-    }
-    const isRealRubikRed =
-      surfaceProfileKey === 'pastel'
-        ? (deGlared.r > deGlared.g * 1.18 && deGlared.r > deGlared.b * 1.14)
-        : (deGlared.r > deGlared.g * 1.35 && deGlared.r > deGlared.b * 1.30 && (avgG / Math.max(avgR, 1)) <= 0.48 && (cr >= 165 || rgbSpread >= 55));
-
-    if (isRealRubikRed) {
-      return 'red';
+  // [E] MÀU XANH DƯƠNG (BLUE):
+  // Dải Hue HSV: 175° đến 268° (dải xanh lam, cobalt, cyan đậm)
+  // Saturation HSV: S >= 0.32, Value HSV: V >= 0.25
+  if (h >= 175 && h < 268) {
+    if (s >= 0.32 && v >= 0.25) {
+      return 'blue';
     }
   }
 
@@ -4401,6 +4385,18 @@ export default function App() {
                       {preCheckStatus.centerFace ? ` • Tâm: ${preCheckStatus.centerFace}` : ''}
                     </span>
                   )}
+
+                  <span style={{
+                    fontSize: '0.64rem',
+                    padding: '2px 7px',
+                    borderRadius: '10px',
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                    color: '#38bdf8',
+                    fontWeight: '700'
+                  }}>
+                    🌈 Hệ màu HSV
+                  </span>
 
                   {Object.keys(scannedFaces).length > 0 && (
                     <span style={{
