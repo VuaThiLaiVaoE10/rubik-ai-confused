@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'peerjs';
 import { validateP2PPacket, sanitizeText } from '../utils/securityShield';
 
+const BOT_LEVELS = [
+  { id: 'noob', name: '🥉 Bot Tân Binh', desc: 'Trung bình ~32s (Dành cho người mới)', targetSec: 32, varianceSec: 6, avatar: '🤖' },
+  { id: 'pro', name: '🥈 Bot Bán Chuyên', desc: 'Trung bình ~19s (Sub-20)', targetSec: 19, varianceSec: 3.5, avatar: '⚡' },
+  { id: 'master', name: '🥇 Bot Kiện Tướng', desc: 'Trung bình ~13s (Sub-15 WCA)', targetSec: 13, varianceSec: 2, avatar: '🔥' },
+  { id: 'alien', name: '👑 Bot Siêu Cấp WCA', desc: 'Thần tốc ~7.5s (Kỷ lục thế giới)', targetSec: 7.5, varianceSec: 1.2, avatar: '👾' }
+];
+
 export default function Solo1v1Arena({
   currentUser,
   cameraActive,
@@ -20,8 +27,14 @@ export default function Solo1v1Arena({
   const [connectionError, setConnectionError] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Bot AI Rival state
+  const [isBotMode, setIsBotMode] = useState(false);
+  const [selectedBotLevel, setSelectedBotLevel] = useState('pro');
+  const botTimerIntervalRef = useRef(null);
+  const botTargetTimeMsRef = useRef(0);
+
   // Opponent info
-  const [opponent, setOpponent] = useState(null); // { name, cameraActive, isHealthy }
+  const [opponent, setOpponent] = useState(null); // { name, cameraActive, isHealthy, isBot, avatar }
 
   // Match / Round state
   const [roundNumber, setRoundNumber] = useState(1);
@@ -52,7 +65,7 @@ export default function Solo1v1Arena({
   const spacePressedRef = useRef(false);
   const lastTickSentRef = useRef(0);
 
-  // Sound effects via Web Audio API (No external assets required!)
+  // Sound effects via Web Audio API
   const playSound = useCallback((type) => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -64,22 +77,22 @@ export default function Solo1v1Arena({
       gain.connect(ctx.destination);
 
       if (type === 'ready') {
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
         gain.gain.setValueAtTime(0.12, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
         osc.start();
         osc.stop(ctx.currentTime + 0.15);
       } else if (type === 'start') {
-        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
         osc.start();
         osc.stop(ctx.currentTime + 0.25);
       } else if (type === 'win') {
-        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1); // E5
-        osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.2); // G5
-        osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.3); // C6
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.2);
+        osc.frequency.setValueAtTime(1046.50, ctx.currentTime + 0.3);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
         osc.start();
@@ -105,6 +118,7 @@ export default function Solo1v1Arena({
 
   // Safe message sender over WebRTC DataChannel
   const sendP2P = (data) => {
+    if (isBotMode) return;
     if (connRef.current && connRef.current.open) {
       try {
         connRef.current.send(data);
@@ -117,6 +131,7 @@ export default function Solo1v1Arena({
   // Cleanup helper
   const disconnectAll = useCallback(() => {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (botTimerIntervalRef.current) clearInterval(botTimerIntervalRef.current);
     if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
     if (connRef.current) {
       try { connRef.current.close(); } catch {}
@@ -131,6 +146,7 @@ export default function Solo1v1Arena({
     setMatchState('idle');
     setMyTimerState('idle');
     setOppTimerState('idle');
+    setIsBotMode(false);
   }, []);
 
   useEffect(() => {
@@ -139,33 +155,25 @@ export default function Solo1v1Arena({
     };
   }, [disconnectAll]);
 
-  // Handle incoming P2P messages (qua tường lửa validateP2PPacket chống flood & mã độc)
+  // Handle incoming P2P messages
   const handleP2PData = useCallback((rawData) => {
     const check = validateP2PPacket(rawData);
     if (!check.valid) return;
     const data = check.packet;
 
     switch (data.type) {
-      case 'HANDSHAKE': {
-        setOpponent({
-          name: sanitizeText(data.name, 32, 'Đối thủ'),
-          cameraActive: !!data.cameraActive,
-          isHealthy: !!data.isHealthy
-        });
-        setConnectionStatus('connected');
-        break;
-      }
-
+      case 'HANDSHAKE':
       case 'HANDSHAKE_ACK': {
         setOpponent({
           name: sanitizeText(data.name, 32, 'Đối thủ'),
           cameraActive: !!data.cameraActive,
-          isHealthy: !!data.isHealthy
+          isHealthy: !!data.isHealthy,
+          isBot: false,
+          avatar: '👤'
         });
         setConnectionStatus('connected');
         break;
       }
-
       case 'CAMERA_UPDATE': {
         setOpponent(prev => prev ? {
           ...prev,
@@ -174,7 +182,6 @@ export default function Solo1v1Arena({
         } : null);
         break;
       }
-
       case 'NEW_ROUND': {
         setCurrentScramble(data.scramble || '');
         setRoundNumber(data.roundNumber || 1);
@@ -188,18 +195,15 @@ export default function Solo1v1Arena({
         playSound('tick');
         break;
       }
-
       case 'TIMER_STATE': {
         setOppTimerState(data.state);
         break;
       }
-
       case 'TIMER_TICK': {
         setOppTimerState('running');
         setOppLiveTimeMs(data.timeMs);
         break;
       }
-
       case 'SOLVE_DONE': {
         setOppTimerState('done');
         setOppLiveTimeMs(data.timeMs);
@@ -207,12 +211,10 @@ export default function Solo1v1Arena({
         playSound('tick');
         break;
       }
-
       case 'REACTION': {
         addReactionToast(data.emoji, `${data.sender}: ${data.text || ''}`, false);
         break;
       }
-
       default:
         break;
     }
@@ -269,12 +271,60 @@ export default function Solo1v1Arena({
     });
   }, [currentUser, cameraActive, cameraHealth, puzzleType, generateScramble, handleP2PData]);
 
-  // CREATE ROOM (HOST)
+  // ==========================================
+  // CHẾ ĐỘ 1: ĐẤU VỚI BOT AI SPEEDCUBER
+  // ==========================================
+  const handleStartBotMatch = (botLevelId = selectedBotLevel) => {
+    disconnectAll();
+    setIsBotMode(true);
+    setIsHost(true);
+    setConnectionStatus('connected');
+    setConnectionError('');
+
+    const botConfig = BOT_LEVELS.find(b => b.id === botLevelId) || BOT_LEVELS[1];
+    setOpponent({
+      name: botConfig.name,
+      cameraActive: true,
+      isHealthy: true,
+      isBot: true,
+      avatar: botConfig.avatar,
+      badge: botConfig.badge
+    });
+
+    // Sinh Scramble mới và tính thời gian mục tiêu của Bot cho ván này
+    const initialScramble = generateScramble(puzzleType);
+    setCurrentScramble(initialScramble);
+    setRoundNumber(1);
+    setMyScore(0);
+    setOpponentScore(0);
+    setMatchState('ready');
+
+    // Reset timers
+    setMyTimerState('idle');
+    setMyTimeMs(0);
+    setMyFinalTime(null);
+    setOppTimerState('idle');
+    setOppLiveTimeMs(0);
+    setOppFinalTime(null);
+
+    // Tính thời gian Bot giải (ms) có dao động ngẫu nhiên
+    const randomVariance = (Math.random() * 2 - 1) * botConfig.varianceSec;
+    const computedSec = Math.max(5.5, botConfig.targetSec + randomVariance);
+    botTargetTimeMsRef.current = Math.round(computedSec * 1000);
+
+    playSound('ready');
+    addReactionToast('🤖', `${botConfig.name}: "Sẵn sàng đấu nào! Hãy xem ai giải nhanh hơn!"`, false);
+  };
+
+  // ==========================================
+  // CHẾ ĐỘ 2: TẠO PHÒNG HOST P2P
+  // ==========================================
   const handleCreateRoom = () => {
     disconnectAll();
     setConnectionStatus('creating');
     setConnectionError('');
     setIsHost(true);
+    setIsBotMode(false);
 
     const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
     const fullRoomId = `hust-rubik-solo-${randomCode}`;
@@ -305,7 +355,7 @@ export default function Solo1v1Arena({
 
       peer.on('error', (err) => {
         console.error('Peer init error:', err);
-        setConnectionError('Không thể tạo phòng đấu P2P. Thử lại sau giây lát!');
+        setConnectionError('Không thể tạo phòng đấu P2P. Thử lại sau giây lát hoặc chọn Đấu Bot!');
         setConnectionStatus('idle');
       });
     } catch (err) {
@@ -314,7 +364,9 @@ export default function Solo1v1Arena({
     }
   };
 
-  // JOIN ROOM (GUEST)
+  // ==========================================
+  // CHẾ ĐỘ 3: VÀO PHÒNG BẠN BÈ (GUEST P2P)
+  // ==========================================
   const handleJoinRoom = () => {
     const code = joinCodeInput.trim().toUpperCase();
     if (!code) {
@@ -326,6 +378,7 @@ export default function Solo1v1Arena({
     setConnectionStatus('connecting');
     setConnectionError('');
     setIsHost(false);
+    setIsBotMode(false);
     setRoomCode(code);
 
     const targetPeerId = `hust-rubik-solo-${code}`;
@@ -376,9 +429,8 @@ export default function Solo1v1Arena({
     });
   }, [cameraActive, cameraHealth.isHealthy]);
 
-  // Host starts next round
+  // VÁN TIẾP THEO (NEXT ROUND)
   const handleNextRound = () => {
-    if (!isHost) return;
     const nextRound = roundNumber + 1;
     const newScramble = generateScramble(puzzleType);
     setRoundNumber(nextRound);
@@ -395,12 +447,20 @@ export default function Solo1v1Arena({
     setOppLiveTimeMs(0);
     setOppFinalTime(null);
 
-    sendP2P({
-      type: 'NEW_ROUND',
-      scramble: newScramble,
-      puzzleType,
-      roundNumber: nextRound
-    });
+    if (isBotMode) {
+      const botConfig = BOT_LEVELS.find(b => b.id === selectedBotLevel) || BOT_LEVELS[1];
+      const randomVariance = (Math.random() * 2 - 1) * botConfig.varianceSec;
+      const computedSec = Math.max(5.5, botConfig.targetSec + randomVariance);
+      botTargetTimeMsRef.current = Math.round(computedSec * 1000);
+      if (botTimerIntervalRef.current) clearInterval(botTimerIntervalRef.current);
+    } else {
+      sendP2P({
+        type: 'NEW_ROUND',
+        scramble: newScramble,
+        puzzleType,
+        roundNumber: nextRound
+      });
+    }
 
     playSound('tick');
   };
@@ -412,12 +472,22 @@ export default function Solo1v1Arena({
       if (myFinalTime < oppFinalTime) {
         setMyScore(s => s + 1);
         playSound('win');
+        if (isBotMode) {
+          setTimeout(() => {
+            addReactionToast('👏', `${opponent?.name}: "Bạn giải quá nhanh! Khâm phục đấy!"`, false);
+          }, 600);
+        }
       } else if (oppFinalTime < myFinalTime) {
         setOpponentScore(s => s + 1);
         playSound('tick');
+        if (isBotMode) {
+          setTimeout(() => {
+            addReactionToast('😎', `${opponent?.name}: "Ván này tôi về đích trước rồi nhé!"`, false);
+          }, 600);
+        }
       }
     }
-  }, [myFinalTime, oppFinalTime, matchState, playSound]);
+  }, [myFinalTime, oppFinalTime, matchState, isBotMode, opponent, playSound]);
 
   // ==========================================
   // SPACEBAR & MOBILE TOUCHPAD TIMER LOGIC
@@ -437,12 +507,38 @@ export default function Solo1v1Arena({
 
       // Throttle network tick to ~50ms
       const now = performance.now();
-      if (now - lastTickSentRef.current > 50) {
+      if (!isBotMode && now - lastTickSentRef.current > 50) {
         lastTickSentRef.current = now;
         sendP2P({ type: 'TIMER_TICK', timeMs: elapsed });
       }
     }, 10);
-  }, [playSound]);
+
+    // KÍCH HOẠT BOT AI GIẢI SONG SONG KHI BẠN BẮT ĐẦU
+    if (isBotMode) {
+      if (botTimerIntervalRef.current) clearInterval(botTimerIntervalRef.current);
+      setOppTimerState('holding');
+      // Mô phỏng phản xạ quan sát 0.4s của Bot
+      setTimeout(() => {
+        setOppTimerState('running');
+        const botStart = performance.now();
+        const target = botTargetTimeMsRef.current;
+
+        botTimerIntervalRef.current = setInterval(() => {
+          const botElapsed = Math.floor(performance.now() - botStart);
+          setOppLiveTimeMs(botElapsed);
+
+          if (botElapsed >= target) {
+            clearInterval(botTimerIntervalRef.current);
+            botTimerIntervalRef.current = null;
+            setOppLiveTimeMs(target);
+            setOppFinalTime(target);
+            setOppTimerState('done');
+            playSound('tick');
+          }
+        }, 16);
+      }, 400);
+    }
+  }, [isBotMode, playSound]);
 
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
@@ -468,11 +564,6 @@ export default function Solo1v1Arena({
   const handleHoldStart = useCallback(() => {
     if (myTimerState === 'running') {
       stopTimer();
-      return;
-    }
-
-    if (!cameraActive || !cameraHealth?.isHealthy) {
-      addReactionToast('📷', 'Bắt buộc phải Bật Camera AI hoạt động tốt mới được bấm giờ giải Solo 1v1!', true);
       return;
     }
 
@@ -572,10 +663,10 @@ export default function Solo1v1Arena({
           {iWon ? '🏆 BẠN ĐÃ CHIẾN THẮNG!' : (isTie ? '🤝 HÒA NHAU KỊCH TÍNH!' : '🥈 ĐỐI THỦ ĐÃ VỀ ĐÍCH TRƯỚC!')}
         </div>
         <div style={{ fontSize: '0.88rem', color: '#cbd5e1', marginTop: '4px' }}>
-          {isTie ? 'Cả hai có thời gian bằng nhau tuyệt đối!' : (iWon ? `Bạn nhanh hơn đối thủ ${diffSec} giây! 🚀` : `Đối thủ nhanh hơn bạn ${diffSec} giây!`)}
+          {isTie ? 'Cả hai có thời gian bằng nhau tuyệt đối!' : (iWon ? `Bạn nhanh hơn ${diffSec} giây! 🚀` : `Đối thủ nhanh hơn ${diffSec} giây!`)}
         </div>
 
-        {isHost && (
+        {(isHost || isBotMode) && (
           <button
             onClick={handleNextRound}
             style={{
@@ -594,7 +685,7 @@ export default function Solo1v1Arena({
             🎲 Ván Tiếp Theo (Scramble Mới)
           </button>
         )}
-        {!isHost && (
+        {!isHost && !isBotMode && (
           <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
             ⏳ Đang chờ Host bắt đầu ván tiếp theo...
           </div>
@@ -628,29 +719,48 @@ export default function Solo1v1Arena({
           <span style={{ fontSize: '1.3rem' }}>⚔️</span>
           <div>
             <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#f8fafc' }}>
-              ĐẤU TRƯỜNG SOLO 1V1 (WebRTC P2P)
+              ĐẤU TRƯỜNG SOLO 1V1 {isBotMode ? '• ĐẤU VỚI BOT AI' : '• P2P BẠN BÈ'}
             </div>
             <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-              P2P Browser-to-Browser • Hỗ trợ cả Điện Thoại & Máy Tính
+              {isBotMode ? 'Luyện phản xạ tốc độ với Bot AI thông minh' : 'P2P Browser-to-Browser • Hỗ trợ cả Điện Thoại & Máy Tính'}
             </div>
           </div>
         </div>
 
-        <button
-          onClick={onExitSolo}
-          style={{
-            padding: '6px 12px',
-            borderRadius: '6px',
-            border: '1px solid #475569',
-            background: '#0f172a',
-            color: '#cbd5e1',
-            fontSize: '0.78rem',
-            fontWeight: '600',
-            cursor: 'pointer'
-          }}
-        >
-          🚪 Rời Solo
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {isBotMode && (
+            <button
+              onClick={() => disconnectAll()}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #38bdf8',
+                background: 'rgba(56, 189, 248, 0.15)',
+                color: '#38bdf8',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Đổi Đối Thủ / Cấp Độ
+            </button>
+          )}
+          <button
+            onClick={onExitSolo}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: '1px solid #475569',
+              background: '#0f172a',
+              color: '#cbd5e1',
+              fontSize: '0.78rem',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🚪 Rời Solo
+          </button>
+        </div>
       </div>
 
       {/* CONNECTION / LOBBY CARD (When not connected) */}
@@ -662,10 +772,10 @@ export default function Solo1v1Arena({
           border: '1px solid #334155'
         }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: '1.05rem', color: '#38bdf8', textAlign: 'center' }}>
-            Tham Gia Hoặc Tạo Phòng Đấu 1v1
+            Chọn Chế Độ Thi Đấu Solo 1v1
           </h3>
           <p style={{ margin: '0 0 16px 0', textAlign: 'center', fontSize: '0.78rem', color: '#94a3b8', lineHeight: '1.4' }}>
-            Đấu trực tiếp trên cả Mobile & Máy tính. Bạn có thể thấy đồng hồ đối thủ nhảy số từng tích-tắc!
+            Đấu ngay 1-chạm với Bot AI Speedcuber thông minh hoặc Tạo phòng so tài trực tiếp cùng bạn bè!
           </p>
 
           {connectionError && (
@@ -688,7 +798,74 @@ export default function Solo1v1Arena({
             gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             gap: '14px'
           }}>
-            {/* OPTION 1: CREATE ROOM */}
+            {/* OPTION 1: PLAY WITH BOT AI (HOT - NGAY LẬP TỨC 1 CHẠM) */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95))',
+              borderRadius: '10px',
+              padding: '16px',
+              border: '1.8px solid #f59e0b',
+              boxShadow: '0 0 16px rgba(245, 158, 11, 0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              textAlign: 'center'
+            }}>
+              <div>
+                <div style={{ fontSize: '2rem', marginBottom: '4px' }}>🤖</div>
+                <h4 style={{ margin: '0 0 4px 0', color: '#f59e0b', fontSize: '1rem', fontWeight: '800' }}>
+                  Đấu Luyện Tập Với Bot AI
+                </h4>
+                <p style={{ margin: '0 0 12px 0', fontSize: '0.74rem', color: '#cbd5e1' }}>
+                  Vào đấu ngay trong 1 giây! Không cần chờ bạn bè, luyện phản xạ thần tốc.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '14px', textAlign: 'left' }}>
+                  {BOT_LEVELS.map(b => (
+                    <label
+                      key={b.id}
+                      onClick={() => setSelectedBotLevel(b.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        background: selectedBotLevel === b.id ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                        border: selectedBotLevel === b.id ? '1.5px solid #f59e0b' : '1px solid #334155',
+                        cursor: 'pointer',
+                        fontSize: '0.74rem'
+                      }}
+                    >
+                      <span style={{ fontWeight: selectedBotLevel === b.id ? '800' : '600', color: selectedBotLevel === b.id ? '#fbbf24' : '#e2e8f0' }}>
+                        {b.name}
+                      </span>
+                      <span style={{ fontSize: '0.66rem', color: '#94a3b8' }}>{b.desc.split('(')[1]?.replace(')', '') || ''}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleStartBotMatch(selectedBotLevel)}
+                style={{
+                  width: '100%',
+                  padding: '11px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  cursor: 'pointer',
+                  fontSize: '0.88rem',
+                  boxShadow: '0 4px 14px rgba(245, 158, 11, 0.45)'
+                }}
+              >
+                ⚡ Bắt Đầu Đấu Bot Ngay
+              </button>
+            </div>
+
+            {/* OPTION 2: CREATE ROOM (P2P HOST) */}
             <div style={{
               background: '#0f172a',
               borderRadius: '10px',
@@ -702,9 +879,9 @@ export default function Solo1v1Arena({
             }}>
               <div>
                 <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>👑</div>
-                <h4 style={{ margin: '0 0 4px 0', color: '#38bdf8', fontSize: '0.95rem' }}>Tạo Phòng Đấu Mới</h4>
+                <h4 style={{ margin: '0 0 4px 0', color: '#38bdf8', fontSize: '0.95rem' }}>Tạo Phòng Đấu Bạn Bè</h4>
                 <p style={{ margin: '0 0 12px 0', fontSize: '0.74rem', color: '#94a3b8' }}>
-                  Làm Host, chọn khối và sinh Scramble đồng bộ cho cả hai.
+                  Làm Host, tạo mã phòng 4 số gửi bạn bè thi đấu trực tiếp P2P.
                 </p>
               </div>
 
@@ -736,10 +913,10 @@ export default function Solo1v1Arena({
                       fontSize: '0.78rem'
                     }}
                   >
-                    {copiedLink ? '✓ Đã Sao Chép!' : '📋 Sao Chép Mã Phòng Gửi Bạn'}
+                    {copiedLink ? '✓ Đã Sao Chép!' : '📋 Sao Chép Mã Gửi Bạn'}
                   </button>
                   <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#f59e0b' }}>
-                    ⏳ Đang chờ đối thủ nhập mã...
+                    ⏳ Đang chờ bạn bè nhập mã...
                   </div>
                 </div>
               ) : (
@@ -758,12 +935,12 @@ export default function Solo1v1Arena({
                     fontSize: '0.85rem'
                   }}
                 >
-                  {connectionStatus === 'creating' ? '⏳ Đang khởi tạo...' : '🚀 Tạo Phòng Ngay'}
+                  {connectionStatus === 'creating' ? '⏳ Đang khởi tạo...' : '🚀 Tạo Phòng P2P'}
                 </button>
               )}
             </div>
 
-            {/* OPTION 2: JOIN ROOM */}
+            {/* OPTION 3: JOIN ROOM (P2P GUEST) */}
             <div style={{
               background: '#0f172a',
               borderRadius: '10px',
@@ -828,7 +1005,7 @@ export default function Solo1v1Arena({
         </div>
       )}
 
-      {/* CONNECTED ARENA VIEW (Both players in room) */}
+      {/* CONNECTED ARENA VIEW (Both players or Bot in room) */}
       {connectionStatus === 'connected' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* MATCH HEADER & SCRAMBLE */}
@@ -841,7 +1018,7 @@ export default function Solo1v1Arena({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
               <div style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '700' }}>
-                VÁN #{roundNumber} • {puzzleType.toUpperCase()}
+                VÁN #{roundNumber} • {puzzleType.toUpperCase()} {isBotMode ? `• ${opponent?.name}` : ''}
               </div>
 
               {/* LIVE SCOREBOARD */}
@@ -862,7 +1039,11 @@ export default function Solo1v1Arena({
               </div>
 
               <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                Phòng: <strong style={{ color: '#ffffff' }}>{roomCode}</strong>
+                {isBotMode ? (
+                  <span style={{ color: '#fbbf24', fontWeight: '700' }}>🤖 Đấu Bot AI ({opponent?.badge || 'Pro'})</span>
+                ) : (
+                  <>Phòng: <strong style={{ color: '#ffffff' }}>{roomCode}</strong></>
+                )}
               </div>
             </div>
 
@@ -883,7 +1064,7 @@ export default function Solo1v1Arena({
             </div>
           </div>
 
-          {/* DUAL TIMERS BATTLEFIELD (Left: You, Right: Opponent) */}
+          {/* DUAL TIMERS BATTLEFIELD (Left: You, Right: Opponent / Bot) */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
@@ -928,11 +1109,11 @@ export default function Solo1v1Arena({
                   fontSize: '0.68rem',
                   padding: '2px 5px',
                   borderRadius: '4px',
-                  background: cameraActive && cameraHealth.isHealthy ? '#10b98122' : '#ef444422',
-                  color: cameraActive && cameraHealth.isHealthy ? '#34d399' : '#f87171',
+                  background: cameraActive && cameraHealth?.isHealthy ? '#10b98122' : '#38bdf822',
+                  color: cameraActive && cameraHealth?.isHealthy ? '#34d399' : '#38bdf8',
                   fontWeight: '700'
                 }}>
-                  {cameraActive && cameraHealth.isHealthy ? '🟢 Cam OK' : '🔴 Cam Tắt'}
+                  {cameraActive && cameraHealth?.isHealthy ? '🟢 Cam AI' : '⚡ Bấm Giờ Tự Do'}
                 </span>
               </div>
 
@@ -966,7 +1147,7 @@ export default function Solo1v1Arena({
               </div>
             </div>
 
-            {/* RIGHT CARD: OPPONENT */}
+            {/* RIGHT CARD: OPPONENT / BOT AI */}
             <div style={{
               background: '#1e293b',
               borderRadius: '12px',
@@ -981,17 +1162,17 @@ export default function Solo1v1Arena({
               userSelect: 'none'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.9rem' }}>⚔️</span>
+                <span style={{ fontSize: '0.9rem' }}>{opponent?.avatar || '⚔️'}</span>
                 <strong style={{ fontSize: '0.95rem', color: '#f43f5e' }}>{opponent?.name || 'Đối thủ'}</strong>
                 <span style={{
                   fontSize: '0.68rem',
                   padding: '2px 5px',
                   borderRadius: '4px',
-                  background: opponent?.cameraActive && opponent?.isHealthy ? '#10b98122' : '#ef444422',
-                  color: opponent?.cameraActive && opponent?.isHealthy ? '#34d399' : '#f87171',
+                  background: isBotMode ? '#f59e0b22' : (opponent?.cameraActive && opponent?.isHealthy ? '#10b98122' : '#64748b22'),
+                  color: isBotMode ? '#fbbf24' : (opponent?.cameraActive && opponent?.isHealthy ? '#34d399' : '#94a3b8'),
                   fontWeight: '700'
                 }}>
-                  {opponent?.cameraActive && opponent?.isHealthy ? '🟢 Cam OK' : '🔴 Cam Tắt'}
+                  {isBotMode ? `🤖 AI ${opponent?.badge || 'Pro'}` : (opponent?.cameraActive && opponent?.isHealthy ? '🟢 Cam OK' : '⚡ Online')}
                 </span>
               </div>
 
@@ -1013,11 +1194,11 @@ export default function Solo1v1Arena({
                 textAlign: 'center',
                 color: oppTimerState === 'running' ? '#f43f5e' : (oppTimerState === 'done' ? '#34d399' : '#94a3b8')
               }}>
-                {oppTimerState === 'idle' && 'Đối thủ đang quan sát khối Rubik...'}
+                {oppTimerState === 'idle' && (isBotMode ? 'Bot AI đang sẵn sàng đua cùng bạn...' : 'Đối thủ đang quan sát khối Rubik...')}
                 {oppTimerState === 'holding' && '⏳ Đối thủ đang giữ chuẩn bị...'}
                 {oppTimerState === 'ready' && '⚡ Đối thủ đã sẵn sàng xuất phát!'}
-                {oppTimerState === 'running' && '🔥 ĐỐI THỦ ĐANG XOAY TỐC ĐỘ CAO!'}
-                {oppTimerState === 'done' && `🏁 Đối thủ đã về đích: ${formatTime(oppFinalTime)}!`}
+                {oppTimerState === 'running' && (isBotMode ? '🔥 BOT AI ĐANG GIẢI TỐC ĐỘ CAO!' : '🔥 ĐỐI THỦ ĐANG XOAY TỐC ĐỘ CAO!')}
+                {oppTimerState === 'done' && `🏁 ${isBotMode ? 'Bot AI' : 'Đối thủ'} đã về đích: ${formatTime(oppFinalTime)}!`}
               </div>
             </div>
           </div>
