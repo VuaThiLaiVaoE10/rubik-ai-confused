@@ -9485,7 +9485,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* PHẦN 4: CHẨN ĐOÁN & TEST NHẬN DIỆN AI (BEFORE / AFTER) */}
+              {/* PHẦN 6: CHẨN ĐOÁN & TEST NHẬN DIỆN AI (BEFORE / AFTER) */}
               <div style={{
                 background: 'rgba(15, 23, 42, 0.72)',
                 borderRadius: '10px',
@@ -9496,7 +9496,7 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   <div>
                     <div style={{ fontSize: '0.84rem', fontWeight: '800', color: '#34d399' }}>
-                      🧪 4. Kiểm Tra & Chẩn Đoán Nhận Diện AI (Before / After)
+                      🧪 6. Kiểm Tra & Chẩn Đoán Nhận Diện AI (Before / After)
                     </div>
                     <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>
                       Chạy trực tiếp bộ 11 tình huống thực tế (chói UV, đèn vàng 2700K/3000K, Pastel, thiếu sáng LUT, wrap Hue Đỏ, lệch tay ±25% ô, Anti-Fake da tay).
@@ -9541,7 +9541,7 @@ export default function App() {
                       }
                       setAdminVisionReport({
                         ...suite,
-                        deviceMode: isLowSpec ? 'Auto Low-Spec (160×120)' : 'Standard HD (320×240)',
+                        deviceMode: isLowSpecCamRef.current ? 'Auto Low-Spec (240px)' : 'Standard HD (320px)',
                         surfaceProfile,
                         liveCam
                       });
