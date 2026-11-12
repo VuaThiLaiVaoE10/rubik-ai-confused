@@ -57,7 +57,7 @@ import {
   evaluateRubikGridCandidate,
   locateDynamicRubikBox,
   buildCameraConstraintFallbacks,
-  enhanceLowLightRgbaBuffer
+  calibrateWebcamFrameBuffer
 } from './vision/rubikVision';
 import { calculateAo } from './utils/timerStats';
 
@@ -2494,20 +2494,33 @@ export default function App() {
         const frameImg = ctx.getImageData(0, 0, w, h).data;
 
         let totalBrightness = 0;
+        let sumR = 0;
+        let sumG = 0;
+        let sumB = 0;
         const pixelStep = 16;
         let sampledCount = 0;
         let minVal = 255;
         let maxVal = 0;
 
         for (let i = 0; i < frameImg.length; i += pixelStep * 4) {
-          const lum = 0.299 * frameImg[i] + 0.587 * frameImg[i + 1] + 0.114 * frameImg[i + 2];
+          const pr = frameImg[i];
+          const pg = frameImg[i + 1];
+          const pb = frameImg[i + 2];
+          const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
           totalBrightness += lum;
+          sumR += pr;
+          sumG += pg;
+          sumB += pb;
           if (lum < minVal) minVal = lum;
           if (lum > maxVal) maxVal = lum;
           sampledCount++;
         }
 
-        const avgBrightness = totalBrightness / Math.max(1, sampledCount);
+        const safeSamples = Math.max(1, sampledCount);
+        const avgBrightness = totalBrightness / safeSamples;
+        const avgR = sumR / safeSamples;
+        const avgG = sumG / safeSamples;
+        const avgB = sumB / safeSamples;
         const contrast = maxVal - minVal;
 
         let isHealthy = true;
@@ -2523,9 +2536,15 @@ export default function App() {
         }
 
         const isLowLight = isHealthy && (avgBrightness < 82 || contrast < 62);
-        if (isLowLight) {
-          enhanceLowLightRgbaBuffer(frameImg, avgBrightness, contrast);
-          healthReason = 'Hoạt động tốt (💡 Tự bù sáng Cam cũ)';
+        if (isHealthy) {
+          const cal = calibrateWebcamFrameBuffer(frameImg, avgBrightness, contrast, avgR, avgG, avgB);
+          if (cal.enhanced && cal.whiteBalanced) {
+            healthReason = 'Hoạt động tốt (💡 Bù sáng & ⚖️ Cân bằng trắng)';
+          } else if (cal.enhanced) {
+            healthReason = 'Hoạt động tốt (💡 Tự bù sáng Cam cũ)';
+          } else if (cal.whiteBalanced) {
+            healthReason = 'Hoạt động tốt (⚖️ Tự cân bằng trắng)';
+          }
         }
 
         cameraHealthRef.current = isHealthy;
@@ -2719,7 +2738,8 @@ export default function App() {
             startY,
             smoothSize,
             0,
-            surfaceProfileRef.current
+            surfaceProfileRef.current,
+            isLowLight
           );
 
           hasCubeSignal =
@@ -2741,7 +2761,8 @@ export default function App() {
             h,
             dim,
             trackerStateRef.current,
-            surfaceProfileRef.current
+            surfaceProfileRef.current,
+            isLowLight
           );
           const startX = bestRegion.startX;
           const startY = bestRegion.startY;
@@ -2823,21 +2844,31 @@ export default function App() {
           setTrackingBox(newBox);
         }
 
-        // Bộ lọc Khử nhòe Chuyển động (3-Frame Temporal Stabilizer) giúp bắt nét màu lên Mô hình 3D ngay cả khi đang di chuyển khối
+        // Bộ lọc Khử nhòe Chuyển động & Chống nhiễu Webcam cũ (3-Frame Majority + Invalid Stabilizer)
         let currentNxNColors = [...bestRegion.currentNxNColors];
         if (hasCubeSignal) {
           temporalBufferRef.current.push(currentNxNColors);
           if (temporalBufferRef.current.length > 3) temporalBufferRef.current.shift();
 
-          if (temporalBufferRef.current.length >= 2) {
+          const bufLen = temporalBufferRef.current.length;
+          if (bufLen >= 2) {
             currentNxNColors = currentNxNColors.map((col, idx) => {
-              if (col !== 'invalid') return col;
-              // Khôi phục ô bị nhòe do vung tay từ khung hình liền kề trước đó
-              for (let b = temporalBufferRef.current.length - 2; b >= 0; b--) {
-                const prevCol = temporalBufferRef.current[b][idx];
-                if (prevCol && prevCol !== 'invalid') return prevCol;
+              if (col === 'invalid') {
+                for (let b = bufLen - 2; b >= 0; b--) {
+                  const prevCol = temporalBufferRef.current[b][idx];
+                  if (prevCol && prevCol !== 'invalid') return prevCol;
+                }
+                return 'invalid';
               }
-              return 'invalid';
+              // Khi đang giữ mặt Rubik đứng yên, nếu 2 frame trước đều đồng thuận màu khác còn frame này nhiễu 1 nhịp -> giữ màu đa số
+              if (!isMovingNow && bufLen === 3) {
+                const c0 = temporalBufferRef.current[0][idx];
+                const c1 = temporalBufferRef.current[1][idx];
+                if (c0 && c0 !== 'invalid' && c0 === c1 && c0 !== col) {
+                  return c0;
+                }
+              }
+              return col;
             });
           }
         } else {

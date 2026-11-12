@@ -10,8 +10,11 @@ import {
   classifyCenterStickerFallback,
   rgbToOpenCvHsv,
   nhanDienMauOpenCv,
+  layMauTrungViOpenCv,
+  sampleCubieStickerCell,
   buildCameraConstraintFallbacks,
-  enhanceLowLightRgbaBuffer
+  enhanceLowLightRgbaBuffer,
+  calibrateWebcamFrameBuffer
 } from '../vision/rubikVision';
 import {
   sanitizeText,
@@ -123,6 +126,39 @@ describe('Computer Vision HSV Color Classifier', () => {
     expect(nhanDienMauOpenCv({ h: 60, s: 75, v: 36 }, true)).toBe('Xanh lá');
     expect(classifyRubikStickerCell(28, 75, 32, 6, 0, 'auto', null, true)).toBe('green');
     expect(classifyRubikStickerCell(15, 15, 15, 6, 0, 'auto', null, true)).toBe('invalid');
+  });
+
+  it('prevents circular Hue 0/179 wrap-around bug on noisy Red stickers via RGB histogram median', () => {
+    const w = 12;
+    const h = 12;
+    const buf = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      const idx = i * 4;
+      buf[idx] = 220;
+      buf[idx + 1] = i % 2 === 0 ? 15 : 22;
+      buf[idx + 2] = i % 2 === 0 ? 22 : 15;
+      buf[idx + 3] = 255;
+    }
+    const hsv = layMauTrungViOpenCv(buf, w, h, 2, 2, 10, 10);
+    expect(nhanDienMauOpenCv(hsv)).toBe('Đỏ');
+    const sample = sampleCubieStickerCell(buf, w, h, 6, 6, 12);
+    expect(sample.valid).toBe(true);
+    expect(classifyRubikStickerCell(sample.avgR, sample.avgG, sample.avgB, sample.stdDev, 0, 'auto', sample.medHsv)).toBe('red');
+  });
+
+  it('auto white-balances yellow-tinted dim frames via calibrateWebcamFrameBuffer', () => {
+    const clean = new Uint8ClampedArray([150, 150, 150, 255]);
+    expect(calibrateWebcamFrameBuffer(clean, 150, 90, 150, 150, 150)).toEqual({
+      enhanced: false,
+      whiteBalanced: false
+    });
+
+    const warmDim = new Uint8ClampedArray([80, 68, 42, 255, 70, 60, 35, 255]);
+    const res = calibrateWebcamFrameBuffer(warmDim, 60, 40, 75, 64, 38);
+    expect(res).toEqual({ enhanced: true, whiteBalanced: true });
+    // Blue channel lifted stronger than red to reduce warm cast while overall luminance boosted
+    expect(warmDim[2]).toBeGreaterThan(42);
+    expect(warmDim[0]).toBeGreaterThan(80);
   });
 });
 

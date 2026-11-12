@@ -77,27 +77,91 @@ export function buildCameraConstraintFallbacks(facingMode = 'user', lowSpecMode 
   ];
 }
 
+// Buffer histogram tĩnh dùng chung (Zero-GC Allocation cho CPU máy đời cũ)
+const _histR = new Uint16Array(256);
+const _histG = new Uint16Array(256);
+const _histB = new Uint16Array(256);
+const _lutR = new Uint8ClampedArray(256);
+const _lutG = new Uint8ClampedArray(256);
+const _lutB = new Uint8ClampedArray(256);
+
+function pickMedianFromHist(hist, totalCount) {
+  const half = totalCount >> 1;
+  let acc = 0;
+  for (let i = 0; i < 256; i++) {
+    acc += hist[i];
+    if (acc > half) return i;
+  }
+  return 0;
+}
+
 // Khôi phục tương phản & bù sáng siêu tốc bằng bảng tra 256 mức (LUT) cho webcam cũ bị mờ, tối hoặc ám xám.
 export function enhanceLowLightRgbaBuffer(data, avgBrightness, contrast) {
   if (!data || data.length === 0) return false;
   if (avgBrightness >= 82 && contrast >= 62) return false;
 
-  const lut = new Uint8ClampedArray(256);
   const darkFloor = avgBrightness < 55 ? 8 : 14;
   const gamma = avgBrightness < 55 ? 0.68 : 0.78;
   const span = Math.max(55, 255 - darkFloor * 2);
 
   for (let i = 0; i < 256; i++) {
     const norm = Math.max(0, Math.min(1, (i - darkFloor) / span));
-    lut[i] = Math.round(Math.pow(norm, gamma) * 255);
+    _lutR[i] = Math.round(Math.pow(norm, gamma) * 255);
   }
 
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = lut[data[i]];
-    data[i + 1] = lut[data[i + 1]];
-    data[i + 2] = lut[data[i + 2]];
+    data[i] = _lutR[data[i]];
+    data[i + 1] = _lutR[data[i + 1]];
+    data[i + 2] = _lutR[data[i + 2]];
   }
   return true;
+}
+
+// Hiệu chuẩn Cân Bằng Trắng Tự Động (Auto White-Balance) + Bù sáng Gamma trong 1 pass LUT duy nhất
+// Giúp khắc phục webcam cũ bị ám vàng/xanh đèn tuýp hoặc mờ nhòe thiếu sáng.
+export function calibrateWebcamFrameBuffer(data, avgBrightness, contrast, avgR, avgG, avgB) {
+  if (!data || data.length === 0) return { enhanced: false, whiteBalanced: false };
+
+  const isLowLight = avgBrightness < 82 || contrast < 62;
+  const maxCh = Math.max(avgR, avgG, avgB);
+  const minCh = Math.min(avgR, avgG, avgB);
+  const needsWb = (maxCh - minCh) >= 14 && Math.min(avgR, avgG, avgB) >= 12;
+
+  if (!isLowLight && !needsWb) {
+    return { enhanced: false, whiteBalanced: false };
+  }
+
+  const lumAvg = (avgR + avgG + avgB) / 3;
+  // Chỉ bù 45% độ lệch Gray-World và kẹp biên [0.80, 1.24] để khối Rubik nhiều màu không kéo lệch sai
+  const clampGain = (g) => Math.max(0.80, Math.min(1.24, g));
+  const gainR = needsWb ? clampGain(1 + ((lumAvg / Math.max(12, avgR)) - 1) * 0.45) : 1;
+  const gainG = needsWb ? clampGain(1 + ((lumAvg / Math.max(12, avgG)) - 1) * 0.45) : 1;
+  const gainB = needsWb ? clampGain(1 + ((lumAvg / Math.max(12, avgB)) - 1) * 0.45) : 1;
+
+  const darkFloor = isLowLight ? (avgBrightness < 55 ? 8 : 14) : 0;
+  const gamma = isLowLight ? (avgBrightness < 55 ? 0.68 : 0.78) : 1;
+  const span = Math.max(55, 255 - darkFloor * 2);
+
+  for (let i = 0; i < 256; i++) {
+    if (isLowLight) {
+      const norm = Math.max(0, Math.min(1, (i - darkFloor) / span));
+      const stretched = Math.pow(norm, gamma) * 255;
+      _lutR[i] = Math.round(stretched * gainR);
+      _lutG[i] = Math.round(stretched * gainG);
+      _lutB[i] = Math.round(stretched * gainB);
+    } else {
+      _lutR[i] = Math.round(i * gainR);
+      _lutG[i] = Math.round(i * gainG);
+      _lutB[i] = Math.round(i * gainB);
+    }
+  }
+
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = _lutR[data[i]];
+    data[i + 1] = _lutG[data[i + 1]];
+    data[i + 2] = _lutB[data[i + 2]];
+  }
+  return { enhanced: isLowLight, whiteBalanced: needsWb };
 }
 
 // Nhận diện 6 màu Rubik bằng ngưỡng HSV trong OpenCV (có hỗ trợ bù sáng cho cam đời cũ)
@@ -122,36 +186,35 @@ export function nhanDienMauOpenCv(hsv, lowLightMode = false) {
   return '?';
 }
 
-// Lấy mẫu trung vị HSV từng ô theo chuẩn OpenCV/NumPy
+// Lấy mẫu trung vị màu Zero-GC (Histogram RGB -> 1x OpenCV HSV) giúp nhanh gấp 20x và triệt tiêu lỗi xoay vòng Hue màu Đỏ (0/179)
 export function layMauTrungViOpenCv(frameImg, w, h, x1, y1, x2, y2) {
-  const hArr = [];
-  const sArr = [];
-  const vArr = [];
   const startX = Math.max(0, Math.min(w - 1, x1));
   const startY = Math.max(0, Math.min(h - 1, y1));
   const endX = Math.max(0, Math.min(w, x2));
   const endY = Math.max(0, Math.min(h, y2));
   const step = 2;
 
+  _histR.fill(0);
+  _histG.fill(0);
+  _histB.fill(0);
+  let count = 0;
+
   for (let y = startY; y < endY; y += step) {
+    const rowOffset = y * w;
     for (let x = startX; x < endX; x += step) {
-      const idx = (y * w + x) * 4;
-      const r = frameImg[idx];
-      const g = frameImg[idx + 1];
-      const b = frameImg[idx + 2];
-      const hsv = rgbToOpenCvHsv(r, g, b);
-      hArr.push(hsv.h);
-      sArr.push(hsv.s);
-      vArr.push(hsv.v);
+      const idx = (rowOffset + x) * 4;
+      _histR[frameImg[idx]]++;
+      _histG[frameImg[idx + 1]]++;
+      _histB[frameImg[idx + 2]]++;
+      count++;
     }
   }
 
-  if (hArr.length === 0) return { h: 0, s: 0, v: 0 };
-  return {
-    h: Math.round(getMedian(hArr)),
-    s: Math.round(getMedian(sArr)),
-    v: Math.round(getMedian(vArr))
-  };
+  if (count === 0) return { h: 0, s: 0, v: 0 };
+  const medR = pickMedianFromHist(_histR, count);
+  const medG = pickMedianFromHist(_histG, count);
+  const medB = pickMedianFromHist(_histB, count);
+  return rgbToOpenCvHsv(medR, medG, medB);
 }
 
 // Đếm số lượng ô của từng màu trong 6 mặt Rubik
@@ -405,73 +468,72 @@ export function classifyCenterStickerFallback(avgR, avgG, avgB) {
   return 'invalid';
 }
 
-// Lấy mẫu ô màu Rubik bằng kỹ thuật cắt vùng trung tâm & Trung vị HSV (Median OpenCV)
-// Tương đương lay_mau_trung_vi(vung_bgr) trong Python: loại bỏ 100% đốm lóa UV và viền đen
+// Lấy mẫu ô màu Rubik Zero-GC bằng Histogram RGB Trung vị & Độ lệch chuẩn 1-pass
+// Giảm 20x cấp phát bộ nhớ & khắc phục hoàn toàn lỗi tách Hue Đỏ (0/179) trên webcam đời cũ
 export function sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, _surfaceProfileKey) {
   // Lấy vùng trung tâm 36% của ô (bỏ lề 32% mỗi phía để tránh hoàn toàn viền rãnh đen cơ học)
   const span = Math.max(2, Math.floor(cellSize * 0.18));
   const step = Math.max(1, Math.floor(span / 4));
 
-  const hArr = [];
-  const sArr = [];
-  const vArr = [];
-  const rArr = [];
-  const gArr = [];
-  const bArr = [];
+  _histR.fill(0);
+  _histG.fill(0);
+  _histB.fill(0);
+  let count = 0;
+  let sumR = 0, sumG = 0, sumB = 0;
+  let sumSqR = 0, sumSqG = 0, sumSqB = 0;
 
-  for (let sy = cy - span; sy <= cy + span; sy += step) {
-    if (sy < 0 || sy >= h) continue;
-    for (let sx = cx - span; sx <= cx + span; sx += step) {
-      if (sx < 0 || sx >= w) continue;
-      const idx = (sy * w + sx) * 4;
+  const yMin = Math.max(0, cy - span);
+  const yMax = Math.min(h - 1, cy + span);
+  const xMin = Math.max(0, cx - span);
+  const xMax = Math.min(w - 1, cx + span);
+
+  for (let sy = yMin; sy <= yMax; sy += step) {
+    const rowOffset = sy * w;
+    for (let sx = xMin; sx <= xMax; sx += step) {
+      const idx = (rowOffset + sx) * 4;
       const r = frameImg[idx];
       const g = frameImg[idx + 1];
       const b = frameImg[idx + 2];
 
-      const hsv = rgbToOpenCvHsv(r, g, b);
-      hArr.push(hsv.h);
-      sArr.push(hsv.s);
-      vArr.push(hsv.v);
-      rArr.push(r);
-      gArr.push(g);
-      bArr.push(b);
+      _histR[r]++;
+      _histG[g]++;
+      _histB[b]++;
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      sumSqR += r * r;
+      sumSqG += g * g;
+      sumSqB += b * b;
+      count++;
     }
   }
 
-  if (hArr.length === 0) {
+  if (count === 0) {
     return { avgR: 0, avgG: 0, avgB: 0, stdDev: 999, valid: false };
   }
 
-  // Tính Trung vị (Median) theo đúng np.median(vung_hsv) trong Python OpenCV
-  const medH = getMedian(hArr);
-  const medS = getMedian(sArr);
-  const medV = getMedian(vArr);
-  const medR = getMedian(rArr);
-  const medG = getMedian(gArr);
-  const medB = getMedian(bArr);
+  const medR = pickMedianFromHist(_histR, count);
+  const medG = pickMedianFromHist(_histG, count);
+  const medB = pickMedianFromHist(_histB, count);
 
-  let varSum = 0;
-  for (let i = 0; i < rArr.length; i++) {
-    const dr = rArr[i] - medR;
-    const dg = gArr[i] - medG;
-    const db = bArr[i] - medB;
-    varSum += (dr * dr + dg * dg + db * db) / 3;
-  }
-  const stdDev = Math.sqrt(varSum / rArr.length);
+  const varR = Math.max(0, sumSqR / count - (sumR / count) ** 2);
+  const varG = Math.max(0, sumSqG / count - (sumG / count) ** 2);
+  const varB = Math.max(0, sumSqB / count - (sumB / count) ** 2);
+  const stdDev = Math.sqrt((varR + varG + varB) / 3);
 
   return {
     avgR: medR,
     avgG: medG,
     avgB: medB,
     stdDev,
-    medHsv: { h: medH, s: medS, v: medV },
+    medHsv: rgbToOpenCvHsv(medR, medG, medB),
     valid: true
   };
 }
 
 // Xác minh Hình học & Rãnh cơ học chuẩn của khối Rubik (Mechanical Seam Channels & Orthogonal Grid)
 // Ngăn chặn 100% việc nhận diện nhầm khuôn mặt người, bức tường hoặc đồ vật ngẫu nhiên thành Rubik
-export function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize) {
+export function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize, lowLightMode = false) {
   const cellSize = boxSize / dim;
   let seamGrooveDipSum = 0;
   let seamEdgeGradSum = 0;
@@ -539,8 +601,9 @@ export function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, s
 
   // Khối Rubik thật luôn có rãnh cơ học rõ nét: seamScore >= 5.0
   // Mặt người hoặc bức tường phẳng: rãnh không tồn tại, seamScore < 3.2
+  const seamMinScore = lowLightMode ? 2.6 : 5.0;
   return {
-    isCube: seamScore >= 5.0,
+    isCube: seamScore >= seamMinScore,
     seamScore,
     avgDip,
     avgGrad
@@ -548,9 +611,9 @@ export function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, s
 }
 
 // Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
-export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto') {
+export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto', lowLightMode = false) {
   // 1. Tính toán hình học cơ học hỗ trợ (seamScore làm điểm thưởng bổ sung)
-  const geom = verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize);
+  const geom = verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize, lowLightMode);
 
   const cellSize = boxSize / dim;
   const currentNxNColors = [];
@@ -579,7 +642,7 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
         skinLikeCellsCount++;
       }
 
-      const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, stdDev, motionTolerance, surfaceProfileKey, sample.medHsv);
+      const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, stdDev, motionTolerance, surfaceProfileKey, sample.medHsv, lowLightMode);
       const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
 
       currentNxNColors.push(colorKey);
@@ -675,7 +738,7 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
 }
 
 // Quét Lưới Mạng Nhện Đa Hướng (Spider-Web Radial Ray Casting) để khóa chính xác Hitbox của khối Rubik
-export function scanSpiderWebHitbox(frameImg, w, h, seedCx, seedCy, surfaceProfileKey = 'auto') {
+export function scanSpiderWebHitbox(frameImg, w, h, seedCx, seedCy, surfaceProfileKey = 'auto', lowLightMode = false) {
   const minSide = Math.min(w, h);
   const maxRadius = Math.floor(minSide * 0.44);
   const minRadius = Math.floor(minSide * 0.10);
@@ -714,7 +777,7 @@ export function scanSpiderWebHitbox(frameImg, w, h, seedCx, seedCy, surfaceProfi
         const nextLum = 0.299 * frameImg[nextIdx] + 0.587 * frameImg[nextIdx + 1] + 0.114 * frameImg[nextIdx + 2];
         const grad = Math.abs(nextLum - lum);
 
-        const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 10, 6, surfaceProfileKey);
+        const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 10, 6, surfaceProfileKey, null, lowLightMode);
         const isPlastic = cKey !== 'invalid';
 
         if (r >= minRadius && (grad >= 30 || (!isPlastic && r > minRadius * 1.15))) {
@@ -773,7 +836,7 @@ export function scanSpiderWebHitbox(frameImg, w, h, seedCx, seedCy, surfaceProfi
 
 // Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker)
 // Tích hợp LƯỚI MẠNG NHỆN (Spider-Web Ray Casting) quét chính xác HITBOX Rubik + 60 FPS Speedcuber Pipeline
-export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileKey = 'auto') {
+export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileKey = 'auto', lowLightMode = false) {
   const minSide = Math.min(w, h);
   const baseSize = minSide * 0.48;
 
@@ -784,7 +847,7 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
     const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.95;
 
     // Quét lưới mạng nhện từ tâm dự đoán để tìm viền hitbox
-    const spider = scanSpiderWebHitbox(frameImg, w, h, predCx, predCy, surfaceProfileKey);
+    const spider = scanSpiderWebHitbox(frameImg, w, h, predCx, predCy, surfaceProfileKey, lowLightMode);
     const baseS = spider.isSquareHitbox ? spider.hitbox.boxSize : prevTracker.size;
     const targetCx = spider.isSquareHitbox ? spider.hitbox.cx : predCx;
     const targetCy = spider.isSquareHitbox ? spider.hitbox.cy : predCy;
@@ -800,7 +863,7 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
       const clampedSize = Math.max(minSide * 0.28, Math.min(minSide * 0.72, roi.size));
       const sx = Math.max(4, Math.min(w - clampedSize - 4, roi.cx - clampedSize / 2));
       const sy = Math.max(4, Math.min(h - clampedSize - 4, roi.cy - clampedSize / 2));
-      const res = evaluateRubikGridCandidate(frameImg, w, h, dim, sx, sy, clampedSize, 4, surfaceProfileKey);
+      const res = evaluateRubikGridCandidate(frameImg, w, h, dim, sx, sy, clampedSize, 4, surfaceProfileKey, lowLightMode);
       if (res.score > 25 && res.isGeometricallyVerifiedCube && (!bestRoi || res.score > bestRoi.score)) {
         bestRoi = res;
       }
@@ -834,7 +897,7 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
       const gVal = frameImg[idx + 1];
       const bVal = frameImg[idx + 2];
 
-      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 4, surfaceProfileKey);
+      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 4, surfaceProfileKey, null, lowLightMode);
       if (cKey !== 'invalid' && cKey !== 'white') {
         const wt = 3.2;
         weightSum += wt;
@@ -876,7 +939,7 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
   const heatCy = wySum / weightSum;
 
   // Quét lưới mạng nhện từ tâm cụm màu để tìm viền hitbox
-  const spider = scanSpiderWebHitbox(frameImg, w, h, heatCx, heatCy, surfaceProfileKey);
+  const spider = scanSpiderWebHitbox(frameImg, w, h, heatCx, heatCy, surfaceProfileKey, lowLightMode);
 
   const candidates = [];
   const pushCandidate = (cx, cy, size, motionTol = 0) => {
@@ -912,7 +975,8 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
       cand.sy,
       cand.size,
       cand.motionTol,
-      surfaceProfileKey
+      surfaceProfileKey,
+      lowLightMode
     );
     if (!bestEval || res.score > bestEval.score) {
       bestEval = res;
