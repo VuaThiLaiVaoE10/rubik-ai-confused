@@ -12,6 +12,7 @@ import {
   nhanDienMauOpenCv,
   layMauTrungViOpenCv,
   sampleCubieStickerCell,
+  evaluateRubikGridCandidate,
   buildCameraConstraintFallbacks,
   enhanceLowLightRgbaBuffer,
   calibrateWebcamFrameBuffer
@@ -161,6 +162,59 @@ describe('Computer Vision HSV Color Classifier', () => {
     // Blue channel lifted stronger than red to reduce warm cast while overall luminance boosted
     expect(warmDim[2]).toBeGreaterThan(42);
     expect(warmDim[0]).toBeGreaterThan(80);
+  });
+
+  it('recovers UV glare, warm indoor White, Pastel Macaron, and washed-out 3x3 cube grids while rejecting flat skin tones', () => {
+    // Glare-washed UV, warm bulb white, cool monitor white, pastel macaron
+    expect(classifyRubikStickerCell(195, 242, 204, 5, 0, 'uv')).toBe('green');
+    expect(classifyRubikStickerCell(245, 242, 192, 5, 0, 'uv')).toBe('yellow');
+    expect(classifyRubikStickerCell(235, 220, 175, 5, 0, 'auto')).toBe('white');
+    expect(classifyRubikStickerCell(185, 205, 232, 5, 0, 'auto')).toBe('white');
+    expect(classifyRubikStickerCell(192, 236, 214, 5, 0, 'pastel')).toBe('green');
+    expect(classifyRubikStickerCell(242, 192, 202, 5, 0, 'pastel')).toBe('red');
+    expect(classifyRubikStickerCell(192, 216, 245, 5, 0, 'pastel')).toBe('blue');
+
+    // Washed-out 3x3 grid must lock 9/9 instead of triggering false skin rejection
+    const w = 180;
+    const h = 180;
+    const buf = new Uint8ClampedArray(w * h * 4);
+    buf.fill(18);
+    const washedFace = [
+      [175, 128, 86], [218, 215, 202], [192, 184, 138],
+      [92, 158, 108], [178, 124, 84],  [98, 128, 188],
+      [185, 92, 92],  [196, 188, 140], [216, 214, 200]
+    ];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const [R, G, B] = washedFace[r * 3 + c];
+        for (let y = 45 + r * 30 + 3; y < 45 + (r + 1) * 30 - 3; y++) {
+          for (let x = 45 + c * 30 + 3; x < 45 + (c + 1) * 30 - 3; x++) {
+            const idx = (y * w + x) * 4;
+            buf[idx] = R;
+            buf[idx + 1] = G;
+            buf[idx + 2] = B;
+            buf[idx + 3] = 255;
+          }
+        }
+      }
+    }
+    const gridRes = evaluateRubikGridCandidate(buf, w, h, 3, 45, 45, 90, 0, 'auto', true);
+    expect(gridRes.validColorsCount).toBe(9);
+    expect(gridRes.isMostlySkinOrWood).toBe(false);
+    expect(gridRes.isGeometricallyVerifiedCube).toBe(true);
+
+    // Flat sunlit skin patch must still be rejected
+    const skinBuf = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      skinBuf[i * 4] = 212;
+      skinBuf[i * 4 + 1] = 166;
+      skinBuf[i * 4 + 2] = 138;
+      skinBuf[i * 4 + 3] = 255;
+    }
+    const skinRes = evaluateRubikGridCandidate(skinBuf, w, h, 3, 45, 45, 90, 0, 'auto', true);
+    expect(skinRes.isMostlySkinOrWood).toBe(true);
+    expect(skinRes.isGeometricallyVerifiedCube).toBe(false);
+    expect(skinRes.validColorsCount).toBe(0);
   });
 });
 

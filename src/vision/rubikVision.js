@@ -164,8 +164,21 @@ export function calibrateWebcamFrameBuffer(data, avgBrightness, contrast, avgR, 
   return { enhanced: isLowLight, whiteBalanced: needsWb };
 }
 
-// Nhận diện 6 màu Rubik bằng ngưỡng HSV trong OpenCV (có hỗ trợ bù sáng cho cam đời cũ)
-export function nhanDienMauOpenCv(hsv, lowLightMode = false) {
+const OPENCV_KEY_MAP = {
+  red: 'Đỏ',
+  orange: 'Cam',
+  yellow: 'Vàng',
+  green: 'Xanh lá',
+  blue: 'Xanh dương',
+  white: 'Trắng'
+};
+
+// Nhận diện 6 màu Rubik chuẩn OpenCV + đồng bộ bộ lọc bóng lóa/đèn vàng (nếu có RGB trung vị)
+export function nhanDienMauOpenCv(hsv, lowLightMode = false, surfaceProfileKey = 'auto') {
+  if (hsv && hsv.r !== undefined && hsv.g !== undefined && hsv.b !== undefined) {
+    const key = classifyRubikStickerCell(hsv.r, hsv.g, hsv.b, 0, 0, surfaceProfileKey, null, lowLightMode);
+    return OPENCV_KEY_MAP[key] || '?';
+  }
   const h = Math.round(hsv.h);
   const s = Math.round(hsv.s);
   const v = Math.round(hsv.v);
@@ -186,7 +199,7 @@ export function nhanDienMauOpenCv(hsv, lowLightMode = false) {
   return '?';
 }
 
-// Lấy mẫu trung vị màu Zero-GC (Histogram RGB -> 1x OpenCV HSV) giúp nhanh gấp 20x và triệt tiêu lỗi xoay vòng Hue màu Đỏ (0/179)
+// Lấy mẫu trung vị màu Zero-GC (Histogram RGB -> 1x OpenCV HSV + RGB trung vị) giúp nhanh gấp 20x và triệt tiêu lỗi xoay vòng Hue màu Đỏ (0/179)
 export function layMauTrungViOpenCv(frameImg, w, h, x1, y1, x2, y2) {
   const startX = Math.max(0, Math.min(w - 1, x1));
   const startY = Math.max(0, Math.min(h - 1, y1));
@@ -210,11 +223,11 @@ export function layMauTrungViOpenCv(frameImg, w, h, x1, y1, x2, y2) {
     }
   }
 
-  if (count === 0) return { h: 0, s: 0, v: 0 };
+  if (count === 0) return { h: 0, s: 0, v: 0, r: 0, g: 0, b: 0 };
   const medR = pickMedianFromHist(_histR, count);
   const medG = pickMedianFromHist(_histG, count);
   const medB = pickMedianFromHist(_histB, count);
-  return rgbToOpenCvHsv(medR, medG, medB);
+  return { ...rgbToOpenCvHsv(medR, medG, medB), r: medR, g: medG, b: medB };
 }
 
 // Đếm số lượng ô của từng màu trong 6 mặt Rubik
@@ -292,8 +305,8 @@ export function isSkinOrWoodTone(r, g, b, h, s, v) {
   const minC = Math.min(r, g, b);
   const chroma = maxC - minC;
 
-  // Nếu độ bão hòa cao hoặc sắc tố tương phản mạnh -> Đó là nhựa Rubik rực rỡ, không phải da người!
-  if (chroma >= 60 || s >= 0.58) {
+  // Nếu độ bão hòa theo tỷ lệ thực sự cao -> Đây là nhựa Rubik rực rỡ, không phải da người
+  if (s >= 0.54 || (chroma >= 92 && s >= 0.36)) {
     return false;
   }
 
@@ -332,14 +345,15 @@ export function isSkinOrWoodTone(r, g, b, h, s, v) {
     Math.abs(r - b) <= 32 &&
     Math.abs(g - b) <= 28;
 
-  // 4. Kiểm tra dải Hue ấm (đỏ-cam-vàng đất da)
+  // 4. Kiểm tra dải Hue ấm (đỏ-cam-vàng đất da) — bắt buộc có thành phần đỏ hồng YCbCr (cr >= 132) để không nhầm với ô Vàng/Trắng Rubik
   const isHsvSkin =
+    cr >= 132 &&
     h >= 5 &&
-    h <= 48 &&
-    s >= 0.06 &&
+    h <= 45 &&
+    s >= 0.08 &&
     s <= 0.72 &&
     v >= 0.16 &&
-    bRatio >= 0.25 &&
+    bRatio >= 0.24 &&
     gRatio >= 0.42;
 
   return (isYcbcrSkin && isRgbSkin) || isHsvSkin || isMonitorCastSkin;
@@ -377,66 +391,109 @@ export function removeUvSpecularGlare(r, g, b, surfaceProfileKey = 'auto') {
 }
 
 // ==========================================
-// HỆ MÀU HSV CHUẨN OPENCV (HUE: 0..179, SATURATION: 0..255, VALUE: 0..255)
-// KHỚP 100% VỚI THUẬT TOÁN PYTHON OPENCV (nhan_dien_mau & lay_mau_trung_vi)
+// HỆ MÀU CHUẨN OPENCV HSV + CIE L*a*b* + KHỬ BÓNG LÓA UV / CÂN BẰNG ĐÈN VÀNG
 // ==========================================
 export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0, surfaceProfileKey = 'auto', precomputedHsv = null, lowLightMode = false) {
-  const maxAllowedStd = 65 + motionTolerance;
+  const maxAllowedStd = (lowLightMode ? 76 : 65) + motionTolerance;
   if (cellStdDev > maxAllowedStd) return 'invalid';
 
-  // Lấy giá trị HSV theo chuẩn OpenCV (H: 0-179, S: 0-255, V: 0-255)
-  const hsv = precomputedHsv || rgbToOpenCvHsv(avgR, avgG, avgB);
+  const rawMax = Math.max(avgR, avgG, avgB);
+  const rawMin = Math.min(avgR, avgG, avgB);
+  const rawChroma = rawMax - rawMin;
+
+  // 1. Bảo vệ ô Trắng dưới đèn vàng phòng (3000K): R cao, G bám sát R (>= 0.86*R), B >= 0.68*R, độ bão hòa thấp-vừa
+  const earlyHsv = precomputedHsv || rgbToOpenCvHsv(avgR, avgG, avgB);
+  if (
+    surfaceProfileKey !== 'pastel' &&
+    rawMax >= (lowLightMode ? 115 : 155) &&
+    earlyHsv.s <= 74 &&
+    earlyHsv.h >= 12 &&
+    earlyHsv.h <= 25 &&
+    avgG >= 0.85 * avgR &&
+    avgB >= 0.68 * avgR
+  ) {
+    return 'white';
+  }
+
+  // 2. Kích hoạt Khử Bóng Lóa UV & Khuếch Đại Sắc Tố theo Hồ sơ bề mặt (UV / Frosted / Pastel / Glare Highlight)
+  let effR = avgR;
+  let effG = avgG;
+  let effB = avgB;
+  let hsv = earlyHsv;
+
+  const isPastel = surfaceProfileKey === 'pastel';
+  const isGlareWashed =
+    rawMax >= 168 &&
+    rawMin >= 110 &&
+    (surfaceProfileKey === 'uv' ||
+      surfaceProfileKey === 'frosted' ||
+      (rawChroma >= 50 && earlyHsv.s >= 56 && earlyHsv.s <= 92));
+
+  if (!precomputedHsv && (isPastel || surfaceProfileKey === 'uv' || surfaceProfileKey === 'frosted' || isGlareWashed)) {
+    const cleanProfile = isGlareWashed && surfaceProfileKey === 'auto' ? 'uv' : surfaceProfileKey;
+    const recovered = removeUvSpecularGlare(avgR, avgG, avgB, cleanProfile);
+    effR = recovered.r;
+    effG = recovered.g;
+    effB = recovered.b;
+    hsv = rgbToOpenCvHsv(effR, effG, effB);
+  }
+
   const h = Math.round(hsv.h);
   const s = Math.round(hsv.s);
   const v = Math.round(hsv.v);
 
-  const minV = lowLightMode ? 28 : 45;
-  const minColorS = lowLightMode ? 42 : 60;
-  const whiteMaxS = lowLightMode ? 68 : 60;
+  const minV = lowLightMode ? 24 : 45;
+  const minColorS = isPastel ? 34 : (lowLightMode ? 42 : 58);
+  const whiteMaxS = isPastel ? 38 : (lowLightMode ? 68 : 60);
   const whiteMinV = lowLightMode ? 104 : 140;
 
-  // 1. Quá tối (bóng tối, rãnh khối, viền đen) -> '?'
+  // 3. Quá tối (bóng tối, rãnh khối, viền đen) -> 'invalid'
   if (v < minV) {
     return 'invalid';
   }
 
-  // 2. MÀU TRẮNG (Trang): s < whiteMaxS và v >= whiteMinV
+  // 4. MÀU TRẮNG: độ bão hòa thấp & đủ sáng (nới cho đèn vàng ấm nhẹ nhưng không cướp Vàng bóng UV)
   if (s < whiteMaxS && v >= whiteMinV) {
     return 'white';
   }
 
-  // 3. Độ bão hòa quá thấp (tường mờ, xám, ánh đèn nhạt) -> '?'
+  // 5. Độ bão hòa quá thấp -> 'invalid'
   if (s < minColorS) {
     return 'invalid';
   }
 
-  // 4. MÀU ĐỎ (Do): h <= 8 hoặc h >= 170
-  if (h <= 8 || h >= 170) {
+  // 6. MÀU ĐỎ vs MÀU CAM (phân giải vùng ranh giới H=7..12 bằng tỷ lệ kênh G/R vật lý)
+  if (h <= 6 || h >= 168) {
     return 'red';
   }
-
-  // 5. MÀU CAM (Cam): 9 <= h <= 22
-  if (h >= 9 && h <= 22) {
+  if (h >= 7 && h <= 11) {
+    if (effG - effB < 0.42 * (effR - effG) && effG < 0.36 * effR) {
+      return 'red';
+    }
+    return 'orange';
+  }
+  if (h >= 12 && h <= 22) {
     return 'orange';
   }
 
-  // 6. MÀU VÀNG (Vang): 23 <= h <= 35
+  // 7. MÀU VÀNG (bao gồm cả Vàng UV dưới LED lạnh nghiêng nhẹ 36..42)
   if (h >= 23 && h <= 35) {
     return 'yellow';
   }
-  // Dự phòng nhựa huỳnh quang cao cấp (GAN/Moyu UV) dưới đèn LED lạnh nghiêng nhẹ về 36..42
-  // Phân biệt vật lý: Vàng luôn phản xạ mạnh tia Đỏ (R >= 115, R > 0.58 * G), trong khi Xanh Lá thì R cực thấp (R < 85)
-  if (h >= 36 && h <= 42 && avgR >= 115 && avgR > 0.58 * avgG && avgR > 1.5 * avgB) {
+  if (h >= 36 && h <= 42 && effR >= 115 && effR > 0.58 * effG && effR > 1.5 * effB) {
     return 'yellow';
   }
 
-  // 7. MÀU XANH LÁ (Xanh la): 36 <= h <= 85
+  // 8. MÀU XANH LÁ: 36 <= h <= 85 (mở nhẹ 86..88 nếu G >= B*0.92 cho xanh lá ngọc UV)
   if (h >= 36 && h <= 85) {
     return 'green';
   }
+  if (h >= 86 && h <= 88 && effG >= effB * 0.92) {
+    return 'green';
+  }
 
-  // 8. MÀU XANH DƯƠNG (Xanh duong): 86 <= h <= 130
-  if (h >= 86 && h <= 130) {
+  // 9. MÀU XANH DƯƠNG: 86 <= h <= 132
+  if (h >= 86 && h <= 132) {
     return 'blue';
   }
 
@@ -622,6 +679,8 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
   let vividColorsCount = 0;
   let skinLikeCellsCount = 0;
 
+  let vividNonSkinCells = 0;
+
   for (let row = 0; row < dim; row++) {
     for (let col = 0; col < dim; col++) {
       const cx = Math.floor(startX + col * cellSize + cellSize / 2);
@@ -642,7 +701,8 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
         skinLikeCellsCount++;
       }
 
-      const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, stdDev, motionTolerance, surfaceProfileKey, sample.medHsv, lowLightMode);
+      // Truyền null để kích hoạt khử bóng lóa UV & cân bằng đèn vàng trong classifyRubikStickerCell
+      const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, stdDev, motionTolerance, surfaceProfileKey, null, lowLightMode);
       const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
 
       currentNxNColors.push(colorKey);
@@ -651,12 +711,18 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
       if (colorKey !== 'invalid') {
         validColorsCount++;
         if (colorKey !== 'white') vividColorsCount++;
+        if (colorKey === 'green' || colorKey === 'blue' || colorKey === 'white' || colorKey === 'yellow') {
+          vividNonSkinCells++;
+        }
       }
     }
   }
 
-  // Khắt khe: nếu phát hiện da người quá nhiều hoặc quá ít ô màu hợp lệ -> Loại bỏ
-  const isHumanFaceOrSkin = surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= 2;
+  // Khắt khe chống mặt người/đồ gỗ, nhưng KHÔNG chặn nhầm khối Rubik thật bị nhạt màu trên webcam cũ
+  const isHumanFaceOrSkin =
+    surfaceProfileKey !== 'pastel' &&
+    (skinLikeCellsCount >= Math.max(3, Math.ceil(dim * dim * 0.45)) ||
+      (skinLikeCellsCount >= 2 && vividNonSkinCells < 3));
   const minValidStickers = Math.max(3, Math.ceil(dim * dim * 0.44));
   const tooFewStickers = validColorsCount < minValidStickers;
 
@@ -708,6 +774,25 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
 
   const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
   const uniqueColorsCount = new Set(validOnly).size;
+
+  // Chặn mảng phẳng đồng nhất (tường sơn / da mặt người / mặt bàn gỗ) không có rãnh cơ học & không chuyển màu
+  if (uniqueColorsCount === 1 && colorTransitions === 0 && !geom.isCube) {
+    return {
+      startX,
+      startY,
+      boxSize,
+      currentNxNColors: Array(dim * dim).fill('invalid'),
+      validColorsCount: 0,
+      vividColorsCount: 0,
+      uniqueColorsCount: 0,
+      sharpAdjacentEdges: 0,
+      colorTransitions: 0,
+      gridSeamContrast: geom.seamScore,
+      isGeometricallyVerifiedCube: false,
+      isMostlySkinOrWood: true,
+      score: -99999
+    };
+  }
 
   const unsolvedBonus =
     uniqueColorsCount >= 2

@@ -2651,7 +2651,7 @@ export default function App() {
               const svy2 = Math.min(h, Math.max(svy1 + 2, Math.ceil(vy2 * scaleY)));
 
               const hsv = layMauTrungViOpenCv(frameImg, w, h, svx1, svy1, svx2, svy2);
-              const tenMau = nhanDienMauOpenCv(hsv, isLowLight);
+              const tenMau = nhanDienMauOpenCv(hsv, isLowLight, surfaceProfileRef.current);
 
               dongMau.push(tenMau);
               dongHsv.push([hsv.h, hsv.s, hsv.v]);
