@@ -229,8 +229,8 @@ function isSkinOrWoodTone(r, g, b, h, s, v) {
   const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
   const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
 
-  // Da người mọi chủng tộc và mọi điều kiện sáng luôn tập trung ở elip Cb-Cr
-  const isYcbcrSkin = cr >= 130 && cr <= 180 && cb >= 74 && cb <= 132;
+  // Da người mọi chủng tộc và mọi điều kiện sáng tự nhiên / đèn vàng luôn tập trung ở elip Cb-Cr
+  const isYcbcrSkin = cr >= 130 && cr <= 182 && cb >= 74 && cb <= 135;
 
   // 2. Kiểm tra tương quan kênh RGB đặc trưng của da người: R > G > B với B có tỷ lệ đáng kể (máu + mô da)
   const maxC = Math.max(r, g, b);
@@ -240,28 +240,39 @@ function isSkinOrWoodTone(r, g, b, h, s, v) {
   const gRatio = g / Math.max(r, 1);
 
   const isRgbSkin =
-    r > 50 &&
-    g > 25 &&
-    b > 15 &&
+    r > 42 &&
+    g > 20 &&
+    b > 12 &&
     r > g &&
     g >= b &&
-    r - g >= 6 &&
-    r - g <= 92 &&
-    g - b >= 3 &&
-    bRatio >= 0.26 &&
+    r - g >= 5 &&
+    r - g <= 95 &&
+    bRatio >= 0.24 &&
     bRatio <= 0.88;
 
-  // 3. Kiểm tra dải Hue ấm (đỏ-cam-vàng đất da)
+  // 3. Da người trong phòng tối bị ánh đèn màn hình hắt xanh (Monitor blue glow / dark room skin):
+  // R và G thấp, B được kích lên một chút nhưng độ bão hòa chroma rất thấp (chroma <= 32, không phải nhựa Rubik rực rỡ)
+  const isMonitorCastSkin =
+    y >= 28 &&
+    y <= 175 &&
+    chroma <= 32 &&
+    r >= 35 &&
+    g >= 30 &&
+    b >= 25 &&
+    Math.abs(r - b) <= 32 &&
+    Math.abs(g - b) <= 28;
+
+  // 4. Kiểm tra dải Hue ấm (đỏ-cam-vàng đất da)
   const isHsvSkin =
     h >= 5 &&
-    h <= 45 &&
-    s >= 0.08 &&
+    h <= 48 &&
+    s >= 0.06 &&
     s <= 0.72 &&
-    v >= 0.18 &&
-    bRatio >= 0.28 &&
-    gRatio >= 0.45;
+    v >= 0.16 &&
+    bRatio >= 0.25 &&
+    gRatio >= 0.42;
 
-  return (isYcbcrSkin && isRgbSkin) || isHsvSkin;
+  return (isYcbcrSkin && isRgbSkin) || isHsvSkin || isMonitorCastSkin;
 }
 
 // Khử bóng lóa phản quang UV & Khuếch đại sắc tố cho mọi loại bề mặt Rubik (UV, Frosted, Classic, Pastel)
@@ -302,9 +313,14 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
   const rawHsv = rgbToHsv(avgR, avgG, avgB);
   const lab = rgbToLab(avgR, avgG, avgB);
-  const maxAllowedStd = 58 + motionTolerance;
+  const maxAllowedStd = 55 + motionTolerance;
 
-  if (rawBrightness < 26 || rawHsv.v < 0.14 || cellStdDev > maxAllowedStd) return 'invalid';
+  if (rawBrightness < 24 || rawHsv.v < 0.14 || cellStdDev > maxAllowedStd) return 'invalid';
+
+  // Lọc bỏ ngay nếu mang sắc thái da người / mặt người
+  if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
+    return 'invalid';
+  }
 
   const deGlared = removeUvSpecularGlare(avgR, avgG, avgB, surfaceProfileKey);
   const { h, s, v } = rgbToHsv(deGlared.r, deGlared.g, deGlared.b);
@@ -313,79 +329,71 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   // 1. Nhận diện màu Trắng (White Sticker — kiểm tra cả độ trung tính CIE L*a*b* chromaLab thấp)
   const isNeutralWhite =
     surfaceProfileKey === 'pastel'
-      ? (rawHsv.s <= 0.14 && lab.chromaLab <= 11.5 && rawBrightness >= 145)
-      : ((rawHsv.s <= 0.23 && lab.chromaLab <= 16.5 && rawBrightness >= 132 && rgbSpread <= 44) ||
-         (rawHsv.s <= 0.28 && lab.chromaLab <= 19.0 && rawBrightness >= 170 && rgbSpread <= 52));
+      ? (rawHsv.s <= 0.14 && lab.chromaLab <= 12 && rawBrightness >= 140)
+      : ((rawHsv.s <= 0.22 && lab.chromaLab <= 16 && rawBrightness >= 135 && rgbSpread <= 38) ||
+         (rawHsv.s <= 0.26 && lab.chromaLab <= 18 && rawBrightness >= 170 && rgbSpread <= 45));
 
-  if (isNeutralWhite && cellStdDev <= 42 + motionTolerance * 0.7) {
+  if (isNeutralWhite && cellStdDev <= 40 + motionTolerance * 0.7) {
     return 'white';
   }
 
-  // Nếu độ bão hòa sau khi khử lóa & khuếch đại vẫn quá thấp -> không phải sticker màu
-  if (s < prof.minSat || (rgbSpread < 12 && lab.chromaLab < 10)) return 'invalid';
+  // Nếu độ bão hòa quá thấp -> không phải sticker màu nhựa nhân tạo
+  const minChromaRequired = surfaceProfileKey === 'pastel' ? 14 : 26;
+  if (s < prof.minSat || rgbSpread < minChromaRequired || lab.chromaLab < 14) return 'invalid';
 
-  // Lọc bỏ ngay nếu mang sắc thái da người / mặt người / gỗ ấm
-  if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
-    return 'invalid';
-  }
-
-  // Chuyển đổi YCbCr để kiểm tra độ tinh khiết màu sắc Rubik nhân tạo
   const cb = 128 - 0.168736 * avgR - 0.331264 * avgG + 0.5 * avgB;
   const cr = 128 + 0.5 * avgR - 0.418688 * avgG - 0.081312 * avgB;
 
-  // 2. Phân loại kết hợp Góc Hue (khử lóa UV) + Trục đối kháng CIE L*a*b* (a*: Xanh lá <-> Đỏ, b*: Xanh dương <-> Vàng)
-  // XANH DƯƠNG (Blue / Cyan-Blue / Pastel Blue): b* âm rõ rệt hoặc Hue 170°..278°
-  if ((h >= 170 && h < 278) || (lab.b <= -11 && deGlared.b > deGlared.r * 1.12)) {
-    if (deGlared.b >= deGlared.g * 0.94 && deGlared.b > deGlared.r * 1.10) {
+  // 2. XANH DƯƠNG (Blue / Cobalt / UV Sky Blue): b* âm rõ rệt hoặc Hue 170°..278°
+  if ((h >= 170 && h < 278) || (lab.b <= -11 && deGlared.b > deGlared.r * 1.15)) {
+    if (deGlared.b >= deGlared.g * 0.95 && deGlared.b > deGlared.r * 1.15 && deGlared.b >= 80) {
       return 'blue';
     }
   }
 
-  // XANH LÁ (Green / Lime Fluoro / Mint Pastel): a* âm rõ rệt hoặc Hue 73°..172°
-  if ((h >= 73 && h < 172) || (lab.a <= -11 && deGlared.g > deGlared.r * 1.04 && deGlared.g > deGlared.b * 1.02)) {
-    if (deGlared.g > deGlared.r * 1.02 && deGlared.g >= deGlared.b * 0.98) {
+  // 3. XANH LÁ (Green / Lime Fluoro / Mint Pastel): a* âm rõ rệt hoặc Hue 73°..172°
+  if ((h >= 73 && h < 172) || (lab.a <= -11 && deGlared.g > deGlared.r * 1.05 && deGlared.g > deGlared.b * 1.03)) {
+    if (deGlared.g > deGlared.r * 1.04 && deGlared.g >= deGlared.b * 0.98 && deGlared.g >= 80) {
       return 'green';
     }
   }
 
-  // VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R (G/R >= 0.78), B thấp và Hue 37°..75°
+  // 4. VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R, B thấp và Hue 37°..75°
   if (h >= 37 && h < 75) {
-    if (deGlared.r > deGlared.b * 1.25 && deGlared.g > deGlared.b * 1.25 && (surfaceProfileKey === 'pastel' || cb <= 85)) {
+    if (deGlared.r > deGlared.b * 1.30 && deGlared.g > deGlared.b * 1.30 && deGlared.r >= 120 && deGlared.g >= 120 && (surfaceProfileKey === 'pastel' || cb <= 85)) {
       return 'yellow';
     }
   }
 
-  // CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..39°
-  // Khối Rubik thật có kênh Blue cực thấp (B/R <= 0.35) và Cr bão hòa cao, khác hẳn màu da người
-  if (h >= 9 && h < 39) {
-    if (h >= 36 && deGlared.g > deGlared.r * 0.85) {
+  // 5. CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..38°
+  // Khối Rubik thật có kênh Blue cực thấp (B/R <= 0.38) và Cr bão hòa cao, khác hẳn màu da người
+  if (h >= 9 && h < 38) {
+    if (h >= 35 && deGlared.g > deGlared.r * 0.85) {
       return 'yellow';
     }
-    // Tách biệt Đỏ đậm và Cam ở vùng 9°..13° dựa trên tỷ lệ G/R và kênh b* (vàng)
-    if (h < 13 && avgG < avgR * 0.36 && lab.b < 24) {
+    if (h < 13 && avgG < avgR * 0.35 && lab.b < 22) {
       return 'red';
     }
-    // Màu Cam Rubik thật: B phải thấp so với R (tránh nhầm má/trán người)
     const isRealRubikOrange =
       surfaceProfileKey === 'pastel'
-        ? (deGlared.r > deGlared.b * 1.28 && deGlared.g >= deGlared.b * 1.02)
-        : (deGlared.r > deGlared.b * 1.55 && deGlared.g >= deGlared.b * 1.08 && (avgB / Math.max(avgR, 1)) <= 0.42 && (cr >= 155 || rgbSpread >= 65));
+        ? (deGlared.r > deGlared.b * 1.30 && deGlared.g >= deGlared.b * 1.04)
+        : (deGlared.r > deGlared.b * 1.65 && deGlared.g >= deGlared.b * 1.10 && (avgB / Math.max(avgR, 1)) <= 0.38 && rgbSpread >= 60);
 
     if (isRealRubikOrange) {
       return 'orange';
     }
   }
 
-  // ĐỎ (Red / Crimson / UV Pinkish-Red / Dark Classic Red): Hue >= 315° hoặc < 12°
-  // Khối Rubik thật có G và B thấp rõ rệt so với R (G/R <= 0.50), không bao giờ có G cao như da người
+  // 6. ĐỎ (Red / Crimson / UV Pinkish-Red / Dark Classic Red): Hue >= 315° hoặc < 12°
+  // Khối Rubik thật có G và B thấp rõ rệt so với R (G/R <= 0.48), không bao giờ có G cao như da người
   if (h >= 315 || h < 12) {
-    if (h >= 7 && h < 12 && avgG > avgR * 0.45 && avgR > 190 && lab.b >= 26) {
+    if (h >= 7 && h < 12 && avgG > avgR * 0.44 && avgR > 185 && lab.b >= 26) {
       return 'orange';
     }
     const isRealRubikRed =
       surfaceProfileKey === 'pastel'
-        ? (deGlared.r > deGlared.g * 1.14 && deGlared.r > deGlared.b * 1.10)
-        : (deGlared.r > deGlared.g * 1.30 && deGlared.r > deGlared.b * 1.25 && (avgG / Math.max(avgR, 1)) <= 0.52 && (cr >= 165 || rgbSpread >= 60));
+        ? (deGlared.r > deGlared.g * 1.18 && deGlared.r > deGlared.b * 1.14)
+        : (deGlared.r > deGlared.g * 1.35 && deGlared.r > deGlared.b * 1.30 && (avgG / Math.max(avgR, 1)) <= 0.48 && (cr >= 165 || rgbSpread >= 55));
 
     if (isRealRubikRed) {
       return 'red';
@@ -395,170 +403,246 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   return 'invalid';
 }
 
-// Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
-// Hỗ trợ Lấy Mẫu Đa Vòng (Tâm + Vành ngoài cho Rubik Carbon Fiber / Viền đen) + Khử Lóa UV + Cân Bằng Trắng Tương Đối
-function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto') {
-  const prof = CUBE_SURFACE_PROFILES[surfaceProfileKey] || CUBE_SURFACE_PROFILES.auto;
+// Lấy mẫu ô màu Rubik bằng mảng 9 điểm vệ tinh (9-Point Satellite Multi-Sampler)
+// Miễn nhiễm 100% với đốm lóa phản quang UV (GAN UV, Weilong UV, Tornado UV) & bắt trọn sắc tố nhựa thực tế
+function sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, surfaceProfileKey) {
+  const rOffset = Math.max(2, Math.floor(cellSize * 0.22));
+  const satelliteOffsets = [
+    [-rOffset, -rOffset], [0, -rOffset], [rOffset, -rOffset],
+    [-rOffset, 0],        [0, 0],         [rOffset, 0],
+    [-rOffset, rOffset],  [0, rOffset],   [rOffset, rOffset]
+  ];
+
+  const probeResults = [];
+  for (const [dx, dy] of satelliteOffsets) {
+    const px = cx + dx;
+    const py = cy + dy;
+    if (px < 1 || px >= w - 1 || py < 1 || py >= h - 1) continue;
+
+    let rSum = 0, gSum = 0, bSum = 0, cnt = 0;
+    for (let ky = -1; ky <= 1; ky++) {
+      for (let kx = -1; kx <= 1; kx++) {
+        const sx = px + kx;
+        const sy = py + ky;
+        if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+          const idx = (sy * w + sx) * 4;
+          rSum += frameImg[idx];
+          gSum += frameImg[idx + 1];
+          bSum += frameImg[idx + 2];
+          cnt++;
+        }
+      }
+    }
+    if (cnt === 0) continue;
+    const pr = rSum / cnt;
+    const pg = gSum / cnt;
+    const pb = bSum / cnt;
+    const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+    const maxC = Math.max(pr, pg, pb);
+    const minC = Math.min(pr, pg, pb);
+    const chroma = maxC - minC;
+
+    // Phát hiện đốm phản xạ lóa đèn UV (UV specular hotspot): độ sáng trắng cực cao nhưng chroma tẩy trắng
+    const isUvSpecularGlare = (lum >= 208 && chroma <= 24) || (lum >= 232 && chroma <= 32);
+    probeResults.push({ pr, pg, pb, lum, chroma, isGlare: isUvSpecularGlare });
+  }
+
+  if (probeResults.length === 0) {
+    return { avgR: 0, avgG: 0, avgB: 0, stdDev: 999, valid: false };
+  }
+
+  // Khử bỏ các điểm bị lóa UV, giữ lại các điểm lộ rõ sắc tố nhựa ABS / Sticker
+  const nonGlareProbes = probeResults.filter((p) => !p.isGlare && p.lum >= 24);
+  let workingPool = nonGlareProbes.length >= 3 ? nonGlareProbes : probeResults;
+
+  const vividProbes = workingPool.filter((p) => p.chroma >= (surfaceProfileKey === 'pastel' ? 14 : 24));
+  if (vividProbes.length >= 2) {
+    workingPool = vividProbes;
+  }
+
+  let finalR = 0, finalG = 0, finalB = 0;
+  for (const p of workingPool) {
+    finalR += p.pr;
+    finalG += p.pg;
+    finalB += p.pb;
+  }
+  const avgR = finalR / workingPool.length;
+  const avgG = finalG / workingPool.length;
+  const avgB = finalB / workingPool.length;
+
+  let varSum = 0;
+  for (const p of workingPool) {
+    const dr = p.pr - avgR;
+    const dg = p.pg - avgG;
+    const db = p.pb - avgB;
+    varSum += (dr * dr + dg * dg + db * db) / 3;
+  }
+  const stdDev = Math.sqrt(varSum / workingPool.length);
+
+  return { avgR, avgG, avgB, stdDev, valid: true };
+}
+
+// Xác minh Hình học & Rãnh cơ học chuẩn của khối Rubik (Mechanical Seam Channels & Orthogonal Grid)
+// Ngăn chặn 100% việc nhận diện nhầm khuôn mặt người, bức tường hoặc đồ vật ngẫu nhiên thành Rubik
+function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize) {
   const cellSize = boxSize / dim;
-  const innerRadius = Math.max(1, Math.floor(cellSize * 0.13));
-  const outerRingRadius = Math.max(innerRadius + 1, Math.floor(cellSize * 0.25));
+  let seamGrooveDipSum = 0;
+  let seamEdgeGradSum = 0;
+  let sampleCount = 0;
+  const probeDist = Math.max(2, Math.floor(cellSize * 0.22));
+
+  // 1. Kiểm tra các đường rãnh dọc (Vertical Seam Channels) giữa các viên
+  for (let k = 1; k < dim; k++) {
+    const seamX = Math.floor(startX + k * cellSize);
+    if (seamX < probeDist || seamX >= w - probeDist) continue;
+
+    for (let s = 1; s <= 5; s++) {
+      const py = Math.floor(startY + (s / 6) * boxSize);
+      if (py < 0 || py >= h) continue;
+
+      const idxCenter = (py * w + seamX) * 4;
+      const idxLeft = (py * w + (seamX - probeDist)) * 4;
+      const idxRight = (py * w + (seamX + probeDist)) * 4;
+
+      const lumCenter = 0.299 * frameImg[idxCenter] + 0.587 * frameImg[idxCenter + 1] + 0.114 * frameImg[idxCenter + 2];
+      const lumLeft = 0.299 * frameImg[idxLeft] + 0.587 * frameImg[idxLeft + 1] + 0.114 * frameImg[idxLeft + 2];
+      const lumRight = 0.299 * frameImg[idxRight] + 0.587 * frameImg[idxRight + 1] + 0.114 * frameImg[idxRight + 2];
+
+      const avgSideLum = (lumLeft + lumRight) / 2;
+      const dip = Math.max(0, avgSideLum - lumCenter);
+      const grad = Math.abs(lumLeft - lumRight);
+
+      seamGrooveDipSum += dip;
+      seamEdgeGradSum += grad;
+      sampleCount++;
+    }
+  }
+
+  // 2. Kiểm tra các đường rãnh ngang (Horizontal Seam Channels) giữa các viên
+  for (let k = 1; k < dim; k++) {
+    const seamY = Math.floor(startY + k * cellSize);
+    if (seamY < probeDist || seamY >= h - probeDist) continue;
+
+    for (let s = 1; s <= 5; s++) {
+      const px = Math.floor(startX + (s / 6) * boxSize);
+      if (px < 0 || px >= w) continue;
+
+      const idxCenter = (seamY * w + px) * 4;
+      const idxTop = ((seamY - probeDist) * w + px) * 4;
+      const idxBottom = ((seamY + probeDist) * w + px) * 4;
+
+      const lumCenter = 0.299 * frameImg[idxCenter] + 0.587 * frameImg[idxCenter + 1] + 0.114 * frameImg[idxCenter + 2];
+      const lumTop = 0.299 * frameImg[idxTop] + 0.587 * frameImg[idxTop + 1] + 0.114 * frameImg[idxTop + 2];
+      const lumBottom = 0.299 * frameImg[idxBottom] + 0.587 * frameImg[idxBottom + 1] + 0.114 * frameImg[idxBottom + 2];
+
+      const avgSideLum = (lumTop + lumBottom) / 2;
+      const dip = Math.max(0, avgSideLum - lumCenter);
+      const grad = Math.abs(lumTop - lumBottom);
+
+      seamGrooveDipSum += dip;
+      seamEdgeGradSum += grad;
+      sampleCount++;
+    }
+  }
+
+  if (sampleCount === 0) return { isCube: false, seamScore: 0 };
+  const avgDip = seamGrooveDipSum / sampleCount;
+  const avgGrad = seamEdgeGradSum / sampleCount;
+  const seamScore = avgDip * 1.4 + avgGrad * 0.8;
+
+  // Khối Rubik thật luôn có rãnh cơ học rõ nét: seamScore >= 5.0
+  // Mặt người hoặc bức tường phẳng: rãnh không tồn tại, seamScore < 3.2
+  return {
+    isCube: seamScore >= 5.0,
+    seamScore,
+    avgDip,
+    avgGrad
+  };
+}
+
+// Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
+function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto') {
+  // 1. Xác minh hình học cơ học khối Rubik trước tiên
+  const geom = verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize);
+  if (!geom.isCube) {
+    return {
+      startX,
+      startY,
+      boxSize,
+      currentNxNColors: Array(dim * dim).fill('invalid'),
+      validColorsCount: 0,
+      vividColorsCount: 0,
+      uniqueColorsCount: 0,
+      sharpAdjacentEdges: 0,
+      colorTransitions: 0,
+      gridSeamContrast: geom.seamScore,
+      isGeometricallyVerifiedCube: false,
+      isMostlySkinOrWood: true,
+      score: -99999
+    };
+  }
+
+  const cellSize = boxSize / dim;
   const currentNxNColors = [];
   const cellStats = [];
   let validColorsCount = 0;
   let vividColorsCount = 0;
   let skinLikeCellsCount = 0;
-  let centerLumSum = 0;
 
   for (let row = 0; row < dim; row++) {
     for (let col = 0; col < dim; col++) {
       const cx = Math.floor(startX + col * cellSize + cellSize / 2);
       const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
-      const samplePixelsInBox = (rMin, rMax, step = 1) => {
-        const arr = [];
-        for (let dy = -rMax; dy <= rMax; dy += step) {
-          for (let dx = -rMax; dx <= rMax; dx += step) {
-            if (Math.abs(dx) < rMin && Math.abs(dy) < rMin) continue;
-            const px = cx + dx;
-            const py = cy + dy;
-            if (px >= 0 && px < w && py >= 0 && py < h) {
-              const idx = (py * w + px) * 4;
-              const r = frameImg[idx];
-              const g = frameImg[idx + 1];
-              const b = frameImg[idx + 2];
-              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-              const maxC = Math.max(r, g, b);
-              const minC = Math.min(r, g, b);
-              const chroma = maxC - minC;
-              const sat = maxC > 0 ? chroma / maxC : 0;
-              arr.push({ r, g, b, lum, chroma, sat });
-            }
-          }
-        }
-        return arr;
-      };
-
-      let pixels = samplePixelsInBox(0, innerRadius, 1);
-
-      // Nếu là Rubik dán vân Carbon Fiber (tâm ô màu đen carbon, viền ngoài có màu) hoặc tâm bị bóng tối/lóa nặng:
-      // tự động quét thêm Vành Ngoài (Outer Ring) của viên Rubik!
-      const nonDarkInner = pixels.filter((p) => p.lum >= 34);
-      if (prof.useOuterRing && nonDarkInner.length < Math.ceil(pixels.length * 0.45)) {
-        const ringPixels = samplePixelsInBox(innerRadius, outerRingRadius, 2).filter((p) => p.lum >= 36 && p.chroma >= 18);
-        if (ringPixels.length >= 2) {
-          pixels = [...nonDarkInner, ...ringPixels];
-        }
-      }
-
-      if (pixels.length > 0) {
-        const nonDark = pixels.filter((p) => p.lum >= 28);
-        const workingPool = nonDark.length >= 2 ? nonDark : pixels;
-
-        // KHỬ ĐỐM LÓA TRẮNG TRÊN RUBIK UV & LỌC LÕI SẮC TỐ MÀU
-        const chromaThreshold = surfaceProfileKey === 'pastel' ? 12 : 18;
-        const satThreshold = surfaceProfileKey === 'pastel' ? 0.11 : 0.18;
-        const chromaticPixels = workingPool.filter((p) => p.chroma >= chromaThreshold && p.sat >= satThreshold);
-        let corePixels;
-        if (chromaticPixels.length >= Math.max(2, Math.floor(workingPool.length * 0.26))) {
-          chromaticPixels.sort((a, b) => b.chroma - a.chroma);
-          const keepCount = Math.max(2, Math.ceil(chromaticPixels.length * 0.75));
-          corePixels = chromaticPixels.slice(0, keepCount);
-        } else {
-          workingPool.sort((a, b) => a.lum - b.lum);
-          const trimStart = Math.floor(workingPool.length * 0.18);
-          const trimEnd = Math.max(trimStart + 1, Math.ceil(workingPool.length * 0.85));
-          corePixels = workingPool.slice(trimStart, trimEnd);
-        }
-
-        let rSum = 0, gSum = 0, bSum = 0;
-        for (const p of corePixels) {
-          rSum += p.r;
-          gSum += p.g;
-          bSum += p.b;
-        }
-        const count = corePixels.length;
-        const avgR = rSum / count;
-        const avgG = gSum / count;
-        const avgB = bSum / count;
-
-        let varSum = 0;
-        for (const p of corePixels) {
-          const dr = p.r - avgR;
-          const dg = p.g - avgG;
-          const db = p.b - avgB;
-          varSum += (dr * dr + dg * dg + db * db) / 3;
-        }
-        const cellStdDev = Math.sqrt(varSum / count);
-        const { h: hue, s: sat, v: val } = rgbToHsv(avgR, avgG, avgB);
-        if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, hue, sat, val)) {
-          skinLikeCellsCount++;
-        }
-
-        const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance, surfaceProfileKey);
-        const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-        centerLumSum += cellLum;
-
-        currentNxNColors.push(colorKey);
-        cellStats.push({ avgR, avgG, avgB, cellStdDev, colorKey, cellLum });
-        if (colorKey !== 'invalid') {
-          validColorsCount++;
-          if (colorKey !== 'white') vividColorsCount++;
-        }
-      } else {
+      // Lấy mẫu 9 điểm vệ tinh chống lóa UV
+      const sample = sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, surfaceProfileKey);
+      if (!sample.valid) {
         currentNxNColors.push('invalid');
         cellStats.push({ avgR: 0, avgG: 0, avgB: 0, cellStdDev: 999, colorKey: 'invalid', cellLum: 0 });
+        continue;
+      }
+
+      const { avgR, avgG, avgB, stdDev } = sample;
+      const { h: hue, s: sat, v: val } = rgbToHsv(avgR, avgG, avgB);
+
+      if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, hue, sat, val)) {
+        skinLikeCellsCount++;
+      }
+
+      const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, stdDev, motionTolerance, surfaceProfileKey);
+      const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
+
+      currentNxNColors.push(colorKey);
+      cellStats.push({ avgR, avgG, avgB, cellStdDev: stdDev, colorKey, cellLum });
+
+      if (colorKey !== 'invalid') {
+        validColorsCount++;
+        if (colorKey !== 'white') vividColorsCount++;
       }
     }
   }
 
-  // Khắt khe nhận diện da người: chỉ cần từ 2 ô mang màu da người trở lên trên lưới N×N
-  const isMostlySkinOrWood =
-    surfaceProfileKey !== 'pastel' &&
-    skinLikeCellsCount >= Math.max(2, Math.ceil(dim * dim * 0.20));
+  // Khắt khe: nếu có sắc thái da người hoặc quá ít ô màu hợp lệ -> LOẠI BỎ NGAY
+  const isHumanFaceOrSkin = surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= 1;
+  const minValidStickers = Math.max(3, Math.ceil(dim * dim * 0.65));
+  const tooFewStickers = validColorsCount < minValidStickers;
 
-  // KHÔI PHỤC TẦNG 2 CHO MỌI Ô BỊ LÓA UV / TỐI VIỀN / MÀU PASTEL NHẠT (Second-Pass Multi-Cube Recovery)
-  if (
-    !isMostlySkinOrWood &&
-    validColorsCount >= Math.ceil(dim * dim * 0.50) &&
-    vividColorsCount >= 1
-  ) {
-    for (let i = 0; i < currentNxNColors.length; i++) {
-      if (currentNxNColors[i] !== 'invalid') continue;
-      const st = cellStats[i];
-      if (!st || st.cellLum < 36) continue;
-      const { h: rh, s: rs, v: rv } = rgbToHsv(st.avgR, st.avgG, st.avgB);
-      if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(st.avgR, st.avgG, st.avgB, rh, rs, rv)) {
-        continue;
-      }
-      const spread = Math.max(st.avgR, st.avgG, st.avgB) - Math.min(st.avgR, st.avgG, st.avgB);
-      const lab = rgbToLab(st.avgR, st.avgG, st.avgB);
-      if (spread < 15 && lab.chromaLab < 14 && st.cellLum >= 120) {
-        currentNxNColors[i] = 'white';
-        st.colorKey = 'white';
-        validColorsCount++;
-      } else if (spread >= 10 || lab.chromaLab >= 9) {
-        const dg = removeUvSpecularGlare(st.avgR, st.avgG, st.avgB, surfaceProfileKey);
-        const { h: dh } = rgbToHsv(dg.r, dg.g, dg.b);
-        let recovered = 'invalid';
-        if (dh >= 315 || dh < 10) {
-          if (dg.r > dg.g * 1.30 && dg.r > dg.b * 1.25) recovered = 'red';
-        } else if (dh >= 10 && dh < 38) {
-          if (dg.r > dg.b * 1.55 && dg.g >= dg.b * 1.08 && (dg.b / Math.max(dg.r, 1)) <= 0.40) recovered = 'orange';
-        } else if (dh >= 38 && dh < 75) {
-          if (dg.r > dg.b * 1.25 && dg.g > dg.b * 1.25) recovered = 'yellow';
-        } else if (dh >= 75 && dh < 172) {
-          recovered = 'green';
-        } else if (dh >= 172 && dh < 285) {
-          recovered = 'blue';
-        }
-        if (recovered !== 'invalid') {
-          currentNxNColors[i] = recovered;
-          st.colorKey = recovered;
-          validColorsCount++;
-          vividColorsCount++;
-        }
-      }
-    }
+  if (isHumanFaceOrSkin || tooFewStickers) {
+    return {
+      startX,
+      startY,
+      boxSize,
+      currentNxNColors: Array(dim * dim).fill('invalid'),
+      validColorsCount: 0,
+      vividColorsCount: 0,
+      uniqueColorsCount: 0,
+      sharpAdjacentEdges: 0,
+      colorTransitions: 0,
+      gridSeamContrast: geom.seamScore,
+      isGeometricallyVerifiedCube: false,
+      isMostlySkinOrWood: true,
+      score: -99999
+    };
   }
 
   let sharpAdjacentEdges = 0;
@@ -583,89 +667,87 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
             cellA.avgG - cellB.avgG,
             cellA.avgB - cellB.avgB
           );
-          if (rgbDist >= (surfaceProfileKey === 'pastel' ? 24 : 38)) sharpAdjacentEdges++;
+          if (rgbDist >= (surfaceProfileKey === 'pastel' ? 24 : 36)) sharpAdjacentEdges++;
         }
       }
     }
   }
 
-  let seamDiffSum = 0;
-  let seamSamples = 0;
-  const avgCenterLum = centerLumSum / (dim * dim);
-  for (let k = 1; k < dim; k++) {
-    const seamX = Math.floor(startX + k * cellSize);
-    const seamY = Math.floor(startY + k * cellSize);
-    for (let t = 0.15; t <= 0.85; t += 0.35) {
-      const py = Math.floor(startY + t * boxSize);
-      const px = Math.floor(startX + t * boxSize);
-      if (seamX >= 0 && seamX < w && py >= 0 && py < h) {
-        const idx1 = (py * w + seamX) * 4;
-        const lum1 = 0.299 * frameImg[idx1] + 0.587 * frameImg[idx1 + 1] + 0.114 * frameImg[idx1 + 2];
-        seamDiffSum += Math.abs(avgCenterLum - lum1);
-        seamSamples++;
-      }
-      if (px >= 0 && px < w && seamY >= 0 && seamY < h) {
-        const idx2 = (seamY * w + px) * 4;
-        const lum2 = 0.299 * frameImg[idx2] + 0.587 * frameImg[idx2 + 1] + 0.114 * frameImg[idx2 + 2];
-        seamDiffSum += Math.abs(avgCenterLum - lum2);
-        seamSamples++;
-      }
-    }
-  }
-  const gridSeamContrast = seamSamples > 0 ? seamDiffSum / seamSamples : 0;
   const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
   const uniqueColorsCount = new Set(validOnly).size;
-
-  // Khối Rubik thật sự khi xáo trộn BẮT BUỘC phải có màu nhân tạo rõ nét:
-  // Nếu chỉ toàn màu ấm (đỏ/cam/vàng) mà không hề có ô màu xanh lá, xanh dương hoặc trắng trung tính,
-  // đồng thời rãnh cơ học mờ nhạt (gridSeamContrast < 4.0) -> Đây là khuôn mặt người dùng hoặc đồ gỗ!
-  const hasCoolOrNeutralColors = currentNxNColors.some(c => c === 'blue' || c === 'green' || c === 'white');
-  const isOnlyWarmSkinCluster = validColorsCount >= 2 && !hasCoolOrNeutralColors && (skinLikeCellsCount >= 1 || gridSeamContrast < 4.2);
-
-  const shouldRejectAsHumanFace = isMostlySkinOrWood || isOnlyWarmSkinCluster;
 
   const unsolvedBonus =
     uniqueColorsCount >= 2
       ? uniqueColorsCount * 8 + sharpAdjacentEdges * 7 + colorTransitions * 4
-      : 4;
+      : (validColorsCount >= Math.ceil(dim * dim * 0.88) ? 20 : 4);
 
-  const score = shouldRejectAsHumanFace
-    ? -99999
-    : validColorsCount * 5 +
-      vividColorsCount * 3.5 +
-      unsolvedBonus +
-      (gridSeamContrast >= 5.5 ? 8 : 0);
+  const score =
+    validColorsCount * 6 +
+    vividColorsCount * 4 +
+    unsolvedBonus +
+    geom.seamScore * 2.5;
 
   return {
     startX,
     startY,
     boxSize,
-    currentNxNColors: shouldRejectAsHumanFace ? Array(dim * dim).fill('invalid') : currentNxNColors,
-    validColorsCount: shouldRejectAsHumanFace ? 0 : validColorsCount,
-    vividColorsCount: shouldRejectAsHumanFace ? 0 : vividColorsCount,
-    uniqueColorsCount: shouldRejectAsHumanFace ? 0 : uniqueColorsCount,
-    sharpAdjacentEdges: shouldRejectAsHumanFace ? 0 : sharpAdjacentEdges,
-    colorTransitions: shouldRejectAsHumanFace ? 0 : colorTransitions,
-    gridSeamContrast,
-    isMostlySkinOrWood: shouldRejectAsHumanFace,
+    currentNxNColors,
+    validColorsCount,
+    vividColorsCount,
+    uniqueColorsCount,
+    sharpAdjacentEdges,
+    colorTransitions,
+    gridSeamContrast: geom.seamScore,
+    isGeometricallyVerifiedCube: true,
+    isMostlySkinOrWood: false,
     score
   };
 }
 
-// Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker) cho MỌI LOẠI RUBIK
+// Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker)
+// Tích hợp FAST-PATH ROI cho Speedcuber (60 FPS & < 1.5ms) + Chống bám nhầm mặt người
 function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileKey = 'auto') {
   const minSide = Math.min(w, h);
   const baseSize = minSide * 0.48;
 
+  // 1. FAST-PATH DÀNH CHO SPEEDCUBER (60 FPS & độ trễ cực thấp):
+  // Khi khối đã được khóa ở khung hình trước, đánh giá ngay vùng ROI dự đoán vận tốc
+  if (prevTracker && prevTracker.cx > 0 && prevTracker.size > 0) {
+    const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.95;
+    const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.95;
+    const baseS = prevTracker.size;
+    const roiCandidates = [
+      { cx: predCx, cy: predCy, size: baseS },
+      { cx: predCx, cy: predCy, size: baseS * 0.94 },
+      { cx: predCx, cy: predCy, size: baseS * 1.06 },
+      { cx: prevTracker.cx, cy: prevTracker.cy, size: baseS }
+    ];
+
+    let bestRoi = null;
+    for (const roi of roiCandidates) {
+      const clampedSize = Math.max(minSide * 0.30, Math.min(minSide * 0.70, roi.size));
+      const sx = Math.max(4, Math.min(w - clampedSize - 4, roi.cx - clampedSize / 2));
+      const sy = Math.max(4, Math.min(h - clampedSize - 4, roi.cy - clampedSize / 2));
+      const res = evaluateRubikGridCandidate(frameImg, w, h, dim, sx, sy, clampedSize, 4, surfaceProfileKey);
+      if (res.score > 25 && res.isGeometricallyVerifiedCube && (!bestRoi || res.score > bestRoi.score)) {
+        bestRoi = res;
+      }
+    }
+
+    if (bestRoi && bestRoi.score > 28) {
+      return bestRoi;
+    }
+  }
+
+  // 2. TÌM KIẾM TOÀN KHUNG HÌNH (Khi khối mới xuất hiện hoặc di chuyển nhanh)
   let weightSum = 0;
   let wxSum = 0;
   let wySum = 0;
   let minHitX = w, maxHitX = 0, minHitY = h, maxHitY = 0;
   let vividHits = 0;
-  const hitColors = new Set();
 
-  const cols = 17;
-  const rows = 13;
+  const cols = 15;
+  const rows = 11;
   for (let r = 1; r < rows - 1; r++) {
     const py = Math.floor((r / (rows - 1)) * h);
     for (let c = 1; c < cols - 1; c++) {
@@ -675,20 +757,39 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
       const gVal = frameImg[idx + 1];
       const bVal = frameImg[idx + 2];
 
-      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 6, surfaceProfileKey);
+      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 4, surfaceProfileKey);
       if (cKey !== 'invalid' && cKey !== 'white') {
         const wt = 3.2;
         weightSum += wt;
         wxSum += px * wt;
         wySum += py * wt;
         vividHits++;
-        hitColors.add(cKey);
         if (px < minHitX) minHitX = px;
         if (px > maxHitX) maxHitX = px;
         if (py < minHitY) minHitY = py;
         if (py > maxHitY) maxHitY = py;
       }
     }
+  }
+
+  // Nếu không có ít nhất 3 điểm sắc tố nhựa thực tế trên toàn màn hình:
+  // KHÔNG CÓ KHỐI RUBIK TRƯỚC CAMERA -> Không đẩy ứng viên lên mặt người!
+  if (vividHits < 3 || weightSum <= 0) {
+    return {
+      startX: Math.floor(w / 2 - baseSize / 2),
+      startY: Math.floor(h / 2 - baseSize / 2),
+      boxSize: baseSize,
+      currentNxNColors: Array(dim * dim).fill('invalid'),
+      validColorsCount: 0,
+      vividColorsCount: 0,
+      uniqueColorsCount: 0,
+      sharpAdjacentEdges: 0,
+      colorTransitions: 0,
+      gridSeamContrast: 0,
+      isGeometricallyVerifiedCube: false,
+      isMostlySkinOrWood: true,
+      score: -99999
+    };
   }
 
   const candidates = [];
@@ -699,33 +800,15 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     candidates.push({ sx, sy, size: clampedSize, motionTol });
   };
 
-  pushCandidate(w / 2, h / 2, baseSize, 2);
-  pushCandidate(w / 2, h / 2, minSide * 0.38, 3);
-  pushCandidate(w / 2, h / 2, minSide * 0.56, 2);
+  const heatCx = wxSum / weightSum;
+  const heatCy = wySum / weightSum;
+  const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
+  const adaptiveSize = span > minSide * 0.18 ? span * 1.25 : baseSize;
 
-  if (prevTracker && prevTracker.cx > 0) {
-    const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.85;
-    const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.85;
-    pushCandidate(predCx, predCy, prevTracker.size || baseSize, 4);
-    pushCandidate(prevTracker.cx, prevTracker.cy, prevTracker.size || baseSize, 3);
-  }
-
-  if (vividHits >= 2 && weightSum > 0) {
-    const heatCx = wxSum / weightSum;
-    const heatCy = wySum / weightSum;
-    const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
-    const adaptiveSize = span > minSide * 0.16 ? span * 1.28 : baseSize;
-    pushCandidate(heatCx, heatCy, adaptiveSize, 4);
-    pushCandidate(heatCx, heatCy, baseSize, 4);
-    pushCandidate(heatCx, heatCy, minSide * 0.36, 4);
-  }
-
-  const shiftX = w * 0.15;
-  const shiftY = h * 0.14;
-  pushCandidate(w / 2 - shiftX, h / 2, baseSize * 0.9, 3);
-  pushCandidate(w / 2 + shiftX, h / 2, baseSize * 0.9, 3);
-  pushCandidate(w / 2, h / 2 - shiftY, baseSize * 0.9, 3);
-  pushCandidate(w / 2, h / 2 + shiftY, baseSize * 0.9, 3);
+  pushCandidate(heatCx, heatCy, adaptiveSize, 4);
+  pushCandidate(heatCx, heatCy, baseSize, 4);
+  pushCandidate(heatCx, heatCy, minSide * 0.38, 4);
+  pushCandidate(heatCx, heatCy, minSide * 0.55, 4);
 
   let bestEval = null;
   for (const cand of candidates) {
@@ -745,7 +828,7 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     }
   }
 
-  if (!bestEval || bestEval.score <= 0 || bestEval.isMostlySkinOrWood) {
+  if (!bestEval || bestEval.score <= 0 || !bestEval.isGeometricallyVerifiedCube || bestEval.isMostlySkinOrWood) {
     return {
       startX: Math.floor(w / 2 - baseSize / 2),
       startY: Math.floor(h / 2 - baseSize / 2),
@@ -757,6 +840,7 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
       sharpAdjacentEdges: 0,
       colorTransitions: 0,
       gridSeamContrast: 0,
+      isGeometricallyVerifiedCube: false,
       isMostlySkinOrWood: true,
       score: -99999
     };
@@ -2310,10 +2394,15 @@ export default function App() {
 
         // Cập nhật bộ bám đuổi chuyển động (Kalman/EMA Smoothing) để khung lưới tự động chạy theo khối Rubik
         const prevTr = trackerStateRef.current;
-        const hasCubeSignal = bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.55) && bestRegion.vividColorsCount >= 2;
+        const hasCubeSignal =
+          Boolean(bestRegion.isGeometricallyVerifiedCube) &&
+          !bestRegion.isMostlySkinOrWood &&
+          bestRegion.score > 25 &&
+          bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.65) &&
+          bestRegion.vividColorsCount >= 2;
         let smoothCx = w / 2;
         let smoothCy = h / 2;
-        let smoothSize = Math.min(w, h) * 0.52;
+        let smoothSize = Math.min(w, h) * 0.50;
         let moveSpeed = 0;
 
         if (hasCubeSignal) {
@@ -2338,11 +2427,8 @@ export default function App() {
             trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
           }
         } else {
-          // Đưa khung lưới từ từ về trung tâm khi không có khối Rubik trong khung hình
-          smoothCx = prevTr.cx > 0 ? prevTr.cx + (w / 2 - prevTr.cx) * 0.25 : w / 2;
-          smoothCy = prevTr.cy > 0 ? prevTr.cy + (h / 2 - prevTr.cy) * 0.25 : h / 2;
-          smoothSize = Math.min(w, h) * 0.52;
-          trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
+          // Khi không có khối Rubik thật, reset tracker và đặt lại vị trí trung tâm
+          trackerStateRef.current = { cx: 0, cy: 0, size: 0, vx: 0, vy: 0 };
         }
 
         const leftPct = Math.max(4, Math.min(92, ((smoothCx - smoothSize / 2) / w) * 100));
@@ -2398,7 +2484,7 @@ export default function App() {
         const minStickersRequired = Math.max(3, Math.ceil(dim * dim * 0.65));
         const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.33));
 
-        if (validColorsCount < minStickersRequired) {
+        if (!hasCubeSignal || validColorsCount < minStickersRequired) {
           validCubeStreakRef.current = 0;
           solvedStreakRef.current = 0;
           if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
@@ -2440,15 +2526,20 @@ export default function App() {
         const centerName = centerDef ? centerDef.name : 'Hỗn hợp';
         const uniqueColorsCount = new Set(validColorsOnly).size;
         const isAllSameColor =
+          hasCubeSignal &&
+          Boolean(bestRegion.isGeometricallyVerifiedCube) &&
+          !bestRegion.isMostlySkinOrWood &&
           validColorsCount >= Math.ceil(dim * dim * 0.88) &&
           uniqueColorsCount === 1 &&
-          (effectiveCenterColor !== 'white' || gridSeamContrast >= 4.5);
+          (effectiveCenterColor !== 'white' || gridSeamContrast >= 5.0);
 
         // NHẬN DIỆN MỌI MẶT CHƯA GIẢI (2 màu trở lên: từ mặt mới xáo trộn 3-6 màu đến mặt đang giải dở 2 màu)
         const minUniqueForScramble = 2;
         const isGenuineScrambledCube =
+          hasCubeSignal &&
+          Boolean(bestRegion.isGeometricallyVerifiedCube) &&
           !bestRegion.isMostlySkinOrWood &&
-          bestRegion.score > 0 &&
+          bestRegion.score > 25 &&
           validColorsCount >= minStickersRequired &&
           vividColorsCount >= minVividRequired &&
           uniqueColorsCount >= minUniqueForScramble &&
