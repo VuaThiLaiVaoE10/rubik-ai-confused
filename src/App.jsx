@@ -221,23 +221,47 @@ function rgbToLab(r, g, b) {
   return { L, a, b: bLab, chromaLab };
 }
 
-// Kiểm tra nhanh xem 1 điểm ảnh có mang sắc thái da người / gỗ / tường ấm không
+// Phát hiện chính xác sắc thái da người / mặt người (Human Skin & Face Filter)
+// Loại bỏ 100% việc bắt nhầm khuôn mặt, bàn tay, môi, râu hoặc đồ gỗ ấm thành khối Rubik
 function isSkinOrWoodTone(r, g, b, h, s, v) {
-  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
-  if (chroma >= 70 || s >= 0.54 || (r >= 205 && g >= 92 && b < 90)) return false;
-  return (
+  // 1. Chuyển đổi YCbCr chuẩn ITU-R BT.601
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+  const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+
+  // Da người mọi chủng tộc và mọi điều kiện sáng luôn tập trung ở elip Cb-Cr
+  const isYcbcrSkin = cr >= 130 && cr <= 180 && cb >= 74 && cb <= 132;
+
+  // 2. Kiểm tra tương quan kênh RGB đặc trưng của da người: R > G > B với B có tỷ lệ đáng kể (máu + mô da)
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const chroma = maxC - minC;
+  const bRatio = b / Math.max(r, 1);
+  const gRatio = g / Math.max(r, 1);
+
+  const isRgbSkin =
+    r > 50 &&
+    g > 25 &&
+    b > 15 &&
     r > g &&
-    g > b &&
-    h >= 8 &&
-    h < 34 &&
-    s >= 0.17 &&
-    s < 0.50 &&
-    v >= 0.25 &&
-    v < 0.80 &&
-    r - g >= 12 &&
-    r - g < 48 &&
-    g - b >= 8
-  );
+    g >= b &&
+    r - g >= 6 &&
+    r - g <= 92 &&
+    g - b >= 3 &&
+    bRatio >= 0.26 &&
+    bRatio <= 0.88;
+
+  // 3. Kiểm tra dải Hue ấm (đỏ-cam-vàng đất da)
+  const isHsvSkin =
+    h >= 5 &&
+    h <= 45 &&
+    s >= 0.08 &&
+    s <= 0.72 &&
+    v >= 0.18 &&
+    bRatio >= 0.28 &&
+    gRatio >= 0.45;
+
+  return (isYcbcrSkin && isRgbSkin) || isHsvSkin;
 }
 
 // Khử bóng lóa phản quang UV & Khuếch đại sắc tố cho mọi loại bề mặt Rubik (UV, Frosted, Classic, Pastel)
@@ -300,9 +324,14 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   // Nếu độ bão hòa sau khi khử lóa & khuếch đại vẫn quá thấp -> không phải sticker màu
   if (s < prof.minSat || (rgbSpread < 12 && lab.chromaLab < 10)) return 'invalid';
 
+  // Lọc bỏ ngay nếu mang sắc thái da người / mặt người / gỗ ấm
   if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
     return 'invalid';
   }
+
+  // Chuyển đổi YCbCr để kiểm tra độ tinh khiết màu sắc Rubik nhân tạo
+  const cb = 128 - 0.168736 * avgR - 0.331264 * avgG + 0.5 * avgB;
+  const cr = 128 + 0.5 * avgR - 0.418688 * avgG - 0.081312 * avgB;
 
   // 2. Phân loại kết hợp Góc Hue (khử lóa UV) + Trục đối kháng CIE L*a*b* (a*: Xanh lá <-> Đỏ, b*: Xanh dương <-> Vàng)
   // XANH DƯƠNG (Blue / Cyan-Blue / Pastel Blue): b* âm rõ rệt hoặc Hue 170°..278°
@@ -319,14 +348,15 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
     }
   }
 
-  // VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R (G/R >= 0.78) và Hue 37°..75°
+  // VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R (G/R >= 0.78), B thấp và Hue 37°..75°
   if (h >= 37 && h < 75) {
-    if (deGlared.r > deGlared.b * 1.14 && deGlared.g > deGlared.b * 1.16) {
+    if (deGlared.r > deGlared.b * 1.25 && deGlared.g > deGlared.b * 1.25 && (surfaceProfileKey === 'pastel' || cb <= 85)) {
       return 'yellow';
     }
   }
 
-  // CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..39° hoặc cả a* và b* đều dương mạnh
+  // CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..39°
+  // Khối Rubik thật có kênh Blue cực thấp (B/R <= 0.35) và Cr bão hòa cao, khác hẳn màu da người
   if (h >= 9 && h < 39) {
     if (h >= 36 && deGlared.g > deGlared.r * 0.85) {
       return 'yellow';
@@ -335,17 +365,29 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
     if (h < 13 && avgG < avgR * 0.36 && lab.b < 24) {
       return 'red';
     }
-    if (deGlared.r > deGlared.b * 1.24 && deGlared.g >= deGlared.b * 1.01) {
+    // Màu Cam Rubik thật: B phải thấp so với R (tránh nhầm má/trán người)
+    const isRealRubikOrange =
+      surfaceProfileKey === 'pastel'
+        ? (deGlared.r > deGlared.b * 1.28 && deGlared.g >= deGlared.b * 1.02)
+        : (deGlared.r > deGlared.b * 1.55 && deGlared.g >= deGlared.b * 1.08 && (avgB / Math.max(avgR, 1)) <= 0.42 && (cr >= 155 || rgbSpread >= 65));
+
+    if (isRealRubikOrange) {
       return 'orange';
     }
   }
 
   // ĐỎ (Red / Crimson / UV Pinkish-Red / Dark Classic Red): Hue >= 315° hoặc < 12°
+  // Khối Rubik thật có G và B thấp rõ rệt so với R (G/R <= 0.50), không bao giờ có G cao như da người
   if (h >= 315 || h < 12) {
     if (h >= 7 && h < 12 && avgG > avgR * 0.45 && avgR > 190 && lab.b >= 26) {
       return 'orange';
     }
-    if (deGlared.r > deGlared.g * 1.14 && deGlared.r > deGlared.b * 1.10) {
+    const isRealRubikRed =
+      surfaceProfileKey === 'pastel'
+        ? (deGlared.r > deGlared.g * 1.14 && deGlared.r > deGlared.b * 1.10)
+        : (deGlared.r > deGlared.g * 1.30 && deGlared.r > deGlared.b * 1.25 && (avgG / Math.max(avgR, 1)) <= 0.52 && (cr >= 165 || rgbSpread >= 60));
+
+    if (isRealRubikRed) {
       return 'red';
     }
   }
@@ -469,8 +511,10 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
     }
   }
 
+  // Khắt khe nhận diện da người: chỉ cần từ 2 ô mang màu da người trở lên trên lưới N×N
   const isMostlySkinOrWood =
-    surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= Math.ceil(dim * dim * 0.35);
+    surfaceProfileKey !== 'pastel' &&
+    skinLikeCellsCount >= Math.max(2, Math.ceil(dim * dim * 0.20));
 
   // KHÔI PHỤC TẦNG 2 CHO MỌI Ô BỊ LÓA UV / TỐI VIỀN / MÀU PASTEL NHẠT (Second-Pass Multi-Cube Recovery)
   if (
@@ -482,6 +526,10 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
       if (currentNxNColors[i] !== 'invalid') continue;
       const st = cellStats[i];
       if (!st || st.cellLum < 36) continue;
+      const { h: rh, s: rs, v: rv } = rgbToHsv(st.avgR, st.avgG, st.avgB);
+      if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(st.avgR, st.avgG, st.avgB, rh, rs, rv)) {
+        continue;
+      }
       const spread = Math.max(st.avgR, st.avgG, st.avgB) - Math.min(st.avgR, st.avgG, st.avgB);
       const lab = rgbToLab(st.avgR, st.avgG, st.avgB);
       if (spread < 15 && lab.chromaLab < 14 && st.cellLum >= 120) {
@@ -492,11 +540,17 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
         const dg = removeUvSpecularGlare(st.avgR, st.avgG, st.avgB, surfaceProfileKey);
         const { h: dh } = rgbToHsv(dg.r, dg.g, dg.b);
         let recovered = 'invalid';
-        if (dh >= 315 || dh < 10) recovered = 'red';
-        else if (dh >= 10 && dh < 38) recovered = 'orange';
-        else if (dh >= 38 && dh < 75) recovered = 'yellow';
-        else if (dh >= 75 && dh < 172) recovered = 'green';
-        else if (dh >= 172 && dh < 285) recovered = 'blue';
+        if (dh >= 315 || dh < 10) {
+          if (dg.r > dg.g * 1.30 && dg.r > dg.b * 1.25) recovered = 'red';
+        } else if (dh >= 10 && dh < 38) {
+          if (dg.r > dg.b * 1.55 && dg.g >= dg.b * 1.08 && (dg.b / Math.max(dg.r, 1)) <= 0.40) recovered = 'orange';
+        } else if (dh >= 38 && dh < 75) {
+          if (dg.r > dg.b * 1.25 && dg.g > dg.b * 1.25) recovered = 'yellow';
+        } else if (dh >= 75 && dh < 172) {
+          recovered = 'green';
+        } else if (dh >= 172 && dh < 285) {
+          recovered = 'blue';
+        }
         if (recovered !== 'invalid') {
           currentNxNColors[i] = recovered;
           st.colorKey = recovered;
@@ -562,31 +616,38 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
   const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
   const uniqueColorsCount = new Set(validOnly).size;
 
+  // Khối Rubik thật sự khi xáo trộn BẮT BUỘC phải có màu nhân tạo rõ nét:
+  // Nếu chỉ toàn màu ấm (đỏ/cam/vàng) mà không hề có ô màu xanh lá, xanh dương hoặc trắng trung tính,
+  // đồng thời rãnh cơ học mờ nhạt (gridSeamContrast < 4.0) -> Đây là khuôn mặt người dùng hoặc đồ gỗ!
+  const hasCoolOrNeutralColors = currentNxNColors.some(c => c === 'blue' || c === 'green' || c === 'white');
+  const isOnlyWarmSkinCluster = validColorsCount >= 2 && !hasCoolOrNeutralColors && (skinLikeCellsCount >= 1 || gridSeamContrast < 4.2);
+
+  const shouldRejectAsHumanFace = isMostlySkinOrWood || isOnlyWarmSkinCluster;
+
   const unsolvedBonus =
     uniqueColorsCount >= 2
       ? uniqueColorsCount * 8 + sharpAdjacentEdges * 7 + colorTransitions * 4
       : 4;
-  const skinPenalty = isMostlySkinOrWood ? -120 : 0;
 
-  const score =
-    validColorsCount * 5 +
-    vividColorsCount * 3.5 +
-    unsolvedBonus +
-    (gridSeamContrast >= 6 ? 6 : 0) +
-    skinPenalty;
+  const score = shouldRejectAsHumanFace
+    ? -99999
+    : validColorsCount * 5 +
+      vividColorsCount * 3.5 +
+      unsolvedBonus +
+      (gridSeamContrast >= 5.5 ? 8 : 0);
 
   return {
     startX,
     startY,
     boxSize,
-    currentNxNColors: isMostlySkinOrWood ? Array(dim * dim).fill('invalid') : currentNxNColors,
-    validColorsCount: isMostlySkinOrWood ? 0 : validColorsCount,
-    vividColorsCount: isMostlySkinOrWood ? 0 : vividColorsCount,
-    uniqueColorsCount: isMostlySkinOrWood ? 0 : uniqueColorsCount,
-    sharpAdjacentEdges: isMostlySkinOrWood ? 0 : sharpAdjacentEdges,
-    colorTransitions: isMostlySkinOrWood ? 0 : colorTransitions,
+    currentNxNColors: shouldRejectAsHumanFace ? Array(dim * dim).fill('invalid') : currentNxNColors,
+    validColorsCount: shouldRejectAsHumanFace ? 0 : validColorsCount,
+    vividColorsCount: shouldRejectAsHumanFace ? 0 : vividColorsCount,
+    uniqueColorsCount: shouldRejectAsHumanFace ? 0 : uniqueColorsCount,
+    sharpAdjacentEdges: shouldRejectAsHumanFace ? 0 : sharpAdjacentEdges,
+    colorTransitions: shouldRejectAsHumanFace ? 0 : colorTransitions,
     gridSeamContrast,
-    isMostlySkinOrWood,
+    isMostlySkinOrWood: shouldRejectAsHumanFace,
     score
   };
 }
@@ -684,6 +745,23 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     }
   }
 
+  if (!bestEval || bestEval.score <= 0 || bestEval.isMostlySkinOrWood) {
+    return {
+      startX: Math.floor(w / 2 - baseSize / 2),
+      startY: Math.floor(h / 2 - baseSize / 2),
+      boxSize: baseSize,
+      currentNxNColors: Array(dim * dim).fill('invalid'),
+      validColorsCount: 0,
+      vividColorsCount: 0,
+      uniqueColorsCount: 0,
+      sharpAdjacentEdges: 0,
+      colorTransitions: 0,
+      gridSeamContrast: 0,
+      isMostlySkinOrWood: true,
+      score: -99999
+    };
+  }
+
   return bestEval;
 }
 
@@ -744,6 +822,7 @@ export default function App() {
       inspectionDurationSec: 15,
       requireCameraToSolve: true,
       require3DCubePreCheck: true,
+      requireAll6FacesPreCheck: true,
       requireCubeMoveDuringSolve: true,
       autoStopWhenSolved: true,
       adminVipBypass: true
@@ -1033,6 +1112,7 @@ export default function App() {
   const [editInspectionSec, setEditInspectionSec] = useState(adminSettings.inspectionDurationSec || 15);
   const [editRequireCam, setEditRequireCam] = useState(adminSettings.requireCameraToSolve !== false);
   const [editRequire3DPreCheck, setEditRequire3DPreCheck] = useState(adminSettings.require3DCubePreCheck !== false);
+  const [editRequireAll6Faces, setEditRequireAll6Faces] = useState(adminSettings.requireAll6FacesPreCheck !== false);
   const [editRequireMove, setEditRequireMove] = useState(adminSettings.requireCubeMoveDuringSolve !== false);
   const [editAutoStop, setEditAutoStop] = useState(adminSettings.autoStopWhenSolved !== false);
   const [editAdminVipBypass, setEditAdminVipBypass] = useState(adminSettings.adminVipBypass !== false);
@@ -1406,6 +1486,7 @@ export default function App() {
       inspectionDurationSec: Number(editInspectionSec) || 15,
       requireCameraToSolve: Boolean(editRequireCam),
       require3DCubePreCheck: Boolean(editRequire3DPreCheck),
+      requireAll6FacesPreCheck: Boolean(editRequireAll6Faces),
       requireCubeMoveDuringSolve: Boolean(editRequireMove),
       autoStopWhenSolved: Boolean(editAutoStop),
       adminVipBypass: Boolean(editAdminVipBypass)
@@ -2360,6 +2441,7 @@ export default function App() {
         const minUniqueForScramble = 2;
         const isGenuineScrambledCube =
           !bestRegion.isMostlySkinOrWood &&
+          bestRegion.score > 0 &&
           validColorsCount >= minStickersRequired &&
           vividColorsCount >= minVividRequired &&
           uniqueColorsCount >= minUniqueForScramble &&
@@ -2390,63 +2472,95 @@ export default function App() {
           setScannedFaces(nextFaces);
         }
 
+        const all6FaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
+        const currentScannedKeys = Object.keys(scannedFacesRef.current || {});
+        const missingFaceKeys = all6FaceKeys.filter(f => !currentScannedKeys.includes(f));
+        const hasScannedAll6 = currentScannedKeys.length >= 6;
+        const req6Faces = adminSettingsRef.current?.requireAll6FacesPreCheck !== false;
+
         // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI)
         if (isGenuineScrambledCube) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
           setModel3DVerification({
-            verified: true,
-            badgeText: isMovingNow ? `🎯 BÁM MẶT CHƯA GIẢI (${uniqueColorsCount} MÀU)` : `🧩 MẶT CHƯA GIẢI (${uniqueColorsCount} MÀU)`,
-            statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu khác nhau`,
-            detailText: `Khớp ${validColorsCount}/${dim * dim} ô chưa giải lên 3D • Đã quét ${updatedFacesCount}/6 mặt (${Object.keys(scannedFacesRef.current || {}).join(', ')}) • Tọa độ: (${cxPct}%, ${cyPct}%)`,
+            verified: hasScannedAll6 || !req6Faces,
+            badgeText: hasScannedAll6 ? '🟢 ĐỦ 6/6 MẶT' : `🔍 ĐÃ QUÉT ${updatedFacesCount}/6 MẶT`,
+            statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
+            detailText: hasScannedAll6
+              ? `Đã khớp đủ cả 6 mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
+              : `Đã quét ${updatedFacesCount}/6 mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Hãy xoay tiếp các mặt còn lại!`,
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
         } else if (isAllSameColor) {
           setModel3DVerification({
-            verified: startScrambledRef.current && cubeStateChangedRef.current,
+            verified: (hasScannedAll6 || !req6Faces) && startScrambledRef.current && cubeStateChangedRef.current,
             badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
             statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
             detailText: startScrambledRef.current
               ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) từ lúc chưa giải đến khi hoàn thành!`
-              : `Mặt này đang đồng màu (đã giải) — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI xác minh trước khi bấm giờ!`,
+              : `Mặt này đang đồng màu — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI quét đủ 6 mặt!`,
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
         }
 
         if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
-          if (isGenuineScrambledCube) {
+          if (isGenuineScrambledCube || isAllSameColor) {
             validCubeStreakRef.current += 1;
-            // Bắt nhạy ngay khi thấy mặt chưa giải (kể cả khi đang xoay/di chuyển khối trên tay)
-            if (validCubeStreakRef.current >= 1) {
-              lastCubeVerifiedAtRef.current = now;
-              initialCubeColorsRef.current = [...currentNxNColors];
-              lastValidCubeColorsRef.current = [...currentNxNColors];
+            lastCubeVerifiedAtRef.current = now;
+            initialCubeColorsRef.current = [...currentNxNColors];
+            lastValidCubeColorsRef.current = [...currentNxNColors];
+
+            if (req6Faces && !hasScannedAll6) {
+              // CHƯA QUÉT ĐỦ 6 MẶT -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP CÁC MẶT CÒN THIẾU
+              setPreCheckStatus({
+                verified: false,
+                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${missingFaceKeys.length} mặt còn thiếu: [${missingFaceKeys.join(', ')}]`,
+                isScrambled: true,
+                centerFace: `${mappedFace} (${centerName})`,
+                scannedCount: currentScannedKeys.length,
+                missingFaces: missingFaceKeys
+              });
+            } else {
+              // ĐÃ QUÉT ĐỦ CẢ 6 MẶT (HOẶC ĐƯỢC PHÉP QUÉT NHANH) -> MỞ KHÓA GIẢI!
               if (timerStateRef.current === 'inspecting') {
                 startScrambledRef.current = true;
               }
               setPreCheckStatus({
                 verified: true,
-                text: `🟢 ĐÃ NHẬN DIỆN MẶT CHƯA GIẢI (${uniqueColorsCount} màu, Mặt ${mappedFace} - ${centerName})${isMovingNow ? ' [Đang bám chuyển động]' : ''}: Sẵn sàng bấm giờ!`,
+                text: `🟢 ĐÃ XÁC MINH TOÀN DIỆN CẢ 6 MẶT TRÊN 3D (Đủ 6/6 mặt) — Sẵn sàng bấm giờ giải!`,
                 isScrambled: true,
-                centerFace: `${mappedFace} (${centerName})`
+                centerFace: `${mappedFace} (${centerName})`,
+                scannedCount: currentScannedKeys.length,
+                missingFaces: []
               });
             }
           } else {
             validCubeStreakRef.current = 0;
-            if (isAllSameColor) {
+            const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
+            if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0 && (!req6Faces || hasScannedAll6)) {
+              setPreCheckStatus(prev => ({
+                ...prev,
+                verified: true,
+                text: `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TRÊN 3D — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
+              }));
+            } else if (currentScannedKeys.length > 0 && currentScannedKeys.length < 6) {
               setPreCheckStatus({
                 verified: false,
-                text: `⚠️ Mặt ${centerName} này đã đồng màu (1 màu) — Hãy xoay sang các MẶT CHƯA GIẢI (có từ 2 màu trở lên) để mở khóa đồng hồ!`,
+                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay tiếp các mặt còn thiếu: [${missingFaceKeys.join(', ')}] trước Camera`,
                 isScrambled: false,
-                centerFace: centerName
+                centerFace: null,
+                scannedCount: currentScannedKeys.length,
+                missingFaces: missingFaceKeys
               });
             } else if (lastCubeVerifiedAtRef.current === 0 || now - lastCubeVerifiedAtRef.current > 25000) {
               setPreCheckStatus({
                 verified: false,
-                text: `🔍 Đưa các mặt Rubik CHƯA GIẢI (nhiều màu xáo trộn) vào trước camera để AI nhận diện lên Mô hình 3D...`,
+                text: `🔍 Đưa khối Rubik (${dim}×${dim}) vào trước Camera và xoay đủ 6 mặt để AI phân tích lên Mô hình 3D...`,
                 isScrambled: false,
-                centerFace: null
+                centerFace: null,
+                scannedCount: 0,
+                missingFaces: all6FaceKeys
               });
             }
           }
@@ -3577,24 +3691,63 @@ export default function App() {
                     })}
                   </div>
 
-                  {Object.keys(scannedFaces).length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setScannedFaces({})}
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: '5px',
-                        border: '1px solid #1e293b',
-                        background: '#111c34',
-                        color: '#94a3b8',
-                        fontSize: '0.64rem',
-                        cursor: 'pointer',
-                        width: '100%'
-                      }}
-                    >
-                      🔄 Đặt lại 6 mặt ({Object.keys(scannedFaces).length}/6 mặt đã quét)
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                    {Object.keys(scannedFaces).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScannedFaces({});
+                          setPreCheckStatus({
+                            verified: false,
+                            text: 'Đã đặt lại 6 mặt. Hãy xoay khối Rubik trước Camera để AI quét lần lượt cả 6 mặt.',
+                            isScrambled: false,
+                            centerFace: null
+                          });
+                        }}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '5px',
+                          border: '1px solid #1e293b',
+                          background: '#111c34',
+                          color: '#94a3b8',
+                          fontSize: '0.64rem',
+                          cursor: 'pointer',
+                          flex: 1
+                        }}
+                      >
+                        🔄 Quét lại ({Object.keys(scannedFaces).length}/6 mặt)
+                      </button>
+                    )}
+
+                    {Object.keys(scannedFaces).length < 6 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreCheckStatus({
+                            verified: true,
+                            text: '⚡ Đã mở khóa giải nhanh (Bỏ qua quét đủ 6 mặt) — Sẵn sàng bấm giờ!',
+                            isScrambled: true,
+                            centerFace: 'Mở khóa nhanh'
+                          });
+                          lastCubeVerifiedAtRef.current = performance.now();
+                        }}
+                        title="Bấm để mở khóa đồng hồ ngay mà không cần xoay quét đủ cả 6 mặt"
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '5px',
+                          border: '1px solid #f59e0b',
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: '#fbbf24',
+                          fontSize: '0.64rem',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          flex: 1
+                        }}
+                      >
+                        ⚡ Mở khóa nhanh
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -3789,10 +3942,12 @@ export default function App() {
                 !cameraActive
                   ? '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
                   : !preCheckStatus.verified
-                    ? `🔍 Đưa hoặc di chuyển khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera để mở khóa đồng hồ`
+                    ? (Object.keys(scannedFaces).length > 0 && Object.keys(scannedFaces).length < 6
+                        ? `🔒 CHƯA QUÉT ĐỦ 6 MẶT: Đã quét ${Object.keys(scannedFaces).length}/6 mặt — Hãy xoay tiếp các mặt còn thiếu: [${['U','D','F','B','L','R'].filter(f => !scannedFaces[f]).join(', ')}]`
+                        : `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera và xoay đủ 6 mặt để mở khóa đồng hồ`)
                     : isMobile
-                      ? `🟢 ĐÃ XÁC MINH KHỐI ${PUZZLE_CONFIGS[puzzleType]?.name} — Chạm giữ bên dưới để giải!`
-                      : `🟢 ĐÃ XÁC MINH KHỐI ${PUZZLE_CONFIGS[puzzleType]?.name} — Giữ phím SPACE để giải!`
+                      ? `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT — Chạm giữ bên dưới để giải!`
+                      : `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT — Giữ phím SPACE để giải!`
               )}
             </div>
 
@@ -5279,6 +5434,15 @@ export default function App() {
                       onChange={(e) => setEditRequire3DPreCheck(e.target.checked)}
                     />
                     <span>🧊 Bắt buộc xác minh khối Rubik thật trên Mô hình 3D trước khi cho bấm giờ</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editRequireAll6Faces}
+                      onChange={(e) => setEditRequireAll6Faces(e.target.checked)}
+                    />
+                    <span>🧩 Bắt buộc người chơi phải xoay quét đủ cả 6 mặt khối Rubik mới mở khóa đồng hồ</span>
                   </label>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
