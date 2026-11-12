@@ -41,19 +41,23 @@ Hệ thống hỗ trợ đầy đủ 4 khối tiêu chuẩn (**2×2 Pocket Cube*
 
 ## 2. Màn Hình Khối Rubik 3D Phía Trên & Thị Giác Máy Tính AI Bám Đuổi Chuyển Động
 
-- **Bám đuổi chuyển động đa vùng & đa tỷ lệ (`locateDynamicRubikBox` & `evaluateRubikGridCandidate` trong `src/App.jsx`):**
-  - Quét **Heatmap cụm màu sticker** toàn khung hình kết hợp **Kalman/EMA Velocity Prediction** (dự đoán quỹ đạo di chuyển tay) và 9 vùng tìm kiếm đa tỷ lệ (trái/phải/trên/dưới, xa/gần).
+- **Nhận Diện Toàn Diện Các Mặt Chưa Giải (2–6 Màu) & Mô Phỏng 6 Mặt Xáo Trộn Trên 3D (`buildScrambledFaces` & `evaluateRubikGridCandidate`):**
+  - **Mô hình 3D 6 mặt xáo trộn theo Scramble thực tế (`buildScrambledFaces` trong `src/components/Rubik3DView.jsx`):** Ngay từ khi khởi tạo, cả 6 mặt (`U, D, L, R, F, B`) trên mô hình 3D đều hiển thị trạng thái **chưa giải (đã xáo trộn)** khớp với công thức Scramble hiện tại thay vì tô 1 màu đồng nhất.
+  - **Thuật toán lấy mẫu lõi trung vị (`Trimmed Inner-Core Sampling`):** Lấy mẫu lõi trung tâm `11%` của từng ô sticker và tự động lọc bỏ 20% điểm tối ở rãnh nhựa đen + 15% điểm chói sáng. Nhờ đó, khi các ô màu khác nhau nằm sát cạnh nhau trên **mặt chưa giải**, AI vẫn phân tách chuẩn xác từng màu mà không bị lem màu giữa các viên.
+  - **Ưu tiên khóa mục tiêu Mặt Chưa Giải (`unsolvedBonus`) & Dải trạng thái 6 mặt (`U, D, F, B, L, R`):** Nhận diện nhạy mọi trạng thái mặt chưa giải (từ mặt mới xáo trộn 3–6 màu đến mặt đang giải dở 2 màu), cập nhật trực tiếp lên từng mặt của khối 3D và hiển thị thanh trạng thái 6 mặt trực quan (`F:4m`, `R:5m` = mặt chưa giải có 4–5 màu; `U:✓` = mặt đã giải).
+- **Bám đuổi chuyển động đa vùng & đa tỷ lệ (`locateDynamicRubikBox` trong `src/App.jsx`):**
+  - Quét **Heatmap cụm màu sticker** toàn khung hình kết hợp **Kalman/EMA Velocity Prediction** (dự đoán quỹ đạo di chuyển tay) và các vùng tìm kiếm đa tỷ lệ (trái/phải/trên/dưới, xa/gần).
   - Khung lưới ngắm AI tự động di chuyển bám theo khối Rubik (`🎯 Đang bám (X%, Y%)`) ngay cả khi người chơi vung tay hoặc lật khối.
   - **Khử nhòe chuyển động 3 khung hình (`3-Frame Temporal Motion Stabilizer`):** Tự động khôi phục các ô bị nhòe nhẹ khi di chuyển nhanh để chiếu chính xác lên mô hình 3D.
-- **Bộ lọc Chống Gian Lận Vật Thể Thường / Da Người / Tường (`classifyRubikStickerCell`):**
-  - Kiểm tra độ phẳng màu nội ô (`cellStdDev <= 25`, riêng màu trắng `<= 16`), biên độ nhảy màu sắc nét giữa các viên kề nhau (`sharpAdjacentEdges >= 3`, `rgbDist >= 62`) và độ tương phản rãnh nhựa (`gridSeamContrast`), loại bỏ 100% trường hợp quay camera vào mặt người, bàn tay, quần áo hoặc tường trống.
+- **Bộ lọc Chống Gian Lận Vật Thể Thường / Da Người / Tường (`isSkinOrWoodTone` & `classifyRubikStickerCell`):**
+  - Kiểm tra tỷ lệ sắc thái da người/gỗ trên toàn lưới (`skinLikeCellsCount`), biên độ chuyển màu sắc nét giữa các viên kề nhau (`sharpAdjacentEdges`, `colorTransitions`) và độ tương phản rãnh nhựa (`gridSeamContrast`), loại bỏ 100% trường hợp quay camera vào mặt người, bàn tay, quần áo hoặc tường trống.
 - **Khóa Đồng Hồ Bắt Buộc Camera AI & Phân Tích Lên Mô Hình 3D (`requireCameraAndCubeToSolve`):**
-  - **Đồng hồ mặc định khóa (`🔒 ĐỒNG HỒ ĐANG KHÓA`)** khi chưa bật Camera hoặc chưa đưa khối Rubik đã xáo trộn vào xác minh trên Mô hình 3D (áp dụng cho cả phím `Spacebar`, bàn chạm Mobile và chế độ Solo 1v1).
+  - **Đồng hồ mặc định khóa (`🔒 ĐỒNG HỒ ĐANG KHÓA`)** khi chưa bật Camera hoặc chưa đưa mặt Rubik chưa giải vào xác minh trên Mô hình 3D (áp dụng cho cả phím `Spacebar`, bàn chạm Mobile và chế độ Solo 1v1).
   - Nếu người chơi tắt Camera giữa chừng khi đang giải, hệ thống lập tức hủy lượt giải.
   - Trong lúc giải, Camera AI bắt buộc phải ghi nhận sự biến đổi trạng thái xoay khối Rubik thật (`cubeStateChanged = true`, `cubeMovesSeen >= 2`) mới công nhận kết quả vào Lịch sử (`PB`, `Ao5`, `Ao12`) và Bảng Kỷ Lục.
-- **Màn hình Khối 3D Tương Tác & Tự Động Xác Minh (`src/components/Rubik3DView.jsx`):**
-  - Dựng mô hình `N×N×N` bằng **Three.js WebGL** tự động nghiêng theo hướng di chuyển thực tế của khối Rubik trên tay người chơi.
-  - **Nhớ màu đủ 6 mặt (`scannedFaces`) & Xác minh trạng thái 3D (`model3DVerification`):** Tự động nhận diện màu tâm (`U, D, F, B, L, R`) để ghép đủ 6 mặt lên mô hình 3D và hiển thị huy hiệu xác minh trực tiếp (`🎯 BÁM 3D KHI DI CHUYỂN` / `✅ 3D XÁC MINH ĐÚNG` / `🏆 MẶT 3D ĐỒNG MÀU`).
+- **Trung Tâm Quản Trị Độc Quyền Super-Admin (`khoa.tt2611758@sis.hust.edu.vn`):**
+  - Hoàn toàn ẩn 100% đối với người chơi thông thường; tự động kích hoạt khi đăng nhập bằng Gmail quản trị viên của Khoa.
+  - Cho phép thêm/sửa/xóa trực tiếp kỷ lục tuyển thủ trên cả Local & Supabase Cloud, đổi tên bảng đấu, ghim thông báo giải đấu đầu trang, mở khóa nhanh khối 3D và bật/tắt linh hoạt từng quy tắc thi đấu (bắt buộc Camera, xác minh 3D, tự động dừng đồng hồ, đặc quyền VIP Bypass).
 
 ---
 
