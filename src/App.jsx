@@ -181,6 +181,62 @@ const COLOR_DEFINITIONS = {
   invalid:{ code: '?', name: 'Không rõ', hex: '#334155', bg: '#334155', textColor: '#94a3b8' }
 };
 
+// Các phong cách giao diện Lưới Mạng Nhện & Hitbox Rubik (HUD Themes: Hoa Anh Đào, Mạng Nhện Cyber, Lôi Thần, Băng Tuyết)
+const HUD_THEMES = {
+  sakura: {
+    id: 'sakura',
+    name: '🌸 Hoa Anh Đào (Sakura)',
+    shortName: '🌸 Hoa Anh Đào',
+    color: '#f472b6',
+    glowColor: 'rgba(244, 114, 182, 0.60)',
+    rayColor: 'rgba(251, 113, 133, 0.70)',
+    rayLockedColor: 'rgba(244, 114, 182, 0.95)',
+    bracketColor: '#f472b6',
+    badgeBg: 'rgba(253, 242, 248, 0.94)',
+    badgeTextColor: '#be185d',
+    hasPetals: true
+  },
+  cyber: {
+    id: 'cyber',
+    name: '🕸️ Mạng Nhện Neon Cyber',
+    shortName: '🕸️ Mạng Nhện',
+    color: '#38bdf8',
+    glowColor: 'rgba(56, 189, 248, 0.55)',
+    rayColor: 'rgba(56, 189, 248, 0.60)',
+    rayLockedColor: 'rgba(74, 222, 128, 0.90)',
+    bracketColor: '#38bdf8',
+    badgeBg: 'rgba(2, 6, 23, 0.90)',
+    badgeTextColor: '#38bdf8',
+    hasPetals: false
+  },
+  thunder: {
+    id: 'thunder',
+    name: '⚡ Lôi Thần Điện Quang',
+    shortName: '⚡ Lôi Thần',
+    color: '#a855f7',
+    glowColor: 'rgba(168, 85, 247, 0.55)',
+    rayColor: 'rgba(168, 85, 247, 0.65)',
+    rayLockedColor: 'rgba(250, 204, 21, 0.95)',
+    bracketColor: '#facc15',
+    badgeBg: 'rgba(24, 9, 39, 0.92)',
+    badgeTextColor: '#facc15',
+    hasPetals: false
+  },
+  frost: {
+    id: 'frost',
+    name: '💎 Băng Tuyết Pha Lê',
+    shortName: '💎 Băng Tuyết',
+    color: '#06b6d4',
+    glowColor: 'rgba(6, 182, 212, 0.55)',
+    rayColor: 'rgba(6, 182, 212, 0.65)',
+    rayLockedColor: 'rgba(103, 232, 249, 0.95)',
+    bracketColor: '#67e8f9',
+    badgeBg: 'rgba(4, 25, 39, 0.92)',
+    badgeTextColor: '#67e8f9',
+    hasPetals: false
+  }
+};
+
 // RGB to HSV Conversion
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
@@ -1937,6 +1993,20 @@ export default function App() {
     localStorage.setItem('rubik_3d_mode_v2', mode);
   };
 
+  // Phong cách giao diện Lưới Mạng Nhện & Hitbox Rubik (Mặc định: 🌸 Hoa Anh Đào theo yêu cầu của bạn)
+  const [hudThemeKey, setHudThemeKey] = useState(() => {
+    return localStorage.getItem('rubik_hud_theme') || 'sakura';
+  });
+  const currentHudTheme = HUD_THEMES[hudThemeKey] || HUD_THEMES.sakura;
+
+  const cycleHudTheme = () => {
+    const keys = Object.keys(HUD_THEMES);
+    const nextIdx = (keys.indexOf(hudThemeKey) + 1) % keys.length;
+    const nextKey = keys[nextIdx];
+    setHudThemeKey(nextKey);
+    localStorage.setItem('rubik_hud_theme', nextKey);
+  };
+
   // Trạng thái bám đuổi chuyển động (Dynamic Object Tracking Box) & Lưới Mạng Nhện Hitbox Rubik
   const [trackingBox, setTrackingBox] = useState({
     leftPct: 23,
@@ -3582,12 +3652,12 @@ export default function App() {
               background: 'linear-gradient(180deg, #0b1326 0%, #070c18 100%)',
               borderRadius: '14px',
               border: cameraActive
-                ? (cameraHealth.isHealthy ? (preCheckStatus.verified ? '1.5px solid #22c55e' : '1.5px solid #38bdf8') : '1.5px solid #ef4444')
+                ? (cameraHealth.isHealthy ? (preCheckStatus.verified ? '1.5px solid #22c55e' : `1.5px solid ${currentHudTheme.color}`) : '1.5px solid #ef4444')
                 : '1px solid #1e293b',
               padding: isMobile ? '10px' : '12px 16px',
               boxShadow: preCheckStatus.verified
                 ? '0 8px 28px rgba(34, 197, 94, 0.15)'
-                : '0 8px 28px rgba(15, 23, 42, 0.6)',
+                : `0 8px 28px ${currentHudTheme.glowColor}`,
               display: 'flex',
               flexDirection: 'column',
               gap: '10px',
@@ -3649,6 +3719,31 @@ export default function App() {
 
                 {/* Các nút điều khiển kích thước & chế độ màn hình 3D phía trên */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  {/* Nút chỉnh riêng phong cách HUD: Hoa Anh Đào, Mạng Nhện, Lôi Thần, Băng Tuyết */}
+                  <button
+                    type="button"
+                    onClick={cycleHudTheme}
+                    title="Bấm để đổi phong cách giao diện HUD (Hoa Anh Đào / Mạng Nhện Cyber / Lôi Thần / Băng Tuyết)"
+                    style={{
+                      padding: '3px 9px',
+                      borderRadius: '5px',
+                      border: `1.5px solid ${currentHudTheme.color}`,
+                      background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.18)' : '#111c34',
+                      color: currentHudTheme.color,
+                      fontSize: '0.66rem',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: `0 0 10px ${currentHudTheme.glowColor}`,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span>{currentHudTheme.shortName}</span>
+                    <span style={{ fontSize: '0.6rem', opacity: 0.85 }}>↻</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handleChange3DMode(show3DMode === 'always' ? 'solving' : 'always')}
@@ -3765,7 +3860,8 @@ export default function App() {
                       borderRadius: '10px',
                       overflow: 'hidden',
                       background: '#020617',
-                      border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px solid #38bdf8',
+                      border: preCheckStatus.verified ? '2px solid #22c55e' : `1.5px solid ${currentHudTheme.color}`,
+                      boxShadow: `0 0 16px ${currentHudTheme.glowColor}`,
                       flexShrink: 0
                     }}>
                       <video
@@ -3775,6 +3871,16 @@ export default function App() {
                         muted
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
+
+                      {/* Hiệu ứng cánh hoa anh đào Sakura bay lượn trên Cam khi bật theme Hoa Anh Đào */}
+                      {currentHudTheme.hasPetals && (
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                          <span className="sakura-petal-1" style={{ top: '10%', left: '12%', fontSize: '0.95rem' }}>🌸</span>
+                          <span className="sakura-petal-2" style={{ top: '65%', left: '76%', fontSize: '0.85rem' }}>🌸</span>
+                          <span className="sakura-petal-3" style={{ top: '22%', right: '16%', fontSize: '0.75rem' }}>🌸</span>
+                          <span className="sakura-petal-1" style={{ bottom: '12%', left: '30%', fontSize: '0.8rem' }}>🌸</span>
+                        </div>
+                      )}
 
                       {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK (Spider-Web Ray Casting HUD) */}
                       <svg
@@ -3802,7 +3908,7 @@ export default function App() {
                                   key={rIdx}
                                   points={ringPoints}
                                   fill="none"
-                                  stroke={trackingBox.isLocked ? 'rgba(34, 197, 94, 0.45)' : 'rgba(56, 189, 248, 0.35)'}
+                                  stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                                   strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
                                   strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
                                 />
@@ -3816,20 +3922,20 @@ export default function App() {
                                 y1={`${trackingBox.cyPct}%`}
                                 x2={`${r.xPct}%`}
                                 y2={`${r.yPct}%`}
-                                stroke={trackingBox.isLocked ? 'rgba(74, 222, 128, 0.55)' : 'rgba(56, 189, 248, 0.38)'}
+                                stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                                 strokeWidth="0.8"
                               />
                             ))}
                           </>
                         ) : (
                           /* Lưới mạng nhện radar ở chế độ quét tìm */
-                          <g opacity="0.45">
-                            <circle cx="50%" cy="50%" r="20%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
-                            <circle cx="50%" cy="50%" r="38%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
-                            <line x1="50%" y1="10%" x2="50%" y2="90%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="10%" y1="50%" x2="90%" y2="50%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="22%" y1="22%" x2="78%" y2="78%" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
-                            <line x1="78%" y1="22%" x2="22%" y2="78%" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
+                          <g opacity="0.5">
+                            <circle cx="50%" cy="50%" r="20%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                            <circle cx="50%" cy="50%" r="38%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                            <line x1="50%" y1="10%" x2="50%" y2="90%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="10%" y1="50%" x2="90%" y2="50%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="22%" y1="22%" x2="78%" y2="78%" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
+                            <line x1="78%" y1="22%" x2="22%" y2="78%" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
                           </g>
                         )}
                       </svg>
@@ -3848,20 +3954,20 @@ export default function App() {
                         border: preCheckStatus.verified
                           ? '2px solid #22c55e'
                           : trackingBox.isLocked
-                            ? '2px solid #22c55e'
-                            : '1.5px dashed rgba(56, 189, 248, 0.85)',
+                            ? `2px solid ${currentHudTheme.rayLockedColor}`
+                            : `1.5px dashed ${currentHudTheme.color}`,
                         borderRadius: '4px',
                         pointerEvents: 'none',
                         boxShadow: trackingBox.isLocked
-                          ? '0 0 14px rgba(34, 197, 94, 0.4), 0 0 0 999px rgba(2, 6, 23, 0.32)'
+                          ? `0 0 16px ${currentHudTheme.glowColor}, 0 0 0 999px rgba(2, 6, 23, 0.32)`
                           : '0 0 0 999px rgba(2, 6, 23, 0.32)',
                         zIndex: 3
                       }}>
                         {/* 4 góc Tactical Hitbox Brackets */}
-                        <div style={{ position: 'absolute', top: '-3px', left: '-3px', width: '8px', height: '8px', borderTop: '2.5px solid #38bdf8', borderLeft: '2.5px solid #38bdf8' }} />
-                        <div style={{ position: 'absolute', top: '-3px', right: '-3px', width: '8px', height: '8px', borderTop: '2.5px solid #38bdf8', borderRight: '2.5px solid #38bdf8' }} />
-                        <div style={{ position: 'absolute', bottom: '-3px', left: '-3px', width: '8px', height: '8px', borderBottom: '2.5px solid #38bdf8', borderLeft: '2.5px solid #38bdf8' }} />
-                        <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '8px', height: '8px', borderBottom: '2.5px solid #38bdf8', borderRight: '2.5px solid #38bdf8' }} />
+                        <div style={{ position: 'absolute', top: '-3px', left: '-3px', width: '8px', height: '8px', borderTop: `2.5px solid ${currentHudTheme.bracketColor}`, borderLeft: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
+                        <div style={{ position: 'absolute', top: '-3px', right: '-3px', width: '8px', height: '8px', borderTop: `2.5px solid ${currentHudTheme.bracketColor}`, borderRight: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', left: '-3px', width: '8px', height: '8px', borderBottom: `2.5px solid ${currentHudTheme.bracketColor}`, borderLeft: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '8px', height: '8px', borderBottom: `2.5px solid ${currentHudTheme.bracketColor}`, borderRight: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
 
                         {detectedColors.map((colorKey, idx) => (
                           <div
@@ -3884,29 +3990,60 @@ export default function App() {
                         ))}
                       </div>
 
+                      {/* Huy hiệu trạng thái Hitbox góc trên trái */}
                       <div style={{
                         position: 'absolute',
                         top: '4px',
                         left: '6px',
-                        background: 'rgba(2, 6, 23, 0.88)',
+                        background: currentHudTheme.badgeBg,
                         padding: '1px 6px',
                         borderRadius: '4px',
                         fontSize: '0.54rem',
-                        color: trackingBox.isLocked ? '#4ade80' : '#38bdf8',
+                        color: currentHudTheme.badgeTextColor,
                         fontWeight: '700',
                         pointerEvents: 'none',
                         zIndex: 4,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        boxShadow: `0 0 8px ${currentHudTheme.glowColor}`
                       }}>
-                        <span>{trackingBox.isLocked ? '🎯' : '🕸️'}</span>
+                        <span>{trackingBox.isLocked ? '🎯' : (hudThemeKey === 'sakura' ? '🌸' : hudThemeKey === 'cyber' ? '🕸️' : hudThemeKey === 'thunder' ? '⚡' : '💎')}</span>
                         <span>
                           {trackingBox.isLocked
                             ? `HITBOX: KHÓA (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
-                            : 'QUÉT MẠNG NHỆN HITBOX'}
+                            : `${hudThemeKey === 'sakura' ? 'SAKURA' : hudThemeKey === 'cyber' ? 'MẠNG NHỆN' : hudThemeKey === 'thunder' ? 'LÔI THẦN' : 'BĂNG TUYẾT'}: QUÉT RADAR`}
                         </span>
                       </div>
+
+                      {/* Nút chuyển nhanh theme ngay trên góc khung Camera */}
+                      <button
+                        type="button"
+                        onClick={cycleHudTheme}
+                        title="Đổi giao diện HUD Camera"
+                        style={{
+                          position: 'absolute',
+                          bottom: '4px',
+                          right: '4px',
+                          background: currentHudTheme.badgeBg,
+                          color: currentHudTheme.badgeTextColor,
+                          border: `1px solid ${currentHudTheme.color}`,
+                          borderRadius: '4px',
+                          fontSize: '0.52rem',
+                          fontWeight: '800',
+                          padding: '1px 5px',
+                          cursor: 'pointer',
+                          zIndex: 5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          backdropFilter: 'blur(4px)',
+                          boxShadow: `0 0 8px ${currentHudTheme.glowColor}`
+                        }}
+                      >
+                        <span>{currentHudTheme.shortName}</span>
+                        <span style={{ fontSize: '0.5rem' }}>↻</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -4077,10 +4214,20 @@ export default function App() {
                 borderRadius: '8px',
                 overflow: 'hidden',
                 background: '#020617',
-                border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px solid #38bdf8',
+                border: preCheckStatus.verified ? '2px solid #22c55e' : `1.5px solid ${currentHudTheme.color}`,
+                boxShadow: `0 0 14px ${currentHudTheme.glowColor}`,
                 flexShrink: 0
               }}>
                 <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+
+                {/* Hiệu ứng cánh hoa anh đào Sakura trên Cam */}
+                {currentHudTheme.hasPetals && (
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                    <span className="sakura-petal-1" style={{ top: '10%', left: '10%', fontSize: '0.8rem' }}>🌸</span>
+                    <span className="sakura-petal-2" style={{ top: '65%', left: '75%', fontSize: '0.75rem' }}>🌸</span>
+                    <span className="sakura-petal-3" style={{ bottom: '15%', left: '40%', fontSize: '0.7rem' }}>🌸</span>
+                  </div>
+                )}
 
                 {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK */}
                 <svg
@@ -4107,7 +4254,7 @@ export default function App() {
                             key={rIdx}
                             points={ringPoints}
                             fill="none"
-                            stroke={trackingBox.isLocked ? 'rgba(34, 197, 94, 0.45)' : 'rgba(56, 189, 248, 0.35)'}
+                            stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                             strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
                             strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
                           />
@@ -4120,16 +4267,16 @@ export default function App() {
                           y1={`${trackingBox.cyPct}%`}
                           x2={`${r.xPct}%`}
                           y2={`${r.yPct}%`}
-                          stroke={trackingBox.isLocked ? 'rgba(74, 222, 128, 0.55)' : 'rgba(56, 189, 248, 0.38)'}
+                          stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                           strokeWidth="0.8"
                         />
                       ))}
                     </>
                   ) : (
-                    <g opacity="0.45">
-                      <circle cx="50%" cy="50%" r="22%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
-                      <line x1="50%" y1="10%" x2="50%" y2="90%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
-                      <line x1="10%" y1="50%" x2="90%" y2="50%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
+                    <g opacity="0.5">
+                      <circle cx="50%" cy="50%" r="22%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                      <line x1="50%" y1="10%" x2="50%" y2="90%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                      <line x1="10%" y1="50%" x2="90%" y2="50%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
                     </g>
                   )}
                 </svg>
@@ -4148,20 +4295,20 @@ export default function App() {
                   border: preCheckStatus.verified
                     ? '2px solid #22c55e'
                     : trackingBox.isLocked
-                      ? '2px solid #22c55e'
-                      : '1.5px dashed rgba(56, 189, 248, 0.85)',
+                      ? `2px solid ${currentHudTheme.rayLockedColor}`
+                      : `1.5px dashed ${currentHudTheme.color}`,
                   borderRadius: '4px',
                   pointerEvents: 'none',
                   boxShadow: trackingBox.isLocked
-                    ? '0 0 12px rgba(34, 197, 94, 0.38), 0 0 0 999px rgba(2, 6, 23, 0.3)'
+                    ? `0 0 12px ${currentHudTheme.glowColor}, 0 0 0 999px rgba(2, 6, 23, 0.3)`
                     : '0 0 0 999px rgba(2, 6, 23, 0.3)',
                   zIndex: 3
                 }}>
                   {/* Tactical Brackets */}
-                  <div style={{ position: 'absolute', top: '-2px', left: '-2px', width: '6px', height: '6px', borderTop: '2px solid #38bdf8', borderLeft: '2px solid #38bdf8' }} />
-                  <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '6px', height: '6px', borderTop: '2px solid #38bdf8', borderRight: '2px solid #38bdf8' }} />
-                  <div style={{ position: 'absolute', bottom: '-2px', left: '-2px', width: '6px', height: '6px', borderBottom: '2px solid #38bdf8', borderLeft: '2px solid #38bdf8' }} />
-                  <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: '2px solid #38bdf8', borderRight: '2px solid #38bdf8' }} />
+                  <div style={{ position: 'absolute', top: '-2px', left: '-2px', width: '6px', height: '6px', borderTop: `2px solid ${currentHudTheme.bracketColor}`, borderLeft: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
+                  <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '6px', height: '6px', borderTop: `2px solid ${currentHudTheme.bracketColor}`, borderRight: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
+                  <div style={{ position: 'absolute', bottom: '-2px', left: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderLeft: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
+                  <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderRight: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
 
                   {detectedColors.map((colorKey, idx) => (
                     <div key={idx} style={{ border: '0.5px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -4174,6 +4321,35 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* Nút chuyển nhanh theme góc dưới cam phụ */}
+                <button
+                  type="button"
+                  onClick={cycleHudTheme}
+                  title="Đổi giao diện HUD Camera"
+                  style={{
+                    position: 'absolute',
+                    bottom: '3px',
+                    right: '3px',
+                    background: currentHudTheme.badgeBg,
+                    color: currentHudTheme.badgeTextColor,
+                    border: `1px solid ${currentHudTheme.color}`,
+                    borderRadius: '4px',
+                    fontSize: '0.5rem',
+                    fontWeight: '800',
+                    padding: '1px 4px',
+                    cursor: 'pointer',
+                    zIndex: 5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    backdropFilter: 'blur(4px)',
+                    boxShadow: `0 0 6px ${currentHudTheme.glowColor}`
+                  }}
+                >
+                  <span>{currentHudTheme.shortName}</span>
+                  <span style={{ fontSize: '0.48rem' }}>↻</span>
+                </button>
               </div>
 
               <div style={{ flex: 1, minWidth: '180px', fontSize: '0.74rem', lineHeight: 1.4, color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>

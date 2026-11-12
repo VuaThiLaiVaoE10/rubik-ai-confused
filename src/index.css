@@ -54,3 +54,40 @@ input, textarea, select {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Hiệu ứng cánh hoa anh đào Sakura bay lượn trên khung Camera */
+@keyframes sakuraFloat1 {
+  0% { transform: translate(0, 0) rotate(0deg) scale(0.85); opacity: 0.8; }
+  50% { transform: translate(14px, 18px) rotate(140deg) scale(1.1); opacity: 1; }
+  100% { transform: translate(-8px, 36px) rotate(280deg) scale(0.85); opacity: 0.75; }
+}
+@keyframes sakuraFloat2 {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1.0); opacity: 0.9; }
+  50% { transform: translate(-15px, 22px) rotate(-160deg) scale(0.85); opacity: 0.7; }
+  100% { transform: translate(10px, 42px) rotate(-320deg) scale(1.05); opacity: 0.95; }
+}
+@keyframes sakuraFloat3 {
+  0% { transform: translate(0, 0) rotate(0deg) scale(0.9); opacity: 0.7; }
+  50% { transform: translate(18px, -12px) rotate(180deg) scale(1.15); opacity: 1; }
+  100% { transform: translate(-6px, 24px) rotate(340deg) scale(0.8); opacity: 0.65; }
+}
+.sakura-petal-1 {
+  animation: sakuraFloat1 4.5s ease-in-out infinite alternate;
+  pointer-events: none;
+  position: absolute;
+  filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.75));
+}
+.sakura-petal-2 {
+  animation: sakuraFloat2 5.5s ease-in-out infinite alternate;
+  pointer-events: none;
+  position: absolute;
+  filter: drop-shadow(0 0 6px rgba(251, 113, 133, 0.75));
+}
+.sakura-petal-3 {
+  animation: sakuraFloat3 6.2s ease-in-out infinite alternate;
+  pointer-events: none;
+  position: absolute;
+  filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.85));
+}
+
+
