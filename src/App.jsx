@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Rubik3DView from './components/Rubik3DView';
 import Solo1v1Arena from './components/Solo1v1Arena';
 import HumanCheckModal from './components/HumanCheckModal';
 import { calculateScrambleMatch } from './utils/rubikSolver';
+import { solveWithKociemba, initKociembaSolver, verifyCubeStateWithKociemba } from './kociemba';
 import {
   detectAutomation,
   isHumanSessionValid,
@@ -660,25 +661,8 @@ function verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, 
 
 // Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
 function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto') {
-  // 1. Xác minh hình học cơ học khối Rubik trước tiên
+  // 1. Tính toán hình học cơ học hỗ trợ (seamScore làm điểm thưởng bổ sung)
   const geom = verifyRubikCubeMechanicalGeometry(frameImg, w, h, dim, startX, startY, boxSize);
-  if (!geom.isCube) {
-    return {
-      startX,
-      startY,
-      boxSize,
-      currentNxNColors: Array(dim * dim).fill('invalid'),
-      validColorsCount: 0,
-      vividColorsCount: 0,
-      uniqueColorsCount: 0,
-      sharpAdjacentEdges: 0,
-      colorTransitions: 0,
-      gridSeamContrast: geom.seamScore,
-      isGeometricallyVerifiedCube: false,
-      isMostlySkinOrWood: true,
-      score: -99999
-    };
-  }
 
   const cellSize = boxSize / dim;
   const currentNxNColors = [];
@@ -692,7 +676,7 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
       const cx = Math.floor(startX + col * cellSize + cellSize / 2);
       const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
-      // Lấy mẫu 9 điểm vệ tinh chống lóa UV
+      // Lấy mẫu trung vị HSV theo chuẩn Python OpenCV
       const sample = sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, surfaceProfileKey);
       if (!sample.valid) {
         currentNxNColors.push('invalid');
@@ -720,9 +704,9 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
     }
   }
 
-  // Khắt khe: nếu có sắc thái da người hoặc quá ít ô màu hợp lệ -> LOẠI BỎ NGAY
-  const isHumanFaceOrSkin = surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= 1;
-  const minValidStickers = Math.max(3, Math.ceil(dim * dim * 0.65));
+  // Khắt khe: nếu phát hiện da người quá nhiều hoặc quá ít ô màu hợp lệ -> Loại bỏ
+  const isHumanFaceOrSkin = surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= 2;
+  const minValidStickers = Math.max(3, Math.ceil(dim * dim * 0.44));
   const tooFewStickers = validColorsCount < minValidStickers;
 
   if (isHumanFaceOrSkin || tooFewStickers) {
@@ -1018,6 +1002,10 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     pushCandidate(spider.hitbox.cx, spider.hitbox.cy, spider.hitbox.boxSize, 5);
   }
 
+  // Luôn luôn có ứng viên khung ngắm trung tâm chuẩn Python OpenCV
+  pushCandidate(Math.floor(w / 2), Math.floor(h / 2), baseSize, 4);
+  pushCandidate(Math.floor(w / 2), Math.floor(h / 2), minSide * 0.48, 4);
+
   const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
   const adaptiveSize = span > minSide * 0.18 ? span * 1.25 : baseSize;
 
@@ -1043,7 +1031,7 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     }
   }
 
-  if (!bestEval || bestEval.score <= 0 || !bestEval.isGeometricallyVerifiedCube || bestEval.isMostlySkinOrWood) {
+  if (!bestEval || bestEval.score <= 0 || bestEval.validColorsCount < 3 || bestEval.isMostlySkinOrWood) {
     return {
       startX: Math.floor(w / 2 - baseSize / 2),
       startY: Math.floor(h / 2 - baseSize / 2),
@@ -1546,6 +1534,18 @@ export default function App() {
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
   const scrambleRef = useRef(scramble);
   useEffect(() => { scrambleRef.current = scramble; }, [scramble]);
+
+  // Bộ giải Kociemba Two-Phase Algorithm (~20 bước tối ưu)
+  const [showKociembaModal, setShowKociembaModal] = useState(false);
+
+  useEffect(() => {
+    initKociembaSolver();
+  }, []);
+
+  const kociembaOptimal = useMemo(() => {
+    if (puzzleType !== '3x3' || !scramble) return null;
+    return solveWithKociemba(scramble);
+  }, [scramble, puzzleType]);
 
   // Cho phép giải tự do (Freestyle) khi người dùng xáo khác công thức Scramble đề bài
   const [allowFreestyleScramble, setAllowFreestyleScramble] = useState(false);
@@ -3613,6 +3613,30 @@ export default function App() {
             <span style={{ fontSize: '0.65rem' }}>↻</span>
           </button>
 
+          {/* NÚT BỘ GIẢI KOCIEMBA */}
+          <button
+            type="button"
+            onClick={() => setShowKociembaModal(true)}
+            style={{
+              padding: '6px 13px',
+              borderRadius: '6px',
+              border: '1px solid #16a34a66',
+              background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.15))',
+              color: '#4ade80',
+              fontWeight: '700',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 0 10px rgba(34, 197, 94, 0.2)'
+            }}
+            title="Mở bộ giải Kociemba Two-Phase Algorithm tối ưu (≤ 20 bước)"
+          >
+            <span>⚡</span>
+            <span>Kociemba</span>
+          </button>
+
           {/* NÚT MỞ DASHBOARD */}
           <button
             onClick={() => setShowDashboardModal(true)}
@@ -4522,6 +4546,64 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* THANH NGHIỆM GIẢI TỐI ƯU KOCIEMBA (CHO DÒNG 3x3) */}
+                  {puzzleType === '3x3' && (
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      background: 'rgba(9, 15, 29, 0.85)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      boxShadow: '0 2px 10px rgba(0, 0, 0, 0.35)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.85rem' }}>⚡</span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#38bdf8' }}>
+                          Kociemba Two-Phase:
+                        </span>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontFamily: 'monospace',
+                          color: '#4ade80',
+                          fontWeight: '800',
+                          background: 'rgba(34, 197, 94, 0.16)',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #22c55e55'
+                        }}>
+                          {kociembaOptimal?.success ? `${kociembaOptimal.moveCount} bước tối ưu` : 'Đang tính...'}
+                        </span>
+                        {kociembaOptimal?.success && (
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                            ({kociembaOptimal.solution.slice(0, 28)}...)
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowKociembaModal(true)}
+                        style={{
+                          padding: '3px 10px',
+                          borderRadius: '5px',
+                          background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                          border: 'none',
+                          color: '#ffffff',
+                          fontSize: '0.7rem',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(2, 132, 199, 0.35)'
+                        }}
+                      >
+                        👁 Xem nghiệm Kociemba
+                      </button>
+                    </div>
+                  )}
+
                   {/* THANH KIỂM TOÁN ĐỐI CHIẾU SCRAMBLE THỰC TẾ QUA CAMERA */}
                   {cameraActive && !scrambleAudit.isPending && (
                     <div style={{ marginTop: '6px' }}>
@@ -5321,16 +5403,59 @@ export default function App() {
                   <div style={{ position: 'absolute', bottom: '-2px', left: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderLeft: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
                   <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderRight: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
 
-                  {detectedColors.map((colorKey, idx) => (
-                    <div key={idx} style={{ border: '0.5px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span style={{
-                        width: '5px',
-                        height: '5px',
-                        borderRadius: '50%',
-                        backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent'
-                      }} />
-                    </div>
-                  ))}
+                  {detectedColors.map((colorKey, idx) => {
+                    const colorDef = COLOR_DEFINITIONS[colorKey] || { name: '?', bg: 'transparent' };
+                    const viName =
+                      colorKey === 'white' ? 'Trắng' :
+                      colorKey === 'yellow' ? 'Vàng' :
+                      colorKey === 'green' ? 'Xanh lá' :
+                      colorKey === 'blue' ? 'Xanh dương' :
+                      colorKey === 'orange' ? 'Cam' :
+                      colorKey === 'red' ? 'Đỏ' : '?';
+
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          position: 'relative',
+                          border: '1px solid rgba(255, 255, 255, 0.35)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: colorKey !== 'invalid' ? `${colorDef.bg}35` : 'transparent'
+                        }}
+                      >
+                        {/* Khung cắt trung tâm 36% (le = 35% trong Python OpenCV) */}
+                        <div style={{
+                          position: 'absolute',
+                          width: '38%',
+                          height: '38%',
+                          border: '1px solid rgba(0, 255, 255, 0.75)',
+                          borderRadius: '2px',
+                          pointerEvents: 'none'
+                        }} />
+
+                        {/* Tên màu hiển thị trực quan hệt như cv2.putText trong Python */}
+                        {colorKey !== 'invalid' ? (
+                          <span style={{
+                            fontSize: '0.62rem',
+                            fontWeight: '900',
+                            color: '#ffffff',
+                            textShadow: '0 0 3px #000, 0 0 2px #000',
+                            zIndex: 2,
+                            background: 'rgba(0, 0, 0, 0.65)',
+                            padding: '1px 3px',
+                            borderRadius: '3px',
+                            lineHeight: 1
+                          }}>
+                            {viName}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.55rem', color: '#64748b' }}>?</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Nút chuyển nhanh theme góc dưới cam phụ */}
@@ -6273,6 +6398,194 @@ export default function App() {
         </div>
       )}
 
+      {/* ==========================================
+          MODAL: BỘ GIẢI RUBIK KOCIEMBA TWO-PHASE (OPTIMAL ≤ 20 BƯỚC)
+      ========================================== */}
+      {showKociembaModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 8, 16, 0.92)',
+          backdropFilter: 'blur(10px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999
+        }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '680px',
+            backgroundColor: currentHudTheme.cardBg,
+            border: `1.5px solid ${currentHudTheme.color}`,
+            borderRadius: '16px',
+            padding: '24px 26px',
+            boxShadow: `0 8px 32px ${currentHudTheme.glowColor}, 0 4px 16px rgba(0,0,0,0.7)`,
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setShowKociembaModal(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                fontSize: '1.3rem',
+                cursor: 'pointer',
+                fontWeight: '700'
+              }}
+            >
+              ✕
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '1.6rem' }}>⚡</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#f8fafc', fontWeight: '800' }}>
+                  Bộ Giải Rubik Tối Ưu Kociemba (Two-Phase Algorithm)
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                  Thuật toán tiêu chuẩn thế giới của Herbert Kociemba — Tìm chuỗi bước giải tối ưu ≤ 20-22 bước (God's Number)
+                </p>
+              </div>
+            </div>
+
+            {/* Thẻ Scramble hiện tại */}
+            <div style={{
+              background: '#090f1d',
+              border: '1px solid #1e293b',
+              borderRadius: '10px',
+              padding: '12px 14px',
+              marginBottom: '14px'
+            }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', marginBottom: '4px' }}>
+                ĐỀ BÀI SCRAMBLE (3x3):
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#cbd5e1', fontFamily: 'monospace', fontWeight: '700' }}>
+                {scramble}
+              </div>
+            </div>
+
+            {/* Kết quả Kociemba */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(6, 26, 17, 0.95), rgba(9, 15, 29, 0.95))',
+              border: '1.5px solid #22c55e',
+              borderRadius: '12px',
+              padding: '16px',
+              marginBottom: '16px',
+              boxShadow: '0 0 20px rgba(34, 197, 94, 0.25)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#4ade80', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🏆</span>
+                  <span>NGHIỆM GIẢI TỐI ƯU KOCIEMBA:</span>
+                </span>
+                <span style={{
+                  fontSize: '0.75rem',
+                  fontWeight: '800',
+                  color: '#ffffff',
+                  background: '#16a34a',
+                  padding: '2px 8px',
+                  borderRadius: '12px'
+                }}>
+                  {kociembaOptimal?.success ? `${kociembaOptimal.moveCount} BƯỚC` : 'LỖI'}
+                </span>
+              </div>
+
+              <div style={{
+                fontSize: '1.05rem',
+                color: '#4ade80',
+                fontFamily: 'monospace',
+                fontWeight: '800',
+                letterSpacing: '1px',
+                lineHeight: 1.6,
+                background: '#04110a',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid #16a34a44'
+              }}>
+                {kociembaOptimal?.success ? kociembaOptimal.solution : (kociembaOptimal?.error || 'Đang tính toán nghiệm...')}
+              </div>
+
+              {/* Giải thích 2 Phase */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginTop: '12px' }}>
+                <div style={{ background: 'rgba(2, 6, 23, 0.6)', padding: '8px 10px', borderRadius: '6px', border: '1px solid #1e293b' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: '800' }}>Phase 1 (G0 → G1):</div>
+                  <div style={{ fontSize: '0.66rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Đưa toàn bộ cạnh và góc về hướng đúng, chuyển nhóm xoay về &lt;U, D, R2, L2, F2, B2&gt;.
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(2, 6, 23, 0.6)', padding: '8px 10px', borderRadius: '6px', border: '1px solid #1e293b' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: '800' }}>Phase 2 (Hoán vị G1):</div>
+                  <div style={{ fontSize: '0.66rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Giải hoàn tất mọi vị trí viên Rubik về đúng mặt chỉ bằng các bước xoay kép.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Các nút hành động */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (kociembaOptimal?.solution) {
+                    navigator.clipboard?.writeText(kociembaOptimal.solution);
+                    setLastNotice({ text: '📋 Đã sao chép công thức giải Kociemba vào clipboard!', type: 'success' });
+                  }
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#ffffff',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>📋</span>
+                <span>Sao chép công thức</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setScramble(generateScramble('3x3'));
+                  setScannedFaces({});
+                  scannedFacesRef.current = {};
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                  border: 'none',
+                  color: '#ffffff',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>🔄</span>
+                <span>Xáo bài mới & Giải lại</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ==========================================
           MODAL: DASHBOARD THỐNG KÊ
