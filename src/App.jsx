@@ -2935,20 +2935,58 @@ export default function App() {
         };
         const mappedFace = faceCodeMap[effectiveCenterColor] || 'F';
         let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
+        let colorOverflowDetected = false;
+        let overflowColorName = '';
+
         if (isGenuineScrambledCube || isAllSameColor) {
           const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
+          // TUYỆT ĐỐI không điền màu tâm vào các ô invalid, giữ nguyên 'invalid' để báo cho người dùng biết ô chưa quét được
           const cleanedFaceColors = currentNxNColors.map((col, idx) =>
-            col !== 'invalid' ? col : (prevFaceColors[idx] || effectiveCenterColor)
+            col !== 'invalid' ? col : (prevFaceColors[idx] || 'invalid')
           );
-          const nextFaces = {
-            ...(scannedFacesRef.current || {}),
-            [mappedFace]: cleanedFaceColors
-          };
-          scannedFacesRef.current = nextFaces;
-          updatedFacesCount = Object.keys(nextFaces).length;
-          setScannedFaces(nextFaces);
-          setCurrentActiveFace(mappedFace);
-          currentActiveFaceRef.current = mappedFace;
+
+          // KIỂM ĐỊNH BẢO TOÀN ĐỊNH LUẬT MÀU RUBIK TỪ 2x2 ĐẾN 7x7:
+          // Mỗi màu chỉ được xuất hiện tối đa dim * dim ô trên toàn bộ 6 mặt (2x2: 4, 3x3: 9, 4x4: 16, 5x5: 25, 6x6: 36, 7x7: 49)
+          const maxAllowedPerColor = dim * dim;
+          const otherFaceUsage = { white: 0, yellow: 0, red: 0, orange: 0, green: 0, blue: 0 };
+          const otherFaces = { ...(scannedFacesRef.current || {}) };
+          delete otherFaces[mappedFace];
+          Object.values(otherFaces).forEach(fArr => {
+            if (Array.isArray(fArr)) {
+              fArr.forEach(c => {
+                if (otherFaceUsage.hasOwnProperty(c)) otherFaceUsage[c]++;
+              });
+            }
+          });
+
+          const currentTally = { ...otherFaceUsage };
+          const validatedFaceColors = cleanedFaceColors.map(c => {
+            if (!c || c === 'invalid' || !currentTally.hasOwnProperty(c)) return 'invalid';
+            if (currentTally[c] < maxAllowedPerColor) {
+              currentTally[c]++;
+              return c;
+            } else {
+              colorOverflowDetected = true;
+              overflowColorName = COLOR_DEFINITIONS[c]?.name || c;
+              return 'invalid'; // Chặn đứng việc có 10 ô màu xanh trên 3x3 hoặc thừa màu trên 4x4..7x7!
+            }
+          });
+
+          // Nếu có quá nhiều ô bị xung đột thừa màu (> 45% số ô) -> Khối đang bị nhìn nghiêng dính mặt bên
+          const invalidInThisFace = validatedFaceColors.filter(c => c === 'invalid').length;
+          const isTiltedSideFace = invalidInThisFace > Math.floor(dim * dim * 0.45);
+
+          if (!isTiltedSideFace) {
+            const nextFaces = {
+              ...(scannedFacesRef.current || {}),
+              [mappedFace]: validatedFaceColors
+            };
+            scannedFacesRef.current = nextFaces;
+            updatedFacesCount = Object.keys(nextFaces).length;
+            setScannedFaces(nextFaces);
+            setCurrentActiveFace(mappedFace);
+            currentActiveFaceRef.current = mappedFace;
+          }
         }
 
         const all6FaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
@@ -2957,16 +2995,20 @@ export default function App() {
         const hasScannedAll6 = currentScannedKeys.length >= 6;
         const req6Faces = adminSettingsRef.current?.requireAll6FacesPreCheck !== false;
 
-        // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI)
+        // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI & Cảnh báo mặt bên)
         if (isGenuineScrambledCube) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
           setModel3DVerification({
             verified: hasScannedAll6 || !req6Faces,
             badgeText: hasScannedAll6 ? '🟢 ĐỦ 6/6 MẶT' : `🔍 ĐÃ QUÉT ${updatedFacesCount}/6 MẶT`,
-            statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
-            detailText: hasScannedAll6
-              ? `Đã khớp đủ cả 6 mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
-              : `Đã quét ${updatedFacesCount}/6 mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Hãy xoay tiếp các mặt còn lại!`,
+            statusTitle: colorOverflowDetected
+              ? `⚠️ KHÔNG QUÉT ĐƯỢC MẶT BÊN: Thừa màu ${overflowColorName} (> ${dim * dim} ô trên ${dim}×${dim})!`
+              : `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
+            detailText: colorOverflowDetected
+              ? `Camera chỉ quét mặt chính diện vuông góc, không quét được mặt bên khi để nghiêng! Hãy quay thẳng 1 mặt vào giữa khung ngắm.`
+              : (hasScannedAll6
+                  ? `Đã khớp đủ cả 6 mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
+                  : `Đã quét ${updatedFacesCount}/6 mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Lưu ý: Camera chỉ quét mặt chính diện, không quét mặt bên khi nhìn xiên!`),
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });

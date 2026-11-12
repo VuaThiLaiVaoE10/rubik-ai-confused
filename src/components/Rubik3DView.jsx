@@ -510,7 +510,8 @@ export default function Rubik3DView({
     };
   }, [dim, width, height, surfaceProfile]);
 
-  // Real-time update of all 6 faces (cập nhật trực tiếp lên đúng mặt AI đang quét & xoay theo hướng)
+  // Real-time update of all 6 faces (Kiểm định bảo toàn màu Rubik toàn cục từ 2x2 đến 7x7)
+  // Ngăn chặn 100% hiện tượng thừa màu phi vật lý (ví dụ: 10 ô màu xanh trên 3x3)
   useEffect(() => {
     const mats = faceMaterialsRef.current;
     if (!mats || !mats.F) return;
@@ -519,34 +520,73 @@ export default function Rubik3DView({
     const baseFaces = scrambledBaselineRef.current;
     const validCount = detectedColors.filter((c) => c && c !== 'invalid').length;
     const curActiveFace = activeFace || 'F';
+    const allFaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
 
-    ['U', 'D', 'F', 'B', 'L', 'R'].forEach((faceCode) => {
-      const faceMats = mats[faceCode];
-      if (!faceMats) return;
+    // Giới hạn số lượng tối đa của MỖI màu trên toàn bộ 6 mặt của khối N×N (dim * dim)
+    // 2x2: tối đa 4 ô/màu | 3x3: tối đa 9 ô/màu | 4x4: tối đa 16 | 5x5: tối đa 25 | 6x6: tối đa 36 | 7x7: tối đa 49
+    const maxPerColor = dim * dim;
+    const colorUsage = {
+      white: 0,
+      yellow: 0,
+      red: 0,
+      orange: 0,
+      green: 0,
+      blue: 0
+    };
 
-      if (faceCode === curActiveFace && validCount >= 2) {
-        // Mặt AI đang nhận diện trực tiếp: cập nhật các ô màu thời gian thực
-        detectedColors.forEach((colorKey, idx) => {
-          const mat = faceMats[idx];
-          if (!mat) return;
-          const finalColor = (colorKey && colorKey !== 'invalid')
-            ? colorKey
-            : (scannedFaces?.[faceCode]?.[idx] || baseFaces?.[faceCode]?.[idx] || DEFAULT_FACE_KEYS[faceCode]);
-          mat.color.setHex(activePalette[finalColor] || activePalette.invalid);
-        });
+    // Thứ tự ưu tiên kiểm định:
+    // 1. Mặt đang nhận diện trực diện trước Camera (curActiveFace)
+    // 2. Các mặt đã quét lưu trong scannedFaces
+    // 3. Các mặt chưa quét (mặt bên/mặt sau)
+    const priorityFaceOrder = [curActiveFace, ...allFaceKeys.filter((f) => f !== curActiveFace)];
+
+    // Bước 1: Thu thập ứng viên màu cho từng mặt
+    const candidateColors = {};
+    priorityFaceOrder.forEach((fCode) => {
+      if (fCode === curActiveFace && validCount >= 2) {
+        // Mặt AI đang soi trực diện: lấy từ camera thời gian thực
+        candidateColors[fCode] = detectedColors.map((c, i) =>
+          c && c !== 'invalid' ? c : (scannedFaces?.[fCode]?.[i] || 'invalid')
+        );
+      } else if (scannedFaces?.[fCode] && Array.isArray(scannedFaces[fCode])) {
+        // Mặt đã quét thành công lưu trong scannedFaces
+        candidateColors[fCode] = scannedFaces[fCode].map((c) => c || 'invalid');
       } else {
-        // Các mặt khác: hiển thị màu đã lưu từ trước trong scannedFaces hoặc xáo trộn từ Scramble
-        const scannedArr = scannedFaces?.[faceCode];
-        const fallbackArr = baseFaces?.[faceCode] || [];
-        faceMats.forEach((mat, idx) => {
-          if (!mat) return;
-          const scannedColor = scannedArr?.[idx];
-          const colorKey = (scannedColor && scannedColor !== 'invalid')
-            ? scannedColor
-            : (fallbackArr[idx] || DEFAULT_FACE_KEYS[faceCode]);
-          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
-        });
+        // MẶT CHƯA QUÉT (Mặt bên / Mặt sau):
+        // Dùng ma trận xáo trộn Scramble nhưng đánh dấu rõ ràng, không được chiếm màu của mặt đang quét
+        candidateColors[fCode] = baseFaces?.[fCode] || Array(dim * dim).fill('invalid');
       }
+    });
+
+    // Bước 2: BẢO VỆ ĐỊNH LUẬT BẢO TOÀN MÀU TOÀN CỤC (CLAMP & SANITIZE 2x2 ĐẾN 7x7)
+    // Nếu tổng số ô của bất kỳ màu nào vượt quá dim * dim, các ô thừa bắt buộc chuyển thành 'invalid'
+    const finalSanitizedFaces = {};
+    priorityFaceOrder.forEach((fCode) => {
+      const rawArr = candidateColors[fCode] || [];
+      finalSanitizedFaces[fCode] = rawArr.map((col) => {
+        if (!col || col === 'invalid' || !colorUsage.hasOwnProperty(col)) {
+          return 'invalid';
+        }
+        if (colorUsage[col] < maxPerColor) {
+          colorUsage[col]++;
+          return col;
+        }
+        // Vượt quá giới hạn vật lý của khối Rubik -> trả về invalid (không cho phép xuất hiện 10 ô màu xanh trên 3x3)
+        return 'invalid';
+      });
+    });
+
+    // Bước 3: Cập nhật màu lên các Three.js Materials của mô hình 3D
+    allFaceKeys.forEach((faceCode) => {
+      const faceMats = mats[faceCode];
+      const faceColors = finalSanitizedFaces[faceCode];
+      if (!faceMats || !faceColors) return;
+
+      faceMats.forEach((mat, idx) => {
+        if (!mat) return;
+        const colorKey = faceColors[idx] || 'invalid';
+        mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
+      });
     });
 
     if (frontFrameMatRef.current) {
