@@ -1146,7 +1146,8 @@ export default function App() {
       inspectionDurationSec: 15,
       requireCameraToSolve: true,
       require3DCubePreCheck: true,
-      requireAll6FacesPreCheck: true,
+      requireAll6FacesPreCheck: false,
+      requiredPreCheckFaces: 3, // 3: Xác minh 3 mặt (Mặc định - Nhanh gọn cho Cuber) | 6: Bắt buộc đủ 6 mặt (Bản gốc nâng cao của Admin Khoa)
       requireCubeMoveDuringSolve: true,
       autoStopWhenSolved: true,
       adminVipBypass: true
@@ -1443,7 +1444,12 @@ export default function App() {
   const [editInspectionSec, setEditInspectionSec] = useState(adminSettings.inspectionDurationSec || 15);
   const [editRequireCam, setEditRequireCam] = useState(adminSettings.requireCameraToSolve !== false);
   const [editRequire3DPreCheck, setEditRequire3DPreCheck] = useState(adminSettings.require3DCubePreCheck !== false);
-  const [editRequireAll6Faces, setEditRequireAll6Faces] = useState(adminSettings.requireAll6FacesPreCheck !== false);
+  const [editRequiredFaces, setEditRequiredFaces] = useState(
+    adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3) ? 6 : 3
+  );
+  const [editRequireAll6Faces, setEditRequireAll6Faces] = useState(
+    adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3)
+  );
   const [editRequireMove, setEditRequireMove] = useState(adminSettings.requireCubeMoveDuringSolve !== false);
   const [editAutoStop, setEditAutoStop] = useState(adminSettings.autoStopWhenSolved !== false);
   const [editAdminVipBypass, setEditAdminVipBypass] = useState(adminSettings.adminVipBypass !== false);
@@ -2008,7 +2014,8 @@ export default function App() {
       inspectionDurationSec: Number(editInspectionSec) || 15,
       requireCameraToSolve: Boolean(editRequireCam),
       require3DCubePreCheck: Boolean(editRequire3DPreCheck),
-      requireAll6FacesPreCheck: Boolean(editRequireAll6Faces),
+      requireAll6FacesPreCheck: editRequiredFaces === 6,
+      requiredPreCheckFaces: editRequiredFaces,
       requireCubeMoveDuringSolve: Boolean(editRequireMove),
       autoStopWhenSolved: Boolean(editAutoStop),
       adminVipBypass: Boolean(editAdminVipBypass)
@@ -3167,34 +3174,35 @@ export default function App() {
         const all6FaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
         const currentScannedKeys = Object.keys(scannedFacesRef.current || {});
         const missingFaceKeys = all6FaceKeys.filter(f => !currentScannedKeys.includes(f));
-        const hasScannedAll6 = currentScannedKeys.length >= 6;
-        const req6Faces = adminSettingsRef.current?.requireAll6FacesPreCheck !== false;
+        const targetFaceCount = (adminSettingsRef.current?.requiredPreCheckFaces === 6 || adminSettingsRef.current?.requireAll6FacesPreCheck === true) ? 6 : 3;
+        const hasScannedTargetFaces = currentScannedKeys.length >= targetFaceCount;
+        const reqPreCheck = adminSettingsRef.current?.require3DCubePreCheck !== false;
 
         // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI & Cảnh báo mặt bên)
         if (isGenuineScrambledCube) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
           setModel3DThrottled({
-            verified: hasScannedAll6 || !req6Faces,
-            badgeText: hasScannedAll6 ? '🟢 ĐỦ 6/6 MẶT' : `🔍 ĐÃ QUÉT ${updatedFacesCount}/6 MẶT`,
+            verified: hasScannedTargetFaces || !reqPreCheck,
+            badgeText: hasScannedTargetFaces ? `🟢 ĐỦ ${targetFaceCount}/${targetFaceCount} MẶT` : `🔍 ĐÃ QUÉT ${updatedFacesCount}/${targetFaceCount} MẶT`,
             statusTitle: colorOverflowDetected
               ? `⚠️ KHÔNG QUÉT ĐƯỢC MẶT BÊN: Thừa màu ${overflowColorName} (> ${dim * dim} ô trên ${dim}×${dim})!`
               : `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
             detailText: colorOverflowDetected
               ? `Camera chỉ quét mặt chính diện vuông góc, không quét được mặt bên khi để nghiêng! Hãy quay thẳng 1 mặt vào giữa khung ngắm.`
-              : (hasScannedAll6
-                  ? `Đã khớp đủ cả 6 mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
-                  : `Đã quét ${updatedFacesCount}/6 mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Lưu ý: Camera chỉ quét mặt chính diện, không quét mặt bên khi nhìn xiên!`),
+              : (hasScannedTargetFaces
+                  ? `Đã khớp đủ ${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
+                  : `Đã quét ${updatedFacesCount}/${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Hãy xoay tiếp các mặt còn lại trước Camera.`),
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
         } else if (isAllSameColor) {
           setModel3DThrottled({
-            verified: (hasScannedAll6 || !req6Faces) && startScrambledRef.current && cubeStateChangedRef.current,
+            verified: (hasScannedTargetFaces || !reqPreCheck) && startScrambledRef.current && cubeStateChangedRef.current,
             badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
             statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
             detailText: startScrambledRef.current
               ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) từ lúc chưa giải đến khi hoàn thành!`
-              : `Mặt này đang đồng màu — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI quét đủ 6 mặt!`,
+              : `Mặt này đang đồng màu — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI quét đủ ${targetFaceCount} mặt!`,
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
@@ -3211,7 +3219,7 @@ export default function App() {
             // Throttle việc so khớp Scramble để không cày CPU ở mọi frame
             let scrambleMatch = scrambleAuditRef.current;
             if (faceChanged || now - lastScrambleAuditTimeRef.current > 320) {
-              scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim);
+              scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim, targetFaceCount);
               lastScrambleAuditTimeRef.current = now;
               const prevAudit = scrambleAuditRef.current;
               if (
@@ -3226,13 +3234,13 @@ export default function App() {
             }
             const isScrambleOk = scrambleMatch.isMatch || allowFreestyleScrambleRef.current || !scrambleRef.current;
 
-            if (req6Faces && !hasScannedAll6) {
-              // CHƯA QUÉT ĐỦ 6 MẶT -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP CÁC MẶT CÒN THIẾU
+            if (reqPreCheck && !hasScannedTargetFaces) {
+              // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP
               setPreCheckThrottled({
                 verified: false,
                 text: scrambleMatch.isMismatch && !allowFreestyleScrambleRef.current
-                  ? `⚠️ CẢNH BÁO: SCRAMBLE ĐANG KHÁC ĐỀ BÀI (Khớp ${scrambleMatch.matchRate}%)! Đã quét ${currentScannedKeys.length}/6 mặt. Tiếp tục quét [${missingFaceKeys.join(', ')}] hoặc bấm "Giải tự do".`
-                  : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${missingFaceKeys.length} mặt còn thiếu: [${missingFaceKeys.join(', ')}]`,
+                  ? `⚠️ CẢNH BÁO: SCRAMBLE ĐANG KHÁC ĐỀ BÀI (Khớp ${scrambleMatch.matchRate}%)! Đã quét ${currentScannedKeys.length}/${targetFaceCount} mặt. Tiếp tục quét hoặc bấm "Giải tự do".`
+                  : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
@@ -3256,18 +3264,18 @@ export default function App() {
                 verified: false,
                 badgeText: `❌ SAI SCRAMBLE (${scrambleMatch.matchRate}%)`,
                 statusTitle: `⚠️ Khối xáo thực tế KHÔNG KHỚP công thức Scramble đề bài!`,
-                detailText: `AI đã đối chiếu 24 góc xoay: Khối của bạn chỉ khớp ${scrambleMatch.matchRate}% với đề bài WCA. Hãy xáo lại hoặc bấm "⚡ Giải tự do" để tiếp tục.`,
+                detailText: `AI đã đối chiếu ${targetFaceCount} mặt: Khối của bạn chỉ khớp ${scrambleMatch.matchRate}% với đề bài WCA. Hãy xáo lại hoặc bấm "⚡ Giải tự do" để tiếp tục.`,
                 facesCount: updatedFacesCount,
                 validStickers: validColorsCount
               });
             } else {
-              // ĐÃ QUÉT ĐỦ CẢ 6 MẶT VÀ KHỚP ĐỀ BÀI (HOẶC ĐƯỢC PHÉP GIẢI TỰ DO) -> MỞ KHÓA GIẢI!
+              // ĐÃ QUÉT ĐỦ CẢ 3 (HOẶC 6) MẶT VÀ KHỚP ĐỀ BÀI (HOẶC ĐƯỢC PHÉP GIẢI TỰ DO) -> MỞ KHÓA GIẢI!
               if (timerStateRef.current === 'inspecting') {
                 startScrambledRef.current = true;
               }
               const matchNotice = allowFreestyleScrambleRef.current
                 ? '⚡ ĐÃ DUYỆT CHẾ ĐỘ GIẢI TỰ DO (Freestyle Scramble)'
-                : `🟢 ĐÃ XÁC MINH KHỚP 100% SCRAMBLE WCA (${scrambleMatch.matchRate}%)`;
+                : `🟢 ĐÃ XÁC MINH KHỚP 100% SCRAMBLE WCA (${scrambleMatch.matchRate}%) [${currentScannedKeys.length}/${targetFaceCount} MẶT]`;
               setPreCheckThrottled({
                 verified: true,
                 text: `${matchNotice} — Sẵn sàng bấm giờ giải!`,
@@ -3282,16 +3290,16 @@ export default function App() {
           } else {
             validCubeStreakRef.current = 0;
             const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
-            if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0 && (!req6Faces || hasScannedAll6)) {
+            if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0 && (!reqPreCheck || hasScannedTargetFaces)) {
               setPreCheckThrottled({
                 ...(preCheckRef.current || {}),
                 verified: true,
-                text: `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TRÊN 3D — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
+                text: `🟢 ĐÃ XÁC MINH ${targetFaceCount} MẶT TRÊN 3D — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
               });
-            } else if (currentScannedKeys.length > 0 && currentScannedKeys.length < 6) {
+            } else if (currentScannedKeys.length > 0 && currentScannedKeys.length < targetFaceCount) {
               setPreCheckThrottled({
                 verified: false,
-                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay tiếp các mặt còn thiếu: [${missingFaceKeys.join(', ')}] trước Camera`,
+                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay tiếp các mặt còn thiếu trước Camera`,
                 isScrambled: false,
                 centerFace: null,
                 scannedCount: currentScannedKeys.length,
@@ -3300,7 +3308,7 @@ export default function App() {
             } else if (lastCubeVerifiedAtRef.current === 0 || now - lastCubeVerifiedAtRef.current > 25000) {
               setPreCheckThrottled({
                 verified: false,
-                text: `🔍 Đưa khối Rubik (${dim}×${dim}) vào trước Camera và xoay đủ 6 mặt để AI phân tích lên Mô hình 3D...`,
+                text: `🔍 Đưa khối Rubik (${dim}×${dim}) vào trước Camera và xoay ${targetFaceCount} mặt để AI phân tích lên Mô hình 3D...`,
                 isScrambled: false,
                 centerFace: null,
                 scannedCount: 0,
@@ -3441,6 +3449,9 @@ export default function App() {
     setEditInspectionSec(adminSettings.inspectionDurationSec || 15);
     setEditRequireCam(adminSettings.requireCameraToSolve !== false);
     setEditRequire3DPreCheck(adminSettings.require3DCubePreCheck !== false);
+    const facesMode = adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3) ? 6 : 3;
+    setEditRequiredFaces(facesMode);
+    setEditRequireAll6Faces(facesMode === 6);
     setEditRequireMove(adminSettings.requireCubeMoveDuringSolve !== false);
     setEditAutoStop(adminSettings.autoStopWhenSolved !== false);
     setEditAdminVipBypass(adminSettings.adminVipBypass !== false);
@@ -4522,7 +4533,7 @@ export default function App() {
                       color: '#4ade80',
                       fontWeight: '700'
                     }}>
-                      Đã lưu {Object.keys(scannedFaces).length}/6 mặt
+                      Đã lưu {Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt
                     </span>
                   )}
                 </div>
@@ -4950,9 +4961,10 @@ export default function App() {
                         type="button"
                         onClick={() => {
                           setScannedFaces({});
+                          const targetCount = (adminSettingsRef.current?.requiredPreCheckFaces === 6 || adminSettingsRef.current?.requireAll6FacesPreCheck === true) ? 6 : 3;
                           setPreCheckStatus({
                             verified: false,
-                            text: 'Đã đặt lại 6 mặt. Hãy xoay khối Rubik trước Camera để AI quét lần lượt cả 6 mặt.',
+                            text: `Đã đặt lại bộ nhớ quét. Hãy xoay khối Rubik trước Camera để AI quét ${targetCount} mặt.`,
                             isScrambled: false,
                             centerFace: null
                           });
@@ -4968,11 +4980,11 @@ export default function App() {
                           flex: 1
                         }}
                       >
-                        🔄 Quét lại ({Object.keys(scannedFaces).length}/6 mặt)
+                        🔄 Quét lại ({Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt)
                       </button>
                     )}
 
-                    {Object.keys(scannedFaces).length < 6 && (
+                    {Object.keys(scannedFaces).length < (adminSettings.requiredPreCheckFaces === 6 ? 6 : 3) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -4986,7 +4998,7 @@ export default function App() {
                           });
                           lastCubeVerifiedAtRef.current = performance.now();
                         }}
-                        title="Bấm để mở khóa đồng hồ ngay mà không cần xoay quét đủ cả 6 mặt"
+                        title={`Bấm để mở khóa đồng hồ ngay mà không cần xoay quét đủ cả ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt`}
                         style={{
                           padding: '3px 8px',
                           borderRadius: '5px',
@@ -5348,12 +5360,12 @@ export default function App() {
                 !cameraActive
                   ? '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
                   : !preCheckStatus.verified
-                    ? (Object.keys(scannedFaces).length > 0 && Object.keys(scannedFaces).length < 6
-                        ? `🔒 CHƯA QUÉT ĐỦ 6 MẶT: Đã quét ${Object.keys(scannedFaces).length}/6 mặt — Hãy xoay tiếp các mặt còn thiếu: [${['U','D','F','B','L','R'].filter(f => !scannedFaces[f]).join(', ')}]`
-                        : `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera và xoay đủ 6 mặt để mở khóa đồng hồ`)
+                    ? (Object.keys(scannedFaces).length > 0 && Object.keys(scannedFaces).length < (adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)
+                        ? `🔒 CHƯA QUÉT ĐỦ ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} MẶT: Đã quét ${Object.keys(scannedFaces).length}/${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt — Hãy xoay tiếp các mặt còn thiếu`
+                        : `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera và xoay ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt để mở khóa đồng hồ`)
                     : isMobile
-                      ? `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT — Chạm giữ bên dưới để giải!`
-                      : `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT — Giữ phím SPACE để giải!`
+                      ? `🟢 ĐÃ XÁC MINH ${adminSettings.requiredPreCheckFaces === 6 ? 'ĐỦ CẢ 6 MẶT' : '3 MẶT'} — Chạm giữ bên dưới để giải!`
+                      : `🟢 ĐÃ XÁC MINH ${adminSettings.requiredPreCheckFaces === 6 ? 'ĐỦ CẢ 6 MẶT' : '3 MẶT'} — Giữ phím SPACE để giải!`
               )}
             </div>
 
@@ -7143,14 +7155,62 @@ export default function App() {
                     <span>🧊 Bắt buộc xác minh khối Rubik thật trên Mô hình 3D trước khi cho bấm giờ</span>
                   </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={editRequireAll6Faces}
-                      onChange={(e) => setEditRequireAll6Faces(e.target.checked)}
-                    />
-                    <span>🧩 Bắt buộc người chơi phải xoay quét đủ cả 6 mặt khối Rubik mới mở khóa đồng hồ</span>
-                  </label>
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                    marginTop: '2px',
+                    marginBottom: '2px'
+                  }}>
+                    <div style={{ fontSize: '0.76rem', fontWeight: '800', color: '#38bdf8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🎯 Số mặt Rubik AI bắt buộc quét xác minh trước khi giải:</span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '0.76rem',
+                        color: editRequiredFaces === 3 ? '#4ade80' : '#94a3b8',
+                        cursor: 'pointer',
+                        fontWeight: editRequiredFaces === 3 ? '700' : '400'
+                      }}>
+                        <input
+                          type="radio"
+                          name="requiredFacesRadio"
+                          checked={editRequiredFaces === 3}
+                          onChange={() => {
+                            setEditRequiredFaces(3);
+                            setEditRequireAll6Faces(false);
+                          }}
+                        />
+                        <span>⚡ <strong>Chỉ xác minh 3 mặt (Mặc định - Nhanh gọn & Tiện lợi cho Cuber)</strong> — Quét nhanh 3 mặt là mở khóa đồng hồ ngay</span>
+                      </label>
+
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '0.76rem',
+                        color: editRequiredFaces === 6 ? '#fbbf24' : '#94a3b8',
+                        cursor: 'pointer',
+                        fontWeight: editRequiredFaces === 6 ? '700' : '400'
+                      }}>
+                        <input
+                          type="radio"
+                          name="requiredFacesRadio"
+                          checked={editRequiredFaces === 6}
+                          onChange={() => {
+                            setEditRequiredFaces(6);
+                            setEditRequireAll6Faces(true);
+                          }}
+                        />
+                        <span>🔒 <strong>Bắt buộc quét đủ cả 6 mặt (Bản gốc của Admin Khoa - Chuẩn WCA nghiêm ngặt)</strong> — Giữ riêng trong quản trị viên để Khoa kiểm định & cải thiện tiếp</span>
+                      </label>
+                    </div>
+                  </div>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
                     <input

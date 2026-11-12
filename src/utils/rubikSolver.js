@@ -189,15 +189,15 @@ export function getAll24CubeOrientations(baseCube, dim) {
 }
 
 // ĐỐI CHIẾU THỰC TẾ: So sánh các mặt Camera đã quét với chuỗi Scramble đề bài
-// Chống triệt để việc xáo sai công thức mà AI nhận diện nhầm là đúng
-export function calculateScrambleMatch(targetScramble, scannedFaces, dim = 3) {
+// Hỗ trợ chế độ xác minh 3 mặt (Mặc định - nhanh gọn cho cuber) hoặc 6 mặt (Bản gốc của Admin Khoa - chuẩn WCA nghiêm ngặt)
+export function calculateScrambleMatch(targetScramble, scannedFaces, dim = 3, requiredFaces = 3) {
   if (!scannedFaces || typeof scannedFaces !== 'object') {
-    return { matchCount: 0, totalScanned: 0, matchRate: 0, isMatch: false, isMismatch: false, isPending: true, scannedFaceCount: 0 };
+    return { matchCount: 0, totalScanned: 0, matchRate: 0, isMatch: false, isMismatch: false, isPending: true, scannedFaceCount: 0, requiredFaces: requiredFaces <= 3 ? 3 : 6 };
   }
 
   const scannedKeys = Object.keys(scannedFaces).filter(k => Array.isArray(scannedFaces[k]) && scannedFaces[k].length > 0);
   if (scannedKeys.length === 0) {
-    return { matchCount: 0, totalScanned: 0, matchRate: 0, isMatch: false, isMismatch: false, isPending: true, scannedFaceCount: 0 };
+    return { matchCount: 0, totalScanned: 0, matchRate: 0, isMatch: false, isMismatch: false, isPending: true, scannedFaceCount: 0, requiredFaces: requiredFaces <= 3 ? 3 : 6 };
   }
 
   // Đếm tổng số ô màu hợp lệ đã quét
@@ -254,20 +254,20 @@ export function calculateScrambleMatch(targetScramble, scannedFaces, dim = 3) {
 
   const matchRate = totalScanned > 0 ? Math.round((bestMatch / totalScanned) * 100) : 0;
 
-  // ĐIỀU KIỆN XÁC MINH KHỚP CHUẨN WCA (isMatch):
-  // - Phải quét ít nhất 5/6 mặt (tránh quét 1-2 mặt mà đã vội vàng báo đúng)
-  // - Tổng số ô đã quét phải đạt ít nhất 80% tổng số ô (VD: 3x3 phải có >= 44 ô)
-  // - Độ khớp phải đạt >= 86% (ngăn chặn triệt để việc thiếu/sai 1 lượt xoay như D2, R', F2)
-  const minFacesReq = dim === 2 ? 4 : 5;
-  const minStickersReq = Math.floor(dim * dim * (dim === 2 ? 3.5 : 4.5));
+  // ĐIỀU KIỆN XÁC MINH KHỚP CHUẨN (isMatch):
+  // - Chế độ 3 mặt: Yêu cầu quét >= 3 mặt (hoặc >= 2 mặt với 2x2)
+  // - Chế độ 6 mặt (Admin Khoa): Yêu cầu quét >= 5 mặt (hoặc >= 4 mặt với 2x2)
+  const isMode3 = requiredFaces <= 3;
+  const minFacesReq = isMode3 ? (dim === 2 ? 2 : 3) : (dim === 2 ? 4 : 5);
+  const minStickersReq = Math.floor(dim * dim * (isMode3 ? (dim === 2 ? 1.6 : 2.4) : (dim === 2 ? 3.5 : 4.5)));
   const hasEnoughFaces = scannedKeys.length >= minFacesReq && totalScanned >= minStickersReq;
 
-  const isMatch = hasEnoughFaces && matchRate >= 86;
+  const isMatch = hasEnoughFaces && matchRate >= (isMode3 ? 84 : 86);
 
   // ĐIỀU KIỆN PHÁT HIỆN XÁO SAI CÔNG THỨC (isMismatch):
   // - Nếu đã quét từ 2 mặt trở lên mà độ khớp < 60% -> Khối đang xáo lệch công thức
-  // - Hoặc nếu đã quét đủ từ 5 mặt trở lên mà độ khớp < 83% -> Sai công thức WCA
-  const isMismatch = (scannedKeys.length >= 2 && matchRate < 60) || (hasEnoughFaces && matchRate < 83);
+  // - Hoặc nếu đã quét đủ số mặt yêu cầu mà độ khớp < 78% (3 mặt) hoặc < 83% (6 mặt) -> Sai công thức WCA
+  const isMismatch = (scannedKeys.length >= 2 && matchRate < 60) || (hasEnoughFaces && matchRate < (isMode3 ? 78 : 83));
 
   // Trạng thái đang quét tiếp (chưa đủ điều kiện kết luận đúng hay sai)
   const isPending = !isMatch && !isMismatch;
@@ -279,7 +279,8 @@ export function calculateScrambleMatch(targetScramble, scannedFaces, dim = 3) {
     isMatch,
     isMismatch,
     isPending,
-    scannedFaceCount: scannedKeys.length
+    scannedFaceCount: scannedKeys.length,
+    requiredFaces: isMode3 ? 3 : 6
   };
 }
 
