@@ -19,6 +19,7 @@ import {
   calculateEloDelta,
   getRankTier
 } from '../utils/cloudBackend';
+import { calculateAo } from '../utils/timerStats';
 
 describe('WCA Scramble Generator & Config', () => {
   it('generates valid scrambles for 2x2 through 7x7 without consecutive same-face moves', () => {
@@ -91,5 +92,11 @@ describe('Security Shield & ELO Ranking', () => {
     expect(win.newRatingB).toBe(1184);
     expect(getRankTier(2300).id).toBe('grandmaster');
     expect(getRankTier(900).id).toBe('rookie');
+  });
+
+  it('computes WCA Ao5 trimming best and worst solves', () => {
+    const solves = [{ time: 8.0 }, { time: 10.0 }, { time: 11.0 }, { time: 12.0 }, { time: 20.0 }];
+    expect(calculateAo(solves, 5)).toBe('11.00');
+    expect(calculateAo(solves.slice(0, 3), 5)).toBe('--');
   });
 });

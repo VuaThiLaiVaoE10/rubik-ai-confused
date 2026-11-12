@@ -359,7 +359,7 @@ export function classifyCenterStickerFallback(avgR, avgG, avgB) {
 
 // Lấy mẫu ô màu Rubik bằng kỹ thuật cắt vùng trung tâm & Trung vị HSV (Median OpenCV)
 // Tương đương lay_mau_trung_vi(vung_bgr) trong Python: loại bỏ 100% đốm lóa UV và viền đen
-export function sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, surfaceProfileKey) {
+export function sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, _surfaceProfileKey) {
   // Lấy vùng trung tâm 36% của ô (bỏ lề 32% mỗi phía để tránh hoàn toàn viền rãnh đen cơ học)
   const span = Math.max(2, Math.floor(cellSize * 0.18));
   const step = Math.max(1, Math.floor(span / 4));

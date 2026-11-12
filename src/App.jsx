@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import RadarHudOverlay from './components/RadarHudOverlay';
 const Rubik3DView = lazy(() => import('./components/Rubik3DView'));
 const Solo1v1Arena = lazy(() => import('./components/Solo1v1Arena'));
 const HumanCheckModal = lazy(() => import('./components/HumanCheckModal'));
@@ -55,30 +56,7 @@ import {
   evaluateRubikGridCandidate,
   locateDynamicRubikBox
 } from './vision/rubikVision';
-
-// Accurate WCA Average of N
-function calculateAo(solvesList, count) {
-  if (!solvesList || solvesList.length < count) return '--';
-  const times = solvesList.slice(0, count).map(s => s.time);
-  const min = Math.min(...times);
-  const max = Math.max(...times);
-  let removedMin = false;
-  let removedMax = false;
-  const trimmed = [];
-  for (const t of times) {
-    if (!removedMin && t === min) {
-      removedMin = true;
-      continue;
-    }
-    if (!removedMax && t === max) {
-      removedMax = true;
-      continue;
-    }
-    trimmed.push(t);
-  }
-  const sum = trimmed.reduce((a, b) => a + b, 0);
-  return (sum / trimmed.length).toFixed(2);
-}
+import { calculateAo } from './utils/timerStats';
 
 export default function App() {
   // ==========================================
@@ -5307,95 +5285,12 @@ export default function App() {
                       )}
 
                       {/* LƯỚI QUÉT RADAR HUD THEO TỪNG THEME (Spider Cyber / Sakura Pulse / Thunder Bolt / Frost Hex) */}
-                      <svg
-                        viewBox="0 0 100 100"
-                        preserveAspectRatio="none"
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          pointerEvents: 'none',
-                          zIndex: 1
-                        }}
-                      >
-                        {/* 1. THEME CYBER: LƯỚI MẠNG NHỆN SPIDER RAY-CASTING */}
-                        {hudThemeKey === 'cyber' && (
-                          trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
-                            <>
-                              {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
-                                const ringPoints = trackingBox.spiderRays.map(r => {
-                                  const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
-                                  const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                                  return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
-                                }).join(' ');
-                                return (
-                                  <polygon
-                                    key={rIdx}
-                                    points={ringPoints}
-                                    fill="none"
-                                    stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                                    strokeOpacity={0.4}
-                                    strokeWidth={rIdx === 2 ? '1.0' : '0.6'}
-                                    strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
-                                  />
-                                );
-                              })}
-                              {trackingBox.spiderRays.map((r, i) => (
-                                <line
-                                  key={i}
-                                  x1={trackingBox.cxPct}
-                                  y1={trackingBox.cyPct}
-                                  x2={r.xPct}
-                                  y2={r.yPct}
-                                  stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                                  strokeOpacity={0.4}
-                                  strokeWidth="0.6"
-                                />
-                              ))}
-                            </>
-                          ) : (
-                            <g opacity="0.45">
-                              <circle cx="50" cy="50" r="20" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                              <circle cx="50" cy="50" r="38" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                              <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                              <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                            </g>
-                          )
-                        )}
-
-                        {/* 2. THEME SAKURA: RADAR HOA ANH ĐÀO THANH KHIẾT (KHÔNG MẠNG NHỆN) */}
-                        {hudThemeKey === 'sakura' && (
-                          <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="16" fill="rgba(244, 114, 182, 0.05)" stroke="#f472b6" strokeWidth="0.9" strokeDasharray="3,3" />
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="30" fill="none" stroke="#fb7185" strokeWidth="0.75" strokeDasharray="4,3" />
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="42" fill="none" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,3" />
-                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="12" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="88" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
-                            <line x1="12" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="88" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
-                          </g>
-                        )}
-
-                        {/* 3. THEME THUNDER: RADAR LÔI THẦN ĐIỆN TỪ */}
-                        {hudThemeKey === 'thunder' && (
-                          <g opacity={trackingBox.isLocked ? '0.9' : '0.6'}>
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="20" fill="none" stroke="#facc15" strokeWidth="1" strokeDasharray="4,2" />
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="35" fill="none" stroke="#c084fc" strokeWidth="0.8" strokeDasharray="3,3" />
-                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="8" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="92" stroke="#facc15" strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="8" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="92" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#facc15" strokeWidth="0.6" strokeDasharray="2,2" />
-                          </g>
-                        )}
-
-                        {/* 4. THEME FROST: RADAR BĂNG GIÁ LỤC GIÁC */}
-                        {hudThemeKey === 'frost' && (
-                          <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="18" fill="none" stroke="#38bdf8" strokeWidth="0.9" strokeDasharray="3,3" />
-                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="32" fill="none" stroke="#a5f3fc" strokeWidth="0.8" strokeDasharray="4,2" />
-                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="12" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="88" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
-                            <line x1="12" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="88" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
-                          </g>
-                        )}
-                      </svg>
+                      <RadarHudOverlay
+                        hudThemeKey={hudThemeKey}
+                        currentHudTheme={currentHudTheme}
+                        trackingBox={trackingBox}
+                        solveStep={solveStep}
+                      />
 
                       {/* KHUNG HITBOX RUBIK CHUẨN XÁC 1:1 HÌNH VUÔNG VỚI 4 GÓC TACTICAL BRACKETS */}
                       {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
@@ -5765,87 +5660,12 @@ export default function App() {
                 )}
 
                 {/* LƯỚI QUÉT RADAR HUD THEO THEME (MOBILE) */}
-                <svg
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    pointerEvents: 'none',
-                    zIndex: 1
-                  }}
-                >
-                  {hudThemeKey === 'cyber' && (
-                    trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
-                      <>
-                        {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
-                          const ringPoints = trackingBox.spiderRays.map(r => {
-                            const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
-                            const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                            return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
-                          }).join(' ');
-                          return (
-                            <polygon
-                              key={rIdx}
-                              points={ringPoints}
-                              fill="none"
-                              stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                              strokeOpacity={0.4}
-                              strokeWidth={rIdx === 2 ? '1.0' : '0.6'}
-                              strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
-                            />
-                          );
-                        })}
-                        {trackingBox.spiderRays.map((r, i) => (
-                          <line
-                            key={i}
-                            x1={trackingBox.cxPct}
-                            y1={trackingBox.cyPct}
-                            x2={r.xPct}
-                            y2={r.yPct}
-                            stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                            strokeOpacity={0.4}
-                            strokeWidth="0.6"
-                          />
-                        ))}
-                      </>
-                    ) : (
-                      <g opacity="0.45">
-                        <circle cx="50" cy="50" r="22" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                        <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                        <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                      </g>
-                    )
-                  )}
-
-                  {hudThemeKey === 'sakura' && (
-                    <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
-                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="16" fill="none" stroke="#f472b6" strokeWidth="0.8" strokeDasharray="3,3" />
-                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="30" fill="none" stroke="#fb7185" strokeWidth="0.7" strokeDasharray="3,3" />
-                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="10" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="90" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
-                      <line x1="10" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="90" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
-                    </g>
-                  )}
-
-                  {hudThemeKey === 'thunder' && (
-                    <g opacity={trackingBox.isLocked ? '0.9' : '0.6'}>
-                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="20" fill="none" stroke="#facc15" strokeWidth="0.9" strokeDasharray="3,2" />
-                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="8" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="92" stroke="#facc15" strokeWidth="0.5" strokeDasharray="2,2" />
-                      <line x1="8" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="92" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#facc15" strokeWidth="0.5" strokeDasharray="2,2" />
-                    </g>
-                  )}
-
-                  {hudThemeKey === 'frost' && (
-                    <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
-                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="18" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
-                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="10" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="90" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
-                      <line x1="10" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="90" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
-                    </g>
-                  )}
-                </svg>
+                <RadarHudOverlay
+                  hudThemeKey={hudThemeKey}
+                  currentHudTheme={currentHudTheme}
+                  trackingBox={trackingBox}
+                  solveStep={solveStep}
+                />
 
                 {/* KHUNG HITBOX RUBIK CHUẨN XÁC 1:1 HÌNH VUÔNG (MOBILE) */}
                 {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
