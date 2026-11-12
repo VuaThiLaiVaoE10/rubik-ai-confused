@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Rubik3DView from './components/Rubik3DView';
 import Solo1v1Arena from './components/Solo1v1Arena';
 import HumanCheckModal from './components/HumanCheckModal';
+import { calculateScrambleMatch } from './utils/rubikSolver';
 import {
   detectAutomation,
   isHumanSessionValid,
@@ -453,24 +454,41 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   const cb = 128 - 0.168736 * avgR - 0.331264 * avgG + 0.5 * avgB;
   const cr = 128 + 0.5 * avgR - 0.418688 * avgG - 0.081312 * avgB;
 
-  // 2. XANH DƯƠNG (Blue / Cobalt / UV Sky Blue): b* âm rõ rệt hoặc Hue 170°..278°
-  if ((h >= 170 && h < 278) || (lab.b <= -11 && deGlared.b > deGlared.r * 1.15)) {
-    if (deGlared.b >= deGlared.g * 0.95 && deGlared.b > deGlared.r * 1.15 && deGlared.b >= 80) {
+  // 2. VÀNG (Yellow / Lemon Fluorescent / Pastel Yellow):
+  // Đặc trưng vật lý nhựa Rubik: Cả R và G đều rất cao (R, G >= 90), R >= G * 0.62 (vàng luôn có R chiếm phần lớn G, khác hẳn xanh lá có R < 55% G).
+  // Kênh B thấp rõ rệt (R > B * 1.22 && G > B * 1.22).
+  // b* dương cao (b* >= 16), Hue 35°..84° (vàng chanh huỳnh quang GAN/Moyu đạt Hue 76°..82°).
+  // ĐẶT TRƯỚC XANH LÁ để triệt để loại bỏ lỗi vàng chanh bị nhận nhầm thành xanh!
+  const isYellowCandidate =
+    (h >= 35 && h <= 84 && deGlared.r >= 90 && deGlared.g >= 90) ||
+    (lab.b >= 20 && deGlared.r >= 85 && deGlared.g >= 85 && deGlared.r > deGlared.b * 1.20 && deGlared.g > deGlared.b * 1.20);
+
+  if (isYellowCandidate) {
+    const rToGRatio = deGlared.r / Math.max(deGlared.g, 1);
+    const isLemonOrWarmYellow =
+      rToGRatio >= 0.62 &&
+      deGlared.r > deGlared.b * 1.22 &&
+      deGlared.g > deGlared.b * 1.22 &&
+      (surfaceProfileKey === 'pastel' || cb <= 95 || lab.b >= 16);
+
+    if (isLemonOrWarmYellow) {
+      return 'yellow';
+    }
+  }
+
+  // 3. XANH DƯƠNG (Blue / Cobalt / UV Sky Blue): b* âm rõ rệt hoặc Hue 175°..278°
+  if ((h >= 175 && h < 278) || (lab.b <= -10 && deGlared.b > deGlared.r * 1.20)) {
+    if (deGlared.b >= deGlared.g * 0.96 && deGlared.b > deGlared.r * 1.18 && deGlared.b >= 75) {
       return 'blue';
     }
   }
 
-  // 3. XANH LÁ (Green / Lime Fluoro / Mint Pastel): a* âm rõ rệt hoặc Hue 73°..172°
-  if ((h >= 73 && h < 172) || (lab.a <= -11 && deGlared.g > deGlared.r * 1.05 && deGlared.g > deGlared.b * 1.03)) {
-    if (deGlared.g > deGlared.r * 1.04 && deGlared.g >= deGlared.b * 0.98 && deGlared.g >= 80) {
+  // 4. XANH LÁ (Green / Lime Fluoro / Mint Pastel):
+  // Đặc trưng vật lý nhựa Rubik xanh lá: Kênh G vượt trội hoàn toàn so với R (G > R * 1.30, tức R/G < 0.70).
+  // a* âm rõ rệt (a* <= -14), Hue từ 82° đến 172°.
+  if ((h >= 82 && h < 172) || (lab.a <= -14 && deGlared.g > deGlared.r * 1.35 && deGlared.g > deGlared.b * 1.05)) {
+    if (deGlared.g > deGlared.r * 1.30 && deGlared.g >= deGlared.b * 1.02 && deGlared.g >= 75) {
       return 'green';
-    }
-  }
-
-  // 4. VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R, B thấp và Hue 37°..75°
-  if (h >= 37 && h < 75) {
-    if (deGlared.r > deGlared.b * 1.30 && deGlared.g > deGlared.b * 1.30 && deGlared.r >= 120 && deGlared.g >= 120 && (surfaceProfileKey === 'pastel' || cb <= 85)) {
-      return 'yellow';
     }
   }
 
@@ -1540,6 +1558,18 @@ export default function App() {
   const [timerState, setTimerState] = useState('idle');
   const [timeMs, setTimeMs] = useState(0);
   const [scramble, setScramble] = useState(() => generateScramble(puzzleType));
+  const scrambleRef = useRef(scramble);
+  useEffect(() => { scrambleRef.current = scramble; }, [scramble]);
+
+  // Cho phép giải tự do (Freestyle) khi người dùng xáo khác công thức Scramble đề bài
+  const [allowFreestyleScramble, setAllowFreestyleScramble] = useState(false);
+  const allowFreestyleScrambleRef = useRef(false);
+  useEffect(() => { allowFreestyleScrambleRef.current = allowFreestyleScramble; }, [allowFreestyleScramble]);
+
+  // Kiểm toán độ chính xác của khối xáo so với công thức Scramble đề bài
+  const [scrambleAudit, setScrambleAudit] = useState({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
+  const scrambleAuditRef = useRef(scrambleAudit);
+  useEffect(() => { scrambleAuditRef.current = scrambleAudit; }, [scrambleAudit]);
 
   // History & Solves (Chỉ giữ các lượt giải đã bật Camera AI & xác minh hợp lệ)
   const [solves, setSolves] = useState(() => {
@@ -1680,6 +1710,10 @@ export default function App() {
     setPuzzleType(type);
     localStorage.setItem('rubik_puzzle_type', type);
     setScramble(generateScramble(type));
+    setScannedFaces({});
+    scannedFacesRef.current = {};
+    setAllowFreestyleScramble(false);
+    setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
     setTrackedMoves([]);
     setLastMoveDetected('');
   };
@@ -2543,6 +2577,10 @@ export default function App() {
     setTrackedMoves([]);
     setLastMoveDetected('');
     setScramble(generateScramble(currentP));
+    setScannedFaces({});
+    scannedFacesRef.current = {};
+    setAllowFreestyleScramble(false);
+    setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
   }, [penaltyText, targetSeconds]);
 
   // Start Solve Timer
@@ -3085,28 +3123,62 @@ export default function App() {
             initialCubeColorsRef.current = [...currentNxNColors];
             lastValidCubeColorsRef.current = [...currentNxNColors];
 
+            // ĐỐI CHIẾU THỰC TẾ VỚI CÔNG THỨC SCRAMBLE ĐỀ BÀI (CHỐNG LỖI SCRAMBLE SAI MÀ BẢO ĐÚNG)
+            const scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim);
+            setScrambleAudit(scrambleMatch);
+            const isScrambleOk = scrambleMatch.isMatch || allowFreestyleScrambleRef.current || !scrambleRef.current;
+
             if (req6Faces && !hasScannedAll6) {
               // CHƯA QUÉT ĐỦ 6 MẶT -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP CÁC MẶT CÒN THIẾU
               setPreCheckStatus({
                 verified: false,
-                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${missingFaceKeys.length} mặt còn thiếu: [${missingFaceKeys.join(', ')}]`,
+                text: scrambleMatch.isMismatch && !allowFreestyleScrambleRef.current
+                  ? `⚠️ CẢNH BÁO: SCRAMBLE ĐANG KHÁC ĐỀ BÀI (Khớp ${scrambleMatch.matchRate}%)! Đã quét ${currentScannedKeys.length}/6 mặt. Tiếp tục quét [${missingFaceKeys.join(', ')}] hoặc bấm "Giải tự do".`
+                  : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${missingFaceKeys.length} mặt còn thiếu: [${missingFaceKeys.join(', ')}]`,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
-                missingFaces: missingFaceKeys
+                missingFaces: missingFaceKeys,
+                scrambleMatchRate: scrambleMatch.matchRate,
+                isMismatch: scrambleMatch.isMismatch
+              });
+            } else if (!isScrambleOk) {
+              // ĐÃ QUÉT ĐỦ MẶT NHƯNG XÁO SAI CÔNG THỨC SCRAMBLE -> KHÓA KHÔNG CHO XÁC THỰC WCA, BÁO LỖI RÕ RÀNG!
+              setPreCheckStatus({
+                verified: false,
+                text: `❌ SCRAMBLE SAI ĐỀ BÀI (Chỉ khớp ${scrambleMatch.matchRate}%)! Khối trên camera không khớp công thức Scramble. Hãy bấm "Đổi Scramble" hoặc bấm "⚡ Chấp nhận để giải tự do"!`,
+                isScrambled: true,
+                centerFace: `${mappedFace} (${centerName})`,
+                scannedCount: currentScannedKeys.length,
+                missingFaces: [],
+                scrambleMatchRate: scrambleMatch.matchRate,
+                isMismatch: true
+              });
+              setModel3DVerification({
+                verified: false,
+                badgeText: `❌ SAI SCRAMBLE (${scrambleMatch.matchRate}%)`,
+                statusTitle: `⚠️ Khối xáo thực tế KHÔNG KHỚP công thức Scramble đề bài!`,
+                detailText: `AI đã đối chiếu 24 góc xoay: Khối của bạn chỉ khớp ${scrambleMatch.matchRate}% với đề bài WCA. Hãy xáo lại hoặc bấm "⚡ Giải tự do" để tiếp tục.`,
+                facesCount: updatedFacesCount,
+                validStickers: validColorsCount
               });
             } else {
-              // ĐÃ QUÉT ĐỦ CẢ 6 MẶT (HOẶC ĐƯỢC PHÉP QUÉT NHANH) -> MỞ KHÓA GIẢI!
+              // ĐÃ QUÉT ĐỦ CẢ 6 MẶT VÀ KHỚP ĐỀ BÀI (HOẶC ĐƯỢC PHÉP GIẢI TỰ DO) -> MỞ KHÓA GIẢI!
               if (timerStateRef.current === 'inspecting') {
                 startScrambledRef.current = true;
               }
+              const matchNotice = allowFreestyleScrambleRef.current
+                ? '⚡ ĐÃ DUYỆT CHẾ ĐỘ GIẢI TỰ DO (Freestyle Scramble)'
+                : `🟢 ĐÃ XÁC MINH KHỚP 100% SCRAMBLE WCA (${scrambleMatch.matchRate}%)`;
               setPreCheckStatus({
                 verified: true,
-                text: `🟢 ĐÃ XÁC MINH TOÀN DIỆN CẢ 6 MẶT TRÊN 3D (Đủ 6/6 mặt) — Sẵn sàng bấm giờ giải!`,
+                text: `${matchNotice} — Sẵn sàng bấm giờ giải!`,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
-                missingFaces: []
+                missingFaces: [],
+                scrambleMatchRate: scrambleMatch.matchRate,
+                isMismatch: false
               });
             }
           } else {
@@ -4090,7 +4162,13 @@ export default function App() {
                     </span>
                     {!isSolving && (
                       <button
-                        onClick={() => setScramble(generateScramble(puzzleType))}
+                        onClick={() => {
+                          setScramble(generateScramble(puzzleType));
+                          setScannedFaces({});
+                          scannedFacesRef.current = {};
+                          setAllowFreestyleScramble(false);
+                          setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
+                        }}
                         style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.78rem' }}
                         title="Đổi công thức xáo trộn khác"
                       >
@@ -4147,6 +4225,105 @@ export default function App() {
                       scramble
                     )}
                   </div>
+
+                  {/* THANH KIỂM TOÁN ĐỐI CHIẾU SCRAMBLE THỰC TẾ QUA CAMERA */}
+                  {cameraActive && !scrambleAudit.isPending && (
+                    <div style={{ marginTop: '6px' }}>
+                      {scrambleAudit.isMismatch && !allowFreestyleScramble ? (
+                        <div style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(239, 68, 68, 0.16)',
+                          border: '1.5px solid #ef4444',
+                          color: '#fca5a5',
+                          fontSize: '0.74rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: '6px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+                            <div>
+                              <strong>SCRAMBLE SAI ĐỀ BÀI (Chỉ khớp {scrambleAudit.matchRate}%):</strong> Khối của bạn đang xáo lệch công thức!
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setScramble(generateScramble(puzzleType));
+                                setScannedFaces({});
+                                scannedFacesRef.current = {};
+                                setAllowFreestyleScramble(false);
+                              }}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '5px',
+                                background: '#2563eb',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontSize: '0.7rem',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              🔄 Đổi đề bài
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAllowFreestyleScramble(true)}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '5px',
+                                background: 'rgba(245, 158, 11, 0.25)',
+                                border: '1px solid #f59e0b',
+                                color: '#fbbf24',
+                                fontSize: '0.7rem',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              ⚡ Giải tự do
+                            </button>
+                          </div>
+                        </div>
+                      ) : allowFreestyleScramble ? (
+                        <div style={{
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          border: '1px solid #f59e0b',
+                          color: '#fbbf24',
+                          fontSize: '0.72rem',
+                          fontWeight: '700',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span>⚡</span>
+                          <span>Đã duyệt chế độ: Giải tự do (Freestyle) — Không tính kỷ lục WCA</span>
+                        </div>
+                      ) : scrambleAudit.isMatch ? (
+                        <div style={{
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          background: 'rgba(34, 197, 94, 0.14)',
+                          border: '1px solid #22c55e',
+                          color: '#4ade80',
+                          fontSize: '0.72rem',
+                          fontWeight: '700',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span>✅</span>
+                          <span>ĐỐI CHIẾU SCRAMBLE: Khớp {scrambleAudit.matchRate}% chuẩn WCA!</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -4875,11 +5052,54 @@ export default function App() {
                 </button>
               </div>
 
-              <div style={{ flex: 1, minWidth: '180px', fontSize: '0.74rem', lineHeight: 1.4, color: preCheckStatus.verified ? '#4ade80' : '#f59e0b' }}>
-                <div style={{ fontWeight: '800', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : '#38bdf8' }}>
-                  {preCheckStatus.verified ? `🟢 ĐÃ CHECK KHỐI ${currentDim}×${currentDim} — SẴN SÀNG` : `🔍 ĐẶT KHỐI ${currentDim}×${currentDim} VÀO KHUNG LƯỚI`}
+              <div style={{ flex: 1, minWidth: '180px', fontSize: '0.74rem', lineHeight: 1.4, color: preCheckStatus.verified ? '#4ade80' : (preCheckStatus.isMismatch ? '#ef4444' : '#f59e0b') }}>
+                <div style={{ fontWeight: '800', marginBottom: '2px', color: preCheckStatus.verified ? '#4ade80' : (preCheckStatus.isMismatch ? '#f87171' : '#38bdf8') }}>
+                  {preCheckStatus.verified
+                    ? `🟢 ĐÃ CHECK KHỐI ${currentDim}×${currentDim} — SẴN SÀNG`
+                    : (preCheckStatus.isMismatch ? `❌ PHÁT HIỆN XÁO SAI SCRAMBLE (${preCheckStatus.scrambleMatchRate || 0}%)` : `🔍 ĐẶT KHỐI ${currentDim}×${currentDim} VÀO KHUNG LƯỚI`)}
                 </div>
                 <div>{preCheckStatus.text}</div>
+                {preCheckStatus.isMismatch && !allowFreestyleScramble && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScramble(generateScramble(puzzleType));
+                        setScannedFaces({});
+                        scannedFacesRef.current = {};
+                        setAllowFreestyleScramble(false);
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: '#2563eb',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontSize: '0.72rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔄 Đổi đề bài khác
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllowFreestyleScramble(true)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: 'rgba(245, 158, 11, 0.25)',
+                        border: '1px solid #f59e0b',
+                        color: '#fbbf24',
+                        fontSize: '0.72rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚡ Bỏ qua & Giải tự do
+                    </button>
+                  </div>
+                )}
                 <div style={{ marginTop: '4px', color: '#94a3b8' }}>
                   🧊 Mô hình 3D sẽ tự xuất hiện khi bạn bắt đầu giải.
                 </div>
