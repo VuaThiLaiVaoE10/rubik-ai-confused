@@ -4217,6 +4217,200 @@ export default function App() {
               </div>
             )}
 
+            {/* =========================================================================
+                NHIỆM VỤ 3 BƯỚC GIẢI RUBIK AI (THEO YÊU CẦU CỦA USER):
+                1. Kiểm tra scb
+                2. Xác nhận đúng r bắt đầu giải
+                3. Hoàn thành
+            ========================================================================= */}
+            {(() => {
+              const targetFaceCount = (adminSettings.requiredPreCheckFaces === 6 || adminSettings.requireAll6FacesPreCheck === true) ? 6 : 3;
+              const scannedCount = Object.keys(scannedFaces).length;
+              const isStep1Done = Boolean(preCheckStatus.verified);
+              const isStep1Error = Boolean(scrambleAudit.isMismatch && !allowFreestyleScramble);
+              const isStep2Active = isStep1Done && (timerState === 'running' || timerState === 'inspecting' || timerState === 'holding' || timerState === 'ready');
+              const isStep2Ready = isStep1Done && timerState === 'idle' && !linger3D;
+              const isStep3Done = Boolean(linger3D || (timerState === 'idle' && solves.length > 0 && timeMs > 0 && !isStep2Active));
+
+              return (
+                <div style={{
+                  width: '100%',
+                  maxWidth: '780px',
+                  margin: '4px auto 10px auto',
+                  padding: '8px 12px',
+                  borderRadius: '12px',
+                  background: 'rgba(9, 15, 29, 0.75)',
+                  border: `1px solid ${currentHudTheme.color}35`,
+                  boxShadow: `0 4px 20px ${currentHudTheme.glowColor}`,
+                  backdropFilter: 'blur(8px)'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '6px',
+                    paddingBottom: '4px',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+                  }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: currentHudTheme.color, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <span>🎯</span>
+                      <span>NHIỆM VỤ GIẢI RUBIK ({targetFaceCount === 6 ? 'Bản 6 mặt Admin Khoa' : 'Xác minh 3 mặt'})</span>
+                    </span>
+                    <span style={{ fontSize: '0.64rem', color: '#94a3b8' }}>
+                      {isStep3Done ? '🎉 Đã hoàn thành lượt giải!' : isStep2Active ? '⚡ Đang trong lượt giải...' : isStep1Done ? '🟢 Sẵn sàng bắt đầu giải!' : '🔍 Đang kiểm tra Scramble...'}
+                    </span>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
+                    gap: isMobile ? '6px' : '8px'
+                  }}>
+                    {/* BƯỚC 1: KIỂM TRA SCB */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: isStep1Error
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : isStep1Done
+                          ? 'rgba(34, 197, 94, 0.14)'
+                          : 'rgba(30, 41, 59, 0.5)',
+                      border: isStep1Error
+                        ? '1.5px solid #ef4444'
+                        : isStep1Done
+                          ? '1.5px solid #22c55e'
+                          : `1px solid ${currentHudTheme.color}50`,
+                      boxShadow: isStep1Done ? '0 0 10px rgba(34, 197, 94, 0.25)' : 'none',
+                      transition: 'all 0.25s ease'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: '800',
+                          color: isStep1Error ? '#f87171' : isStep1Done ? '#4ade80' : '#38bdf8'
+                        }}>
+                          1. Kiểm tra SCB
+                        </span>
+                        <span style={{
+                          fontSize: '0.62rem',
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          fontWeight: '700',
+                          background: isStep1Error ? '#ef4444' : isStep1Done ? '#22c55e' : '#0284c7',
+                          color: '#ffffff'
+                        }}>
+                          {isStep1Error ? '❌ Sai' : isStep1Done ? '✓ Đạt' : `${scannedCount}/${targetFaceCount}`}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.66rem', color: isStep1Error ? '#fca5a5' : isStep1Done ? '#86efac' : '#cbd5e1', lineHeight: '1.3' }}>
+                        {isStep1Error
+                          ? `Lệch Scramble (khớp ${scrambleAudit.matchRate}%)`
+                          : isStep1Done
+                            ? `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`
+                            : (cameraActive ? `Quét ${scannedCount}/${targetFaceCount} mặt trước Camera` : 'Bật Camera để quét')}
+                      </div>
+                    </div>
+
+                    {/* BƯỚC 2: XÁC NHẬN ĐÚNG R BẮT ĐẦU GIẢI */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: isStep2Active
+                        ? 'rgba(34, 197, 94, 0.22)'
+                        : isStep2Ready
+                          ? 'rgba(56, 189, 248, 0.16)'
+                          : 'rgba(15, 23, 42, 0.45)',
+                      border: isStep2Active
+                        ? '1.5px solid #22c55e'
+                        : isStep2Ready
+                          ? '1.5px solid #38bdf8'
+                          : '1px dashed #334155',
+                      boxShadow: isStep2Active ? '0 0 12px rgba(34, 197, 94, 0.35)' : isStep2Ready ? '0 0 10px rgba(56, 189, 248, 0.25)' : 'none',
+                      transition: 'all 0.25s ease'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: '800',
+                          color: isStep2Active ? '#4ade80' : isStep2Ready ? '#38bdf8' : '#64748b'
+                        }}>
+                          2. Bắt đầu giải
+                        </span>
+                        <span style={{
+                          fontSize: '0.62rem',
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          fontWeight: '700',
+                          background: isStep2Active ? '#16a34a' : isStep2Ready ? '#0284c7' : '#334155',
+                          color: isStep1Done ? '#ffffff' : '#94a3b8'
+                        }}>
+                          {timerState === 'running'
+                            ? '⚡ Đang giải'
+                            : timerState === 'ready'
+                              ? '● Sẵn sàng'
+                              : timerState === 'inspecting'
+                                ? '⏱️ WCA'
+                                : isStep1Done
+                                  ? '🟢 Mở khóa'
+                                  : '🔒 Khóa'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.66rem', color: isStep2Active ? '#86efac' : isStep2Ready ? '#7dd3fc' : '#64748b', lineHeight: '1.3' }}>
+                        {timerState === 'running'
+                          ? `Đang xoay (${cubeMovesSeenRef.current || trackedMoves.length} nhịp)`
+                          : timerState === 'inspecting'
+                            ? `Quan sát (${inspectionTimeLeft}s)`
+                            : timerState === 'ready'
+                              ? 'Thả tay để bắt đầu giải!'
+                              : isStep1Done
+                                ? (isMobile ? 'Chạm giữ để giải' : 'Giữ Space để giải')
+                                : 'Đợi xác nhận bước 1'}
+                      </div>
+                    </div>
+
+                    {/* BƯỚC 3: HOÀN THÀNH */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: isStep3Done
+                        ? 'rgba(234, 179, 8, 0.18)'
+                        : 'rgba(15, 23, 42, 0.45)',
+                      border: isStep3Done
+                        ? '1.5px solid #eab308'
+                        : '1px dashed #334155',
+                      boxShadow: isStep3Done ? '0 0 12px rgba(234, 179, 8, 0.35)' : 'none',
+                      transition: 'all 0.25s ease'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          fontWeight: '800',
+                          color: isStep3Done ? '#facc15' : '#64748b'
+                        }}>
+                          3. Hoàn thành
+                        </span>
+                        <span style={{
+                          fontSize: '0.62rem',
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          fontWeight: '700',
+                          background: isStep3Done ? '#ca8a04' : '#334155',
+                          color: isStep3Done ? '#ffffff' : '#94a3b8'
+                        }}>
+                          {isStep3Done ? '🏆 Xong' : '○ Chờ'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.66rem', color: isStep3Done ? '#fef08a' : '#64748b', lineHeight: '1.3' }}>
+                        {isStep3Done
+                          ? `Thành tích: ${(timeMs / 1000).toFixed(2)}s ${solves[0]?.verified ? '(✓ AI)' : ''}`
+                          : 'Chạm dừng hoặc giải xong'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {gameMode !== 'solo' && (() => {
               const isSolving = timerState === 'running' || timerState === 'inspecting' || timerState === 'ready' || timerState === 'holding' || linger3D;
               const shouldShowScramble = isSolving || showScrambleManual;
