@@ -90,31 +90,51 @@ input, textarea, select {
   filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.85));
 }
 
-/* Hiệu ứng hoa anh đào toàn màn hình trang Web */
+/* Hiệu ứng hoa anh đào toàn màn hình trang Web (Đa tầng 3D theo làn gió) */
 @keyframes sakuraDriftScreen {
   0% {
-    transform: translateY(-20px) translateX(0) rotate(0deg);
+    transform: translate3d(0, -30px, 0) rotate(0deg) rotateX(0deg);
     opacity: 0;
   }
-  15% {
+  12% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate3d(45px, 50vh, 0) rotate(190deg) rotateX(45deg);
     opacity: 0.85;
   }
   85% {
     opacity: 0.75;
   }
   100% {
-    transform: translateY(105vh) translateX(60px) rotate(360deg);
+    transform: translate3d(85px, 108vh, 0) rotate(380deg) rotateX(0deg);
     opacity: 0;
   }
 }
+@keyframes sakuraAuroraPulse {
+  0%, 100% { opacity: 0.28; transform: scale(1); }
+  50% { opacity: 0.52; transform: scale(1.06); }
+}
 .sakura-screen-petal {
   position: fixed;
-  top: -30px;
+  top: -35px;
   pointer-events: none;
   z-index: 10;
   user-select: none;
+  will-change: transform, opacity;
   animation: sakuraDriftScreen linear infinite;
-  filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.8));
+  filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.85));
+}
+.sakura-aurora-glow {
+  position: fixed;
+  top: -120px;
+  left: 50%;
+  width: 70vw;
+  height: 260px;
+  margin-left: -35vw;
+  background: radial-gradient(ellipse, rgba(244, 114, 182, 0.24) 0%, rgba(251, 113, 133, 0.08) 55%, transparent 75%);
+  pointer-events: none;
+  animation: sakuraAuroraPulse 6s ease-in-out infinite;
 }
 
 @keyframes bounceSoft {
@@ -182,7 +202,40 @@ input, textarea, select {
   top: 0;
   pointer-events: none;
   z-index: 9996;
+  will-change: transform;
   animation: spiderDropSwing 14s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+.cyber-hanging-spider-left {
+  position: fixed;
+  top: 0;
+  pointer-events: none;
+  z-index: 9996;
+  will-change: transform;
+  animation: spiderDropSwing 18s cubic-bezier(0.45, 0.05, 0.55, 0.95) -7s infinite;
+}
+@keyframes cyberPulseLine {
+  0% { stroke-dashoffset: 60; }
+  100% { stroke-dashoffset: 0; }
+}
+.cyber-web-pulse-arc {
+  stroke-dasharray: 8 6;
+  animation: cyberPulseLine 2.4s linear infinite;
+}
+@keyframes cyberScanBeam {
+  0% { transform: translateY(-10vh); opacity: 0; }
+  15% { opacity: 0.25; }
+  85% { opacity: 0.25; }
+  100% { transform: translateY(110vh); opacity: 0; }
+}
+.cyber-scan-beam {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.65), rgba(34, 197, 94, 0.55), transparent);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
+  pointer-events: none;
+  animation: cyberScanBeam 7s linear infinite;
 }
 
 /* =========================================================================
@@ -266,7 +319,7 @@ input, textarea, select {
   inset: 0;
   pointer-events: none;
   z-index: 9993;
-  animation: lightningFlashLoop 6.5s ease-out infinite;
+  animation: lightningFlashLoop 4.8s ease-out infinite;
 }
 
 .lightning-bolt-1 {
@@ -275,7 +328,7 @@ input, textarea, select {
   pointer-events: none;
   z-index: 9994;
   transform-origin: top center;
-  animation: lightningBoltStrike1 6.5s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+  animation: lightningBoltStrike1 4.8s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
 }
 
 .lightning-bolt-2 {
@@ -284,7 +337,15 @@ input, textarea, select {
   pointer-events: none;
   z-index: 9994;
   transform-origin: top center;
-  animation: lightningBoltStrike2 8.2s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+  animation: lightningBoltStrike2 6.2s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+}
+
+.thunder-electric-spark {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9994;
+  animation: electricSparkJitter 1.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px #facc15) drop-shadow(0 0 14px #a855f7);
 }
 
 /* =========================================================================
@@ -303,17 +364,21 @@ input, textarea, select {
 
 @keyframes frostSnowfall {
   0% {
-    transform: translateY(-20px) translateX(0) rotate(0deg);
+    transform: translate3d(0, -30px, 0) rotate(0deg);
     opacity: 0;
   }
-  20% {
-    opacity: 0.9;
+  15% {
+    opacity: 0.92;
   }
-  80% {
-    opacity: 0.85;
+  50% {
+    transform: translate3d(-32px, 52vh, 0) rotate(180deg);
+    opacity: 0.88;
+  }
+  85% {
+    opacity: 0.8;
   }
   100% {
-    transform: translateY(105vh) translateX(-45px) rotate(360deg);
+    transform: translate3d(18px, 106vh, 0) rotate(360deg);
     opacity: 0;
   }
 }
