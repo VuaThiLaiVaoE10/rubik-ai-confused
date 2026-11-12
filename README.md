@@ -8,7 +8,7 @@
 > **Trang Web Hoạt Động 24/7:** [https://vuathilaivaoe10.github.io/rubik-ai-confused/](https://vuathilaivaoe10.github.io/rubik-ai-confused/)  
 > **Mã Nguồn GitHub:** [https://github.com/VuaThiLaiVaoE10/rubik-ai-confused](https://github.com/VuaThiLaiVaoE10/rubik-ai-confused)
 
-Nền tảng bấm giờ Speedcubing thế hệ mới chuẩn thi đấu quốc tế **WCA** cho 4 khối (**`2×2`**, **`3×3`**, **`4×4`**, **`5×5`**), tích hợp **Trọng tài Camera AI**, **Màn hình Khối 3D tương tác thời gian thực (`Three.js`)**, **Đấu trường Solo 1v1 P2P (`WebRTC`)**, **Khiên Bảo Vệ Smart Anti-Bot v2.0 & Tường lửa WAF**, cùng **Bảng Kỷ Lục Toàn Cầu trên Cloud (`Supabase PostgreSQL`)**.
+Nền tảng bấm giờ Speedcubing thế hệ mới chuẩn thi đấu quốc tế **WCA** cho trọn bộ **6 khối chuẩn (`2×2`, `3×3`, `4×4`, `5×5`, `6×6`, `7×7`)** và nhận diện **mọi dòng bề mặt Rubik** (`Phủ Bóng UV / Fluoro`, `Nhựa Nhám Frosted / Stickerless`, `Viền Đen Cổ Điển / Carbon Fiber`, `Pastel / Macaron / Candy`), tích hợp **Trọng tài Camera AI**, **Màn hình Khối 3D tương tác thời gian thực (`Three.js`)**, **Đấu trường Solo 1v1 P2P (`WebRTC`)**, **Khiên Bảo Vệ Smart Anti-Bot v2.0 & Tường lửa WAF**, cùng **Bảng Kỷ Lục Toàn Cầu trên Cloud (`Supabase PostgreSQL`)**.
 
 ---
 
@@ -27,7 +27,7 @@ Nền tảng bấm giờ Speedcubing thế hệ mới chuẩn thi đấu quốc 
 
 ## 1. Tổng Quan Các Chế Độ Thi Đấu
 
-Hệ thống hỗ trợ đầy đủ 4 khối tiêu chuẩn (**2×2 Pocket Cube**, **3×3 Rubik Cube**, **4×4 Rubik's Revenge**, **5×5 Professor's Cube**) với thuật toán sinh công thức tráo (**WCA Scramble Generator**) không lặp trục và 5 chế độ chơi:
+Hệ thống hỗ trợ đầy đủ **6 khối chuẩn WCA** (**`2×2 Pocket Cube`**, **`3×3 Rubik Cube`**, **`4×4 Rubik's Revenge`**, **`5×5 Professor's Cube`**, **`6×6 V-Cube / Big Cube`**, **`7×7 Big Cube`**) với thuật toán sinh công thức tráo (**WCA Scramble Generator** gồm cả ký hiệu `Uw..Bw` và `3Uw..3Bw`) không lặp trục và 5 chế độ chơi:
 
 | Chế độ | Mô tả cơ chế hoạt động |
 | :--- | :--- |
@@ -41,6 +41,12 @@ Hệ thống hỗ trợ đầy đủ 4 khối tiêu chuẩn (**2×2 Pocket Cube*
 
 ## 2. Màn Hình Khối Rubik 3D Phía Trên & Thị Giác Máy Tính AI Bám Đuổi Chuyển Động
 
+- **Nhận Diện Đa Hệ Mọi Dòng Bề Mặt Rubik (`CUBE_SURFACE_PROFILES`, `removeUvSpecularGlare`, `rgbToLab`, & `Dual-Ring Sampling`):**
+  - **✨ Tự động AI (Mọi loại):** Tự động kết hợp không gian màu `HSV` + `CIE L*a*b*` + khử lóa `UV` + lấy mẫu 2 vòng đồng tâm để nhận diện mọi dòng Rubik mà không cần chỉnh tay.
+  - **💎 Phủ Bóng UV / Fluoro (`GAN UV`, `Moyu Weilong UV`, `X-Man Tornado UV`):** Sử dụng mô hình phản xạ lưỡng sắc (*Dichromatic Reflection Model*) và khử điểm chói sáng trắng (*Specular Highlight Stripping* + *2nd-Pass Glare Recovery*) để khôi phục màu gốc bị bóng đèn trần hoặc ánh nắng làm lóa trắng.
+  - **🧊 Nhựa Nhám / Stickerless (`RS3M`, `QiYi`, `YJ Frosted`):** Tự động khuếch đại độ bão hòa màu tán xạ (`satScale`) và phân tích trục đối kháng màu `CIE L*a*b* (a*, b*)`.
+  - **⬛ Viền Đen Cổ Điển / Carbon Fiber (`Stickered Black-Border` & `Carbon Fiber`):** Sử dụng thuật toán **Lấy mẫu 2 vòng đồng tâm (`Dual-Ring Core + Outer-Ring Sampling`)** để đọc chính xác dải màu viền ngoài ngay cả khi tâm viên dán vân Carbon đen.
+  - **🍬 Pastel / Macaron / Candy (`Meilong Macaron`, `Qiyi Jelly`):** Phân biệt chính xác các tông màu kem nhạt (Hồng Pastel, Vàng chanh nhạt, Xanh Mint, Xanh Baby) khỏi màu Trắng nhờ ngưỡng `Chroma L*a*b*`.
 - **Nhận Diện Toàn Diện Các Mặt Chưa Giải (2–6 Màu) & Mô Phỏng 6 Mặt Xáo Trộn Trên 3D (`buildScrambledFaces` & `evaluateRubikGridCandidate`):**
   - **Mô hình 3D 6 mặt xáo trộn theo Scramble thực tế (`buildScrambledFaces` trong `src/components/Rubik3DView.jsx`):** Ngay từ khi khởi tạo, cả 6 mặt (`U, D, L, R, F, B`) trên mô hình 3D đều hiển thị trạng thái **chưa giải (đã xáo trộn)** khớp với công thức Scramble hiện tại thay vì tô 1 màu đồng nhất.
   - **Thuật toán lấy mẫu lõi trung vị (`Trimmed Inner-Core Sampling`):** Lấy mẫu lõi trung tâm `11%` của từng ô sticker và tự động lọc bỏ 20% điểm tối ở rãnh nhựa đen + 15% điểm chói sáng. Nhờ đó, khi các ô màu khác nhau nằm sát cạnh nhau trên **mặt chưa giải**, AI vẫn phân tách chuẩn xác từng màu mà không bị lem màu giữa các viên.

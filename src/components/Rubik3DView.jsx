@@ -12,6 +12,16 @@ const COLOR_MAP = {
   invalid: 0x334155
 };
 
+const PASTEL_COLOR_MAP = {
+  white:   0xffffff,
+  yellow:  0xfef08a,
+  red:     0xfda4af,
+  orange:  0xfdba74,
+  green:   0x86efac,
+  blue:    0x93c5fd,
+  invalid: 0x475569
+};
+
 const DEFAULT_FACE_KEYS = {
   U: 'white',
   D: 'yellow',
@@ -120,16 +130,20 @@ export function buildScrambledFaces(dim = 3, scrambleStr = '') {
   );
 
   for (const tk of tokens) {
-    const match = tk.match(/^([UDLRFB])(w)?(2|')?$/);
+    const match = tk.match(/^([23])?([UDLRFB])(w)?(2|')?$/);
     if (!match) continue;
-    const face = match[1];
-    const isWide = Boolean(match[2]);
-    const mod = match[3] || '';
+    const depthPrefix = match[1] ? Number(match[1]) : 0;
+    const face = match[2];
+    const isWide = Boolean(match[3]);
+    const mod = match[4] || '';
     const reps = mod === '2' ? 2 : mod === "'" ? 3 : 1;
     for (let r = 0; r < reps; r++) {
       applyLayerTurn(face, 0);
       if (isWide && dim >= 4) {
         applyLayerTurn(face, 1);
+        if (depthPrefix >= 3 && dim >= 6) {
+          applyLayerTurn(face, 2);
+        }
       }
     }
   }
@@ -145,6 +159,7 @@ export default function Rubik3DView({
   lastMove = '',
   trackingBox = null,
   modelVerification = null,
+  surfaceProfile = 'auto',
   width = 240,
   height = 185,
   autoSpin360 = false,
@@ -248,18 +263,26 @@ export default function Rubik3DView({
     scene.add(cubeGroup);
     cubeGroupRef.current = cubeGroup;
 
-    // 5. Build N×N×N Cubies with Black Core + Scrambled/Unsolved Initial Stickers
+    // 5. Build N×N×N Cubies with Surface-Aware Material (UV Gloss / Frosted Matte / Black-Border Carbon / Pastel)
+    const isClassicBorder = surfaceProfile === 'classic';
+    const isUvGloss = surfaceProfile === 'uv';
+    const isFrosted = surfaceProfile === 'frosted';
+    const isPastel = surfaceProfile === 'pastel';
+    const activePalette = isPastel ? PASTEL_COLOR_MAP : COLOR_MAP;
+
     const cubieSize = 0.92;
-    const stickerSize = 0.82;
+    const stickerSize = isClassicBorder ? 0.72 : 0.84;
     const stickerDepth = 0.025;
+    const stickerRoughness = isUvGloss ? 0.05 : isFrosted ? 0.45 : isPastel ? 0.35 : 0.16;
+    const stickerMetalness = isUvGloss ? 0.12 : 0.04;
     const gap = 1.0;
     const offset = (dim - 1) / 2;
 
     const coreGeom = new THREE.BoxGeometry(cubieSize, cubieSize, cubieSize);
     const coreMat = new THREE.MeshStandardMaterial({
-      color: CORE_HEX,
-      roughness: 0.5,
-      metalness: 0.1
+      color: isClassicBorder ? 0x05070c : CORE_HEX,
+      roughness: isClassicBorder ? 0.28 : 0.5,
+      metalness: isClassicBorder ? 0.22 : 0.1
     });
 
     const stickerGeom = new THREE.PlaneGeometry(stickerSize, stickerSize);
@@ -303,13 +326,13 @@ export default function Rubik3DView({
             const flatIdx = rowFromTop * dim + x;
             const detected = detectedColors[flatIdx];
             const fallbackKey = baseFaces?.F?.[flatIdx] || DEFAULT_FACE_KEYS.F;
-            const initHex = (detected && detected !== 'invalid' && COLOR_MAP[detected])
-              ? COLOR_MAP[detected]
-              : COLOR_MAP[fallbackKey];
+            const initHex = (detected && detected !== 'invalid' && activePalette[detected])
+              ? activePalette[detected]
+              : activePalette[fallbackKey];
             const mat = new THREE.MeshStandardMaterial({
               color: initHex,
-              roughness: 0.18,
-              metalness: 0.04
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(0, 0, halfCubie);
@@ -322,9 +345,9 @@ export default function Rubik3DView({
             const flatIdx = rowFromTop * dim + ((dim - 1) - z);
             const fallbackKey = baseFaces?.R?.[flatIdx] || DEFAULT_FACE_KEYS.R;
             const mat = new THREE.MeshStandardMaterial({
-              color: COLOR_MAP[fallbackKey],
-              roughness: 0.22,
-              metalness: 0.04
+              color: activePalette[fallbackKey],
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(halfCubie, 0, 0);
@@ -338,9 +361,9 @@ export default function Rubik3DView({
             const flatIdx = rowFromTop * dim + z;
             const fallbackKey = baseFaces?.L?.[flatIdx] || DEFAULT_FACE_KEYS.L;
             const mat = new THREE.MeshStandardMaterial({
-              color: COLOR_MAP[fallbackKey],
-              roughness: 0.22,
-              metalness: 0.04
+              color: activePalette[fallbackKey],
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(-halfCubie, 0, 0);
@@ -354,9 +377,9 @@ export default function Rubik3DView({
             const flatIdx = z * dim + x;
             const fallbackKey = baseFaces?.U?.[flatIdx] || DEFAULT_FACE_KEYS.U;
             const mat = new THREE.MeshStandardMaterial({
-              color: COLOR_MAP[fallbackKey],
-              roughness: 0.22,
-              metalness: 0.04
+              color: activePalette[fallbackKey],
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(0, halfCubie, 0);
@@ -370,9 +393,9 @@ export default function Rubik3DView({
             const flatIdx = ((dim - 1) - z) * dim + x;
             const fallbackKey = baseFaces?.D?.[flatIdx] || DEFAULT_FACE_KEYS.D;
             const mat = new THREE.MeshStandardMaterial({
-              color: COLOR_MAP[fallbackKey],
-              roughness: 0.22,
-              metalness: 0.04
+              color: activePalette[fallbackKey],
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(0, -halfCubie, 0);
@@ -386,9 +409,9 @@ export default function Rubik3DView({
             const flatIdx = rowFromTop * dim + ((dim - 1) - x);
             const fallbackKey = baseFaces?.B?.[flatIdx] || DEFAULT_FACE_KEYS.B;
             const mat = new THREE.MeshStandardMaterial({
-              color: COLOR_MAP[fallbackKey],
-              roughness: 0.22,
-              metalness: 0.04
+              color: activePalette[fallbackKey],
+              roughness: stickerRoughness,
+              metalness: stickerMetalness
             });
             const sMesh = new THREE.Mesh(stickerGeom, mat);
             sMesh.position.set(0, 0, -halfCubie);
@@ -460,13 +483,14 @@ export default function Rubik3DView({
       edgesGeom.dispose();
       if (container) container.innerHTML = '';
     };
-  }, [dim, width, height]);
+  }, [dim, width, height, surfaceProfile]);
 
   // Real-time update of all 6 faces (hiển thị đầy đủ các mặt CHƯA GIẢI / ĐANG GIẢI / ĐÃ GIẢI)
   useEffect(() => {
     const mats = faceMaterialsRef.current;
     if (!mats || !mats.F) return;
 
+    const activePalette = surfaceProfile === 'pastel' ? PASTEL_COLOR_MAP : COLOR_MAP;
     const baseFaces = scrambledBaselineRef.current;
     const validCount = detectedColors.filter((c) => c && c !== 'invalid').length;
 
@@ -480,7 +504,7 @@ export default function Rubik3DView({
       merged.forEach((colorKey, idx) => {
         const mat = mats.F[idx];
         if (mat) {
-          mat.color.setHex(COLOR_MAP[colorKey] || COLOR_MAP.invalid);
+          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
         }
       });
     } else if (lastValidFrontRef.current && scannedFaces && Object.keys(scannedFaces).length > 0) {
@@ -488,7 +512,7 @@ export default function Rubik3DView({
       lastValidFrontRef.current.forEach((colorKey, idx) => {
         const mat = mats.F[idx];
         if (mat) {
-          mat.color.setHex(COLOR_MAP[colorKey] || COLOR_MAP.invalid);
+          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
         }
       });
     } else {
@@ -497,7 +521,7 @@ export default function Rubik3DView({
       mats.F.forEach((mat, idx) => {
         if (mat) {
           const cKey = fallbackFront[idx] || DEFAULT_FACE_KEYS.F;
-          mat.color.setHex(COLOR_MAP[cKey] || COLOR_MAP.invalid);
+          mat.color.setHex(activePalette[cKey] || activePalette.invalid);
         }
       });
     }
@@ -532,11 +556,11 @@ export default function Rubik3DView({
           const colorKey = (scannedColor && scannedColor !== 'invalid')
             ? scannedColor
             : (fallbackArr[idx] || DEFAULT_FACE_KEYS[faceCode]);
-          mat.color.setHex(COLOR_MAP[colorKey] || COLOR_MAP.invalid);
+          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
         });
       }
     });
-  }, [detectedColors, scannedFaces, scramble, scrambledBaseline, dim, modelVerification, trackingBox]);
+  }, [detectedColors, scannedFaces, scramble, scrambledBaseline, dim, modelVerification, trackingBox, surfaceProfile]);
 
   const scannedKeys = scannedFaces ? Object.keys(scannedFaces) : [];
 

@@ -16,7 +16,9 @@ export const MIN_HUMAN_SOLVE_SEC = {
   '2x2': 0.45,
   '3x3': 2.80,
   '4x4': 15.0,
-  '5x5': 30.0
+  '5x5': 30.0,
+  '6x6': 55.0,
+  '7x7': 85.0
 };
 
 // Theo dõi tín hiệu sinh trắc học hành vi tự nhiên trên trang

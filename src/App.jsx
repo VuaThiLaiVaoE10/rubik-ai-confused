@@ -39,7 +39,58 @@ const PUZZLE_CONFIGS = {
   '2x2': { id: '2x2', name: '2×2×2', label: '2×2 Pocket Cube', dim: 2, defaultMoves: 9 },
   '3x3': { id: '3x3', name: '3×3×3', label: '3×3 Rubik Cube', dim: 3, defaultMoves: 20 },
   '4x4': { id: '4x4', name: '4×4×4', label: "4×4 Rubik's Revenge", dim: 4, defaultMoves: 40 },
-  '5x5': { id: '5x5', name: '5×5×5', label: "5×5 Professor's Cube", dim: 5, defaultMoves: 60 }
+  '5x5': { id: '5x5', name: '5×5×5', label: "5×5 Professor's Cube", dim: 5, defaultMoves: 60 },
+  '6x6': { id: '6x6', name: '6×6×6', label: '6×6 V-Cube WCA', dim: 6, defaultMoves: 80 },
+  '7x7': { id: '7x7', name: '7×7×7', label: '7×7 Master Cube WCA', dim: 7, defaultMoves: 100 }
+};
+
+// Cấu hình Hồ sơ Bề mặt & Chất liệu cho MỌI LOẠI RUBIK trên thị trường
+const CUBE_SURFACE_PROFILES = {
+  auto: {
+    id: 'auto',
+    name: '✨ Tự động AI (Mọi loại)',
+    desc: 'Tự động cân bằng trắng, khử lóa UV, hỗ trợ Stickerless, Nhám, Viền đen, Carbon & Pastel',
+    glareFactor: 0.65,
+    satScale: 1.12,
+    minSat: 0.17,
+    useOuterRing: true
+  },
+  uv: {
+    id: 'uv',
+    name: '💎 Phủ Bóng UV / Fluoro',
+    desc: 'Chuyên trị GAN UV, Moyu WRM UV, Tornado Pioneer UV bị bóng đèn trần & màu Neon rực',
+    glareFactor: 0.78,
+    satScale: 1.22,
+    minSat: 0.16,
+    useOuterRing: false
+  },
+  frosted: {
+    id: 'frosted',
+    name: '🧊 Nhựa Nhám / Stickerless',
+    desc: 'Tối ưu cho RS3M, QiYi, YJ bề mặt nhám mờ (Frosted Matte) dưới ánh đèn phòng',
+    glareFactor: 0.55,
+    satScale: 1.28,
+    minSat: 0.15,
+    useOuterRing: false
+  },
+  classic: {
+    id: 'classic',
+    name: '⬛ Viền Đen / Carbon Fiber',
+    desc: 'Quét vành ngoài + tâm để đọc chuẩn Rubik dán decal viền nhựa đen dày hoặc dán vân Carbon',
+    glareFactor: 0.50,
+    satScale: 1.18,
+    minSat: 0.18,
+    useOuterRing: true
+  },
+  pastel: {
+    id: 'pastel',
+    name: '🍬 Pastel / Macaron / Candy',
+    desc: 'Phân tách cực nhạy các tông màu Pastel / Macaron dịu nhẹ không bị nhầm sang màu Trắng',
+    glareFactor: 0.45,
+    satScale: 1.65,
+    minSat: 0.10,
+    useOuterRing: false
+  }
 };
 
 const GAME_MODES = [
@@ -69,32 +120,20 @@ function generateScramble(puzzleType = '3x3') {
     return scramble.join(' ');
   }
 
-  if (puzzleType === '4x4') {
+  if (puzzleType === '4x4' || puzzleType === '5x5' || puzzleType === '6x6' || puzzleType === '7x7') {
     const outerFaces = ['U', 'D', 'L', 'R', 'F', 'B'];
     const wideFaces = ['Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw'];
-    const allMoves = [...outerFaces, ...wideFaces];
+    const tripleWide = puzzleType === '6x6' || puzzleType === '7x7'
+      ? ['3Uw', '3Dw', '3Lw', '3Rw', '3Fw', '3Bw']
+      : [];
+    const allMoves = [...outerFaces, ...wideFaces, ...tripleWide];
+    const moveCount = puzzleType === '4x4' ? 40 : puzzleType === '5x5' ? 60 : puzzleType === '6x6' ? 70 : 85;
     const scramble = [];
     let lastMove = '';
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < moveCount; i++) {
       let move;
       do {
         move = allMoves[Math.floor(Math.random() * allMoves.length)];
-      } while (move === lastMove || (move[0] === lastMove[0] && move.length === lastMove.length));
-      const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
-      scramble.push(`${move}${mod}`);
-      lastMove = move;
-    }
-    return scramble.join(' ');
-  }
-
-  if (puzzleType === '5x5') {
-    const moves = ['U', 'D', 'L', 'R', 'F', 'B', 'Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw'];
-    const scramble = [];
-    let lastMove = '';
-    for (let i = 0; i < 60; i++) {
-      let move;
-      do {
-        move = moves[Math.floor(Math.random() * moves.length)];
       } while (move === lastMove || (move[0] === lastMove[0] && move.length === lastMove.length));
       const mod = modifiers[Math.floor(Math.random() * modifiers.length)];
       scramble.push(`${move}${mod}`);
@@ -161,40 +200,65 @@ function rgbToHsv(r, g, b) {
   return { h, s, v };
 }
 
+// Chuyển đổi sRGB sang không gian màu thị giác người CIE L*a*b* (Bất biến với độ bóng bề mặt & ánh sáng)
+function rgbToLab(r, g, b) {
+  let rn = r / 255, gn = g / 255, bn = b / 255;
+  rn = rn > 0.04045 ? Math.pow((rn + 0.055) / 1.055, 2.4) : rn / 12.92;
+  gn = gn > 0.04045 ? Math.pow((gn + 0.055) / 1.055, 2.4) : gn / 12.92;
+  bn = bn > 0.04045 ? Math.pow((bn + 0.055) / 1.055, 2.4) : bn / 12.92;
+
+  const x = (rn * 0.4124 + gn * 0.3576 + bn * 0.1805) / 0.95047;
+  const y = (rn * 0.2126 + gn * 0.7152 + bn * 0.0722) / 1.00000;
+  const z = (rn * 0.0193 + gn * 0.1192 + bn * 0.9505) / 1.08883;
+
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f(x), fy = f(y), fz = f(z);
+
+  const L = 116 * fy - 16;
+  const a = 500 * (fx - fy); // âm: Xanh lá (-a), dương: Đỏ/Hồng (+a)
+  const bLab = 200 * (fy - fz); // âm: Xanh dương (-b), dương: Vàng (+b)
+  const chromaLab = Math.hypot(a, bLab);
+  return { L, a, b: bLab, chromaLab };
+}
+
 // Kiểm tra nhanh xem 1 điểm ảnh có mang sắc thái da người / gỗ / tường ấm không
-// (Chỉ khóa dải màu da/gỗ tự nhiên có độ bão hòa thấp-trung bình, tuyệt đối KHÔNG chặn màu Cam Fluoro/UV của Rubik)
 function isSkinOrWoodTone(r, g, b, h, s, v) {
   const chroma = Math.max(r, g, b) - Math.min(r, g, b);
-  // Cam UV / Fluoro của Rubik luôn có độ rực màu (chroma >= 72 hoặc s >= 0.56 hoặc R >= 215)
-  if (chroma >= 72 || s >= 0.56 || (r >= 210 && g >= 95 && b < 90)) return false;
+  if (chroma >= 70 || s >= 0.54 || (r >= 205 && g >= 92 && b < 90)) return false;
   return (
     r > g &&
     g > b &&
-    h >= 7 &&
-    h < 35 &&
-    s >= 0.16 &&
-    s < 0.52 &&
+    h >= 8 &&
+    h < 34 &&
+    s >= 0.17 &&
+    s < 0.50 &&
     v >= 0.25 &&
-    v < 0.82 &&
+    v < 0.80 &&
     r - g >= 12 &&
-    r - g < 52 &&
+    r - g < 48 &&
     g - b >= 8
   );
 }
 
-// Khử bóng lóa phản quang UV (Dichromatic Specular Highlight Compensation)
-// Giúp đọc chuẩn màu sắc tố gốc dưới lớp phủ bóng UV / đèn trần / ánh sáng màn hình
-function removeUvSpecularGlare(r, g, b) {
+// Khử bóng lóa phản quang UV & Khuếch đại sắc tố cho mọi loại bề mặt Rubik (UV, Frosted, Classic, Pastel)
+function removeUvSpecularGlare(r, g, b, surfaceProfileKey = 'auto') {
+  const prof = CUBE_SURFACE_PROFILES[surfaceProfileKey] || CUBE_SURFACE_PROFILES.auto;
   const maxC = Math.max(r, g, b);
   const minC = Math.min(r, g, b);
   const chroma = maxC - minC;
-  // Nếu có sắc tố màu (chroma >= 15) nhưng nền sáng bị nâng cao do lóa UV (minC > 18)
-  if (chroma >= 15 && minC > 18) {
-    const glareFloor = (minC - 12) * 0.62;
-    const dr = Math.max(0, r - glareFloor);
-    const dg = Math.max(0, g - glareFloor);
-    const db = Math.max(0, b - glareFloor);
-    // Chuẩn hóa lại độ sáng để giữ nguyên cường độ sắc tố
+
+  if (chroma >= 11 && minC > 14) {
+    const glareFloor = (minC - 10) * prof.glareFactor;
+    let dr = Math.max(0, r - glareFloor);
+    let dg = Math.max(0, g - glareFloor);
+    let db = Math.max(0, b - glareFloor);
+
+    // Khuếch đại độ tách biệt kênh màu cho dòng Pastel / Frosted / UV bị lóa
+    const meanD = (dr + dg + db) / 3;
+    dr = Math.max(0, meanD + (dr - meanD) * prof.satScale);
+    dg = Math.max(0, meanD + (dg - meanD) * prof.satScale);
+    db = Math.max(0, meanD + (db - meanD) * prof.satScale);
+
     const newMax = Math.max(dr, dg, db, 1);
     const scale = maxC / newMax;
     return {
@@ -207,78 +271,82 @@ function removeUvSpecularGlare(r, g, b) {
   return { r, g, b, chroma };
 }
 
-// Phân loại màu Sticker Rubik chuẩn WCA + Tối ưu chuyên sâu cho Rubik phủ bóng UV / Stickerless Fluoro / Matte
-function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0) {
+// Bộ phân loại màu Đa Không Gian (De-Glared HSV + CIE L*a*b* + Opponent Channels)
+// Nhận diện chuẩn xác MỌI LOẠI RUBIK: UV Coated, Stickerless Frosted, Viền đen cổ điển, Carbon Fiber, Pastel/Macaron
+function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0, surfaceProfileKey = 'auto') {
+  const prof = CUBE_SURFACE_PROFILES[surfaceProfileKey] || CUBE_SURFACE_PROFILES.auto;
   const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
   const rawHsv = rgbToHsv(avgR, avgG, avgB);
-  // Rubik UV có phản quang nên cho phép biên độ lệch nội ô rộng hơn mà vẫn lọc sạch nhiễu
-  const maxAllowedStd = 54 + motionTolerance;
+  const lab = rgbToLab(avgR, avgG, avgB);
+  const maxAllowedStd = 58 + motionTolerance;
 
-  if (rawBrightness < 30 || rawHsv.v < 0.16 || cellStdDev > maxAllowedStd) return 'invalid';
+  if (rawBrightness < 26 || rawHsv.v < 0.14 || cellStdDev > maxAllowedStd) return 'invalid';
 
-  // Khử bóng lóa UV trước khi phân tích Hue & Saturation
-  const deGlared = removeUvSpecularGlare(avgR, avgG, avgB);
+  const deGlared = removeUvSpecularGlare(avgR, avgG, avgB, surfaceProfileKey);
   const { h, s, v } = rgbToHsv(deGlared.r, deGlared.g, deGlared.b);
   const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
 
-  // 1. Nhận diện màu Trắng (White Sticker — hỗ trợ cả mặt trắng bóng UV, ánh đèn vàng hoặc xanh dịu)
-  if (
-    ((rawHsv.s <= 0.24 && rawHsv.v >= 0.56 && rawBrightness >= 135 && rgbSpread <= 45) ||
-      (rawHsv.s <= 0.30 && rawHsv.v >= 0.72 && rawBrightness >= 168 && rgbSpread <= 54)) &&
-    cellStdDev <= 38 + motionTolerance * 0.7
-  ) {
+  // 1. Nhận diện màu Trắng (White Sticker — kiểm tra cả độ trung tính CIE L*a*b* chromaLab thấp)
+  const isNeutralWhite =
+    surfaceProfileKey === 'pastel'
+      ? (rawHsv.s <= 0.14 && lab.chromaLab <= 11.5 && rawBrightness >= 145)
+      : ((rawHsv.s <= 0.23 && lab.chromaLab <= 16.5 && rawBrightness >= 132 && rgbSpread <= 44) ||
+         (rawHsv.s <= 0.28 && lab.chromaLab <= 19.0 && rawBrightness >= 170 && rgbSpread <= 52));
+
+  if (isNeutralWhite && cellStdDev <= 42 + motionTolerance * 0.7) {
     return 'white';
   }
 
-  // Nếu độ bão hòa sau khi khử lóa UV vẫn quá thấp -> không phải sticker màu
-  if (s < 0.22 || rgbSpread < 16) return 'invalid';
+  // Nếu độ bão hòa sau khi khử lóa & khuếch đại vẫn quá thấp -> không phải sticker màu
+  if (s < prof.minSat || (rgbSpread < 12 && lab.chromaLab < 10)) return 'invalid';
 
-  // Chặn vùng màu da người / gỗ tự nhiên
-  if (isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
+  if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
     return 'invalid';
   }
 
-  // 2. Phân loại 5 màu WCA liên tục KHÔNG ĐIỂM MÙ (Zero Dead-Zone Hue + Opponent Channels cho Rubik UV/Fluoro)
-  // ĐỎ (Red) & Đỏ ánh hồng UV (320° -> 360° và 0° -> 11°)
-  if (h >= 320 || h < 11) {
-    // Phân biệt Đỏ và Cam Fluoro ở vùng giao thoa 7°..11°
-    if (h >= 7 && h < 11 && avgG > avgB * 1.35 && avgR > 195 && avgG > 85) {
-      return 'orange';
-    }
-    if (s >= 0.30 && v >= 0.24 && deGlared.r > deGlared.g * 1.18 && deGlared.r > deGlared.b * 1.14) {
-      return 'red';
+  // 2. Phân loại kết hợp Góc Hue (khử lóa UV) + Trục đối kháng CIE L*a*b* (a*: Xanh lá <-> Đỏ, b*: Xanh dương <-> Vàng)
+  // XANH DƯƠNG (Blue / Cyan-Blue / Pastel Blue): b* âm rõ rệt hoặc Hue 170°..278°
+  if ((h >= 170 && h < 278) || (lab.b <= -11 && deGlared.b > deGlared.r * 1.12)) {
+    if (deGlared.b >= deGlared.g * 0.94 && deGlared.b > deGlared.r * 1.10) {
+      return 'blue';
     }
   }
 
-  // CAM (Orange — bao gồm Cam chuẩn, Cam Fluoro sáng & Cam phủ UV từ 9° -> 40°)
-  if (h >= 9 && h < 40) {
-    // Nếu nghiêng hẳn về Vàng chanh sáng ở 37°..40°
-    if (h >= 37 && deGlared.g > deGlared.r * 0.86) {
-      return 'yellow';
-    }
-    if (s >= 0.32 && v >= 0.36 && deGlared.r > deGlared.b * 1.32 && deGlared.g >= deGlared.b * 1.02) {
-      return 'orange';
-    }
-  }
-
-  // VÀNG (Yellow — bao gồm Vàng nghệ, Vàng chanh Fluoro & Vàng bóng UV từ 37° -> 78°)
-  if (h >= 37 && h < 78) {
-    if (s >= 0.24 && v >= 0.38 && deGlared.r > deGlared.b * 1.18 && deGlared.g > deGlared.b * 1.20) {
-      return 'yellow';
-    }
-  }
-
-  // XANH LÁ (Green — bao gồm Xanh lá chuẩn, Xanh nõn chuối Fluoro & Xanh lá UV từ 74° -> 174°)
-  if (h >= 74 && h < 174) {
-    if (s >= 0.24 && v >= 0.22 && deGlared.g > deGlared.r * 1.04 && deGlared.g > deGlared.b * 1.02) {
+  // XANH LÁ (Green / Lime Fluoro / Mint Pastel): a* âm rõ rệt hoặc Hue 73°..172°
+  if ((h >= 73 && h < 172) || (lab.a <= -11 && deGlared.g > deGlared.r * 1.04 && deGlared.g > deGlared.b * 1.02)) {
+    if (deGlared.g > deGlared.r * 1.02 && deGlared.g >= deGlared.b * 0.98) {
       return 'green';
     }
   }
 
-  // XANH DƯƠNG (Blue — bao gồm Xanh dương đậm, Xanh lam Cyan UV & Xanh pastel từ 170° -> 275°)
-  if (h >= 170 && h < 275) {
-    if (s >= 0.24 && v >= 0.22 && deGlared.b > deGlared.r * 1.12 && deGlared.b >= deGlared.g * 0.98) {
-      return 'blue';
+  // VÀNG (Yellow / Lemon UV / Pastel Yellow): b* dương cao, G gần bằng R (G/R >= 0.78) và Hue 37°..75°
+  if (h >= 37 && h < 75) {
+    if (deGlared.r > deGlared.b * 1.14 && deGlared.g > deGlared.b * 1.16) {
+      return 'yellow';
+    }
+  }
+
+  // CAM (Orange / Fluoro Coral / UV Orange / Pastel Peach): Hue 9°..39° hoặc cả a* và b* đều dương mạnh
+  if (h >= 9 && h < 39) {
+    if (h >= 36 && deGlared.g > deGlared.r * 0.85) {
+      return 'yellow';
+    }
+    // Tách biệt Đỏ đậm và Cam ở vùng 9°..13° dựa trên tỷ lệ G/R và kênh b* (vàng)
+    if (h < 13 && avgG < avgR * 0.36 && lab.b < 24) {
+      return 'red';
+    }
+    if (deGlared.r > deGlared.b * 1.24 && deGlared.g >= deGlared.b * 1.01) {
+      return 'orange';
+    }
+  }
+
+  // ĐỎ (Red / Crimson / UV Pinkish-Red / Dark Classic Red): Hue >= 315° hoặc < 12°
+  if (h >= 315 || h < 12) {
+    if (h >= 7 && h < 12 && avgG > avgR * 0.45 && avgR > 190 && lab.b >= 26) {
+      return 'orange';
+    }
+    if (deGlared.r > deGlared.g * 1.14 && deGlared.r > deGlared.b * 1.10) {
+      return 'red';
     }
   }
 
@@ -286,11 +354,12 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
 }
 
 // Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
-// Tích hợp Bộ lọc Khử Lóa Phản Quang UV (UV Specular Highlight Rejector) & Lấy mẫu Lõi Trung tâm
-function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0) {
+// Hỗ trợ Lấy Mẫu Đa Vòng (Tâm + Vành ngoài cho Rubik Carbon Fiber / Viền đen) + Khử Lóa UV + Cân Bằng Trắng Tương Đối
+function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0, surfaceProfileKey = 'auto') {
+  const prof = CUBE_SURFACE_PROFILES[surfaceProfileKey] || CUBE_SURFACE_PROFILES.auto;
   const cellSize = boxSize / dim;
-  // Lấy mẫu lõi trung tâm của từng ô sticker (13% cellSize) để tránh rãnh nhựa đen nhưng đủ điểm để lọc vết lóa UV
-  const sampleRadius = Math.max(1, Math.floor(cellSize * 0.13));
+  const innerRadius = Math.max(1, Math.floor(cellSize * 0.13));
+  const outerRingRadius = Math.max(innerRadius + 1, Math.floor(cellSize * 0.25));
   const currentNxNColors = [];
   const cellStats = [];
   let validColorsCount = 0;
@@ -303,43 +372,56 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
       const cx = Math.floor(startX + col * cellSize + cellSize / 2);
       const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
-      const pixels = [];
-      for (let dy = -sampleRadius; dy <= sampleRadius; dy += 1) {
-        for (let dx = -sampleRadius; dx <= sampleRadius; dx += 1) {
-          const px = cx + dx;
-          const py = cy + dy;
-          if (px >= 0 && px < w && py >= 0 && py < h) {
-            const idx = (py * w + px) * 4;
-            const r = frameImg[idx];
-            const g = frameImg[idx + 1];
-            const b = frameImg[idx + 2];
-            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            const maxC = Math.max(r, g, b);
-            const minC = Math.min(r, g, b);
-            const chroma = maxC - minC;
-            const sat = maxC > 0 ? chroma / maxC : 0;
-            pixels.push({ r, g, b, lum, chroma, sat });
+      const samplePixelsInBox = (rMin, rMax, step = 1) => {
+        const arr = [];
+        for (let dy = -rMax; dy <= rMax; dy += step) {
+          for (let dx = -rMax; dx <= rMax; dx += step) {
+            if (Math.abs(dx) < rMin && Math.abs(dy) < rMin) continue;
+            const px = cx + dx;
+            const py = cy + dy;
+            if (px >= 0 && px < w && py >= 0 && py < h) {
+              const idx = (py * w + px) * 4;
+              const r = frameImg[idx];
+              const g = frameImg[idx + 1];
+              const b = frameImg[idx + 2];
+              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+              const maxC = Math.max(r, g, b);
+              const minC = Math.min(r, g, b);
+              const chroma = maxC - minC;
+              const sat = maxC > 0 ? chroma / maxC : 0;
+              arr.push({ r, g, b, lum, chroma, sat });
+            }
           }
+        }
+        return arr;
+      };
+
+      let pixels = samplePixelsInBox(0, innerRadius, 1);
+
+      // Nếu là Rubik dán vân Carbon Fiber (tâm ô màu đen carbon, viền ngoài có màu) hoặc tâm bị bóng tối/lóa nặng:
+      // tự động quét thêm Vành Ngoài (Outer Ring) của viên Rubik!
+      const nonDarkInner = pixels.filter((p) => p.lum >= 34);
+      if (prof.useOuterRing && nonDarkInner.length < Math.ceil(pixels.length * 0.45)) {
+        const ringPixels = samplePixelsInBox(innerRadius, outerRingRadius, 2).filter((p) => p.lum >= 36 && p.chroma >= 18);
+        if (ringPixels.length >= 2) {
+          pixels = [...nonDarkInner, ...ringPixels];
         }
       }
 
       if (pixels.length > 0) {
-        // BƯỚC 1: Loại bỏ các điểm tối ở rãnh khớp nối nhựa đen (lum < 32)
-        const nonDark = pixels.filter((p) => p.lum >= 32);
+        const nonDark = pixels.filter((p) => p.lum >= 28);
         const workingPool = nonDark.length >= 2 ? nonDark : pixels;
 
-        // BƯỚC 2: KHỬ ĐỐM LÓA TRẮNG TRÊN RUBIK UV (UV Specular Glare Spot Removal)
-        // Nếu trong ô có >= 30% điểm ảnh mang sắc tố màu rõ rệt (chroma >= 20, sat >= 0.20),
-        // thì các điểm chói trắng (lum >= 180, sat < 0.20) chính là ánh đèn phản xạ trên mặt phủ UV -> loại bỏ đốm lóa!
-        const chromaticPixels = workingPool.filter((p) => p.chroma >= 20 && p.sat >= 0.20);
+        // KHỬ ĐỐM LÓA TRẮNG TRÊN RUBIK UV & LỌC LÕI SẮC TỐ MÀU
+        const chromaThreshold = surfaceProfileKey === 'pastel' ? 12 : 18;
+        const satThreshold = surfaceProfileKey === 'pastel' ? 0.11 : 0.18;
+        const chromaticPixels = workingPool.filter((p) => p.chroma >= chromaThreshold && p.sat >= satThreshold);
         let corePixels;
-        if (chromaticPixels.length >= Math.max(2, Math.floor(workingPool.length * 0.28))) {
-          // Sắp xếp theo độ giàu sắc tố (chroma) và lấy 70% điểm màu chuẩn nhất của viên Rubik UV
+        if (chromaticPixels.length >= Math.max(2, Math.floor(workingPool.length * 0.26))) {
           chromaticPixels.sort((a, b) => b.chroma - a.chroma);
           const keepCount = Math.max(2, Math.ceil(chromaticPixels.length * 0.75));
           corePixels = chromaticPixels.slice(0, keepCount);
         } else {
-          // Trường hợp viên màu Trắng (White Sticker) hoặc vùng trung tính: lọc trung vị theo độ sáng
           workingPool.sort((a, b) => a.lum - b.lum);
           const trimStart = Math.floor(workingPool.length * 0.18);
           const trimEnd = Math.max(trimStart + 1, Math.ceil(workingPool.length * 0.85));
@@ -366,11 +448,11 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
         }
         const cellStdDev = Math.sqrt(varSum / count);
         const { h: hue, s: sat, v: val } = rgbToHsv(avgR, avgG, avgB);
-        if (isSkinOrWoodTone(avgR, avgG, avgB, hue, sat, val)) {
+        if (surfaceProfileKey !== 'pastel' && isSkinOrWoodTone(avgR, avgG, avgB, hue, sat, val)) {
           skinLikeCellsCount++;
         }
 
-        const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance);
+        const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance, surfaceProfileKey);
         const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
         centerLumSum += cellLum;
 
@@ -387,34 +469,33 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
     }
   }
 
-  // Nếu vùng này có nhiều ô giống màu da người / bàn gỗ (>= 35% số ô) -> phạt nặng để chống nhận nhầm mặt người/tay
-  const isMostlySkinOrWood = skinLikeCellsCount >= Math.ceil(dim * dim * 0.35);
+  const isMostlySkinOrWood =
+    surfaceProfileKey !== 'pastel' && skinLikeCellsCount >= Math.ceil(dim * dim * 0.35);
 
-  // BƯỚC 3: KHÔI PHỤC Ô BỊ LÓA NẶNG TRÊN RUBIK UV (Second-Pass UV Glare Recovery)
-  // Khi lưới đã xác nhận có khối Rubik thật (>= 55% số ô rõ màu & >= 2 ô màu rực, không phải da người),
-  // nếu còn 1-3 ô bị chói đèn UV trực diện khiến màu bị nhạt đi, tự động khôi phục theo kênh Hue đối kháng
+  // KHÔI PHỤC TẦNG 2 CHO MỌI Ô BỊ LÓA UV / TỐI VIỀN / MÀU PASTEL NHẠT (Second-Pass Multi-Cube Recovery)
   if (
     !isMostlySkinOrWood &&
-    validColorsCount >= Math.ceil(dim * dim * 0.55) &&
-    vividColorsCount >= 2
+    validColorsCount >= Math.ceil(dim * dim * 0.50) &&
+    vividColorsCount >= 1
   ) {
     for (let i = 0; i < currentNxNColors.length; i++) {
       if (currentNxNColors[i] !== 'invalid') continue;
       const st = cellStats[i];
-      if (!st || st.cellLum < 45) continue;
+      if (!st || st.cellLum < 36) continue;
       const spread = Math.max(st.avgR, st.avgG, st.avgB) - Math.min(st.avgR, st.avgG, st.avgB);
-      if (spread < 16 && st.cellLum >= 125) {
+      const lab = rgbToLab(st.avgR, st.avgG, st.avgB);
+      if (spread < 15 && lab.chromaLab < 14 && st.cellLum >= 120) {
         currentNxNColors[i] = 'white';
         st.colorKey = 'white';
         validColorsCount++;
-      } else if (spread >= 12) {
-        const dg = removeUvSpecularGlare(st.avgR, st.avgG, st.avgB);
+      } else if (spread >= 10 || lab.chromaLab >= 9) {
+        const dg = removeUvSpecularGlare(st.avgR, st.avgG, st.avgB, surfaceProfileKey);
         const { h: dh } = rgbToHsv(dg.r, dg.g, dg.b);
         let recovered = 'invalid';
-        if (dh >= 320 || dh < 10) recovered = 'red';
+        if (dh >= 315 || dh < 10) recovered = 'red';
         else if (dh >= 10 && dh < 38) recovered = 'orange';
-        else if (dh >= 38 && dh < 76) recovered = 'yellow';
-        else if (dh >= 76 && dh < 172) recovered = 'green';
+        else if (dh >= 38 && dh < 75) recovered = 'yellow';
+        else if (dh >= 75 && dh < 172) recovered = 'green';
         else if (dh >= 172 && dh < 285) recovered = 'blue';
         if (recovered !== 'invalid') {
           currentNxNColors[i] = recovered;
@@ -448,7 +529,7 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
             cellA.avgG - cellB.avgG,
             cellA.avgB - cellB.avgB
           );
-          if (rgbDist >= 42) sharpAdjacentEdges++;
+          if (rgbDist >= (surfaceProfileKey === 'pastel' ? 24 : 38)) sharpAdjacentEdges++;
         }
       }
     }
@@ -481,8 +562,6 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
   const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
   const uniqueColorsCount = new Set(validOnly).size;
 
-  // ƯU TIÊN SỐ 1 CHO MẶT CHƯA GIẢI (uniqueColorsCount >= 2):
-  // Mặt chưa giải có nhiều màu khác nhau và có ranh giới chuyển màu (colorTransitions) giữa các ô
   const unsolvedBonus =
     uniqueColorsCount >= 2
       ? uniqueColorsCount * 8 + sharpAdjacentEdges * 7 + colorTransitions * 4
@@ -493,7 +572,7 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
     validColorsCount * 5 +
     vividColorsCount * 3.5 +
     unsolvedBonus +
-    (gridSeamContrast >= 7 ? 6 : 0) +
+    (gridSeamContrast >= 6 ? 6 : 0) +
     skinPenalty;
 
   return {
@@ -512,14 +591,11 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
   };
 }
 
-// Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker) trên toàn khung hình
-// Bắt nhạy cả MẶT CHƯA GIẢI (nhiều màu lộn xộn) và mặt đã giải khi di chuyển
-function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
+// Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker) cho MỌI LOẠI RUBIK
+function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileKey = 'auto') {
   const minSide = Math.min(w, h);
   const baseSize = minSide * 0.48;
 
-  // 1. Quét Heatmap các điểm màu sticker Rubik trên toàn khung hình (17 x 13 điểm)
-  // Lưu ý quan trọng: KHÔNG phạt độ lệch màu giữa 2 điểm cách nhau 3px vì mặt Rubik CHƯA GIẢI có các ô khác màu nằm sát nhau!
   let weightSum = 0;
   let wxSum = 0;
   let wySum = 0;
@@ -538,8 +614,7 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
       const gVal = frameImg[idx + 1];
       const bVal = frameImg[idx + 2];
 
-      // Phân loại trực tiếp màu tại điểm lấy mẫu (stdDev = 8) để không bỏ sót các mặt chưa giải nhiều màu
-      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 6);
+      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 6, surfaceProfileKey);
       if (cKey !== 'invalid' && cKey !== 'white') {
         const wt = 3.2;
         weightSum += wt;
@@ -563,12 +638,10 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
     candidates.push({ sx, sy, size: clampedSize, motionTol });
   };
 
-  // Ứng viên 1: Vị trí trung tâm với nhiều kích cỡ (từ cầm xa 34% đến cầm gần 54%)
   pushCandidate(w / 2, h / 2, baseSize, 2);
   pushCandidate(w / 2, h / 2, minSide * 0.38, 3);
   pushCandidate(w / 2, h / 2, minSide * 0.56, 2);
 
-  // Ứng viên 2: Vị trí vừa khóa ở khung hình trước + dự đoán vận tốc di chuyển (Kalman/EMA Velocity)
   if (prevTracker && prevTracker.cx > 0) {
     const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.85;
     const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.85;
@@ -576,7 +649,6 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
     pushCandidate(prevTracker.cx, prevTracker.cy, prevTracker.size || baseSize, 3);
   }
 
-  // Ứng viên 3: Tâm cụm màu Sticker (Heatmap Centroid) khi người chơi đưa khối Rubik chưa giải sang trái/phải/trên/dưới
   if (vividHits >= 2 && weightSum > 0) {
     const heatCx = wxSum / weightSum;
     const heatCy = wySum / weightSum;
@@ -587,7 +659,6 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
     pushCandidate(heatCx, heatCy, minSide * 0.36, 4);
   }
 
-  // Ứng viên 4..9: Lưới tìm kiếm đa vị trí quanh khung hình để bắt nhanh khi vung tay di chuyển
   const shiftX = w * 0.15;
   const shiftY = h * 0.14;
   pushCandidate(w / 2 - shiftX, h / 2, baseSize * 0.9, 3);
@@ -605,7 +676,8 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
       cand.sx,
       cand.sy,
       cand.size,
-      cand.motionTol
+      cand.motionTol,
+      surfaceProfileKey
     );
     if (!bestEval || res.score > bestEval.score) {
       bestEval = res;
@@ -666,7 +738,7 @@ export default function App() {
   const [adminSettings, setAdminSettings] = useState(() => {
     const defaults = {
       competitionTitle: 'Rubik Timer & AI Verification',
-      subTitle: 'HUST Speedcubing • 2×2, 3×3, 4×4, 5×5',
+      subTitle: 'HUST Speedcubing • 2×2 đến 7×7 • Mọi dòng Rubik',
       announcementBanner: '',
       spaceHoldMs: 280,
       inspectionDurationSec: 15,
@@ -1016,6 +1088,23 @@ export default function App() {
   const [puzzleType, setPuzzleType] = useState(() => {
     return localStorage.getItem('rubik_puzzle_type') || '3x3';
   });
+
+  // Bộ chọn Chế độ Nhận diện Bề mặt Rubik (Tự động AI / Phủ UV / Nhựa Nhám / Viền Đen & Carbon / Pastel Macaron)
+  const [surfaceProfile, setSurfaceProfile] = useState(() => {
+    const saved = localStorage.getItem('rubik_surface_profile');
+    return saved && CUBE_SURFACE_PROFILES[saved] ? saved : 'auto';
+  });
+  const surfaceProfileRef = useRef(surfaceProfile);
+  useEffect(() => {
+    surfaceProfileRef.current = surfaceProfile;
+  }, [surfaceProfile]);
+
+  const handleSelectSurfaceProfile = (profileKey) => {
+    if (!CUBE_SURFACE_PROFILES[profileKey]) return;
+    setSurfaceProfile(profileKey);
+    surfaceProfileRef.current = profileKey;
+    localStorage.setItem('rubik_surface_profile', profileKey);
+  };
 
   const [gameMode, setGameMode] = useState(() => {
     return localStorage.getItem('rubik_game_mode') || 'free';
@@ -2117,7 +2206,14 @@ export default function App() {
         }
 
         const dim = currentDim;
-        const bestRegion = locateDynamicRubikBox(frameImg, w, h, dim, trackerStateRef.current);
+        const bestRegion = locateDynamicRubikBox(
+          frameImg,
+          w,
+          h,
+          dim,
+          trackerStateRef.current,
+          surfaceProfileRef.current
+        );
         const startX = bestRegion.startX;
         const startY = bestRegion.startY;
         const boxSize = bestRegion.boxSize;
@@ -3008,6 +3104,49 @@ export default function App() {
               })}
             </div>
 
+            {/* BỘ CHỌN CHẾ ĐỘ MẮT THẦN AI THEO DÒNG RUBIK (UV / NHÁM / VIỀN ĐEN & CARBON / PASTEL) */}
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              background: '#080e1c',
+              padding: '3px 6px',
+              borderRadius: '8px',
+              border: '1px solid #16223b',
+              gap: '4px',
+              maxWidth: '100%',
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch'
+            }} className="no-scrollbar">
+              <span style={{ fontSize: '0.66rem', color: '#64748b', fontWeight: '700', whiteSpace: 'nowrap', padding: '0 4px' }}>
+                🎨 Loại Rubik:
+              </span>
+              {Object.values(CUBE_SURFACE_PROFILES).map((prof) => {
+                const isSelected = surfaceProfile === prof.id;
+                return (
+                  <button
+                    key={prof.id}
+                    type="button"
+                    onClick={() => handleSelectSurfaceProfile(prof.id)}
+                    title={prof.desc}
+                    style={{
+                      padding: '3px 9px',
+                      borderRadius: '6px',
+                      border: isSelected ? '1px solid #38bdf8' : '1px solid transparent',
+                      background: isSelected ? 'rgba(56, 189, 248, 0.16)' : 'transparent',
+                      color: isSelected ? '#38bdf8' : '#94a3b8',
+                      fontWeight: isSelected ? '800' : '600',
+                      fontSize: '0.68rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    {prof.shortLabel}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* THÔNG BÁO NHẬN DIỆN KỶ LỤC AI THỜI GIAN THỰC */}
             {lastNotice && (
               <div style={{
@@ -3057,7 +3196,7 @@ export default function App() {
               </div>
 
               <div style={{
-                fontSize: puzzleType === '5x5' ? '0.9rem' : (puzzleType === '4x4' ? '1.02rem' : '1.15rem'),
+                fontSize: (puzzleType === '6x6' || puzzleType === '7x7') ? '0.82rem' : (puzzleType === '5x5' ? '0.9rem' : (puzzleType === '4x4' ? '1.02rem' : '1.15rem')),
                 fontWeight: '700',
                 lineHeight: 1.4,
                 color: '#cbd5e1',
@@ -3066,7 +3205,7 @@ export default function App() {
                 background: '#090f1d',
                 borderRadius: '8px',
                 border: '1px solid #16223b',
-                maxHeight: '65px',
+                maxHeight: '72px',
                 overflowY: 'auto'
               }}>
                 {scramble}
@@ -3259,6 +3398,7 @@ export default function App() {
                     lastMove={lastMoveDetected}
                     trackingBox={trackingBox}
                     modelVerification={model3DVerification}
+                    surfaceProfile={surfaceProfile}
                     width={upper3DExpanded ? (isMobile ? 280 : 310) : (isMobile ? 195 : 225)}
                     height={upper3DExpanded ? (isMobile ? 205 : 220) : (isMobile ? 150 : 165)}
                   />
@@ -3367,8 +3507,8 @@ export default function App() {
                     {/* Lưới 2D đối chiếu nhanh */}
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 4 ? '12px' : '15px'})`,
-                      gap: '2px',
+                      gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px')})`,
+                      gap: currentDim >= 6 ? '1.5px' : '2px',
                       background: '#020617',
                       padding: '4px',
                       borderRadius: '6px',
@@ -3379,8 +3519,8 @@ export default function App() {
                         <div
                           key={i}
                           style={{
-                            width: currentDim >= 4 ? '12px' : '15px',
-                            height: currentDim >= 4 ? '12px' : '15px',
+                            width: currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px'),
+                            height: currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px'),
                             borderRadius: '2px',
                             backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#1e293b'
                           }}
@@ -4136,6 +4276,7 @@ export default function App() {
                 lastMove={lastMoveDetected}
                 trackingBox={trackingBox}
                 modelVerification={model3DVerification}
+                surfaceProfile={surfaceProfile}
                 width={330}
                 height={240}
               />
@@ -4465,13 +4606,13 @@ export default function App() {
               )}
             </div>
 
-            {/* Bảng so sánh 4 khối */}
+            {/* Bảng so sánh 6 khối (2x2 -> 7x7) */}
             <div style={{ background: '#111c34', padding: '16px', borderRadius: '12px', border: '1px solid #1a2a4c' }}>
               <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#f8fafc', marginBottom: '12px' }}>
-                🏆 Tổng Kết Thành Tích Cả 4 Khối
+                🏆 Tổng Kết Thành Tích Các Khối (2×2 đến 7×7)
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: '10px' }}>
                 {Object.values(PUZZLE_CONFIGS).map(p => {
                   const pSolves = solves.filter(s => (s.puzzleType || '3x3') === p.id);
                   const pBest = pSolves.length > 0 ? Math.min(...pSolves.map(s => s.time)).toFixed(2) : '--';
@@ -4816,6 +4957,8 @@ export default function App() {
                     <option value="3x3">3×3×3</option>
                     <option value="4x4">4×4×4</option>
                     <option value="5x5">5×5×5</option>
+                    <option value="6x6">6×6×6</option>
+                    <option value="7x7">7×7×7</option>
                   </select>
                 </div>
                 <div>
@@ -5613,6 +5756,7 @@ export default function App() {
               lastMove={lastMoveDetected}
               trackingBox={trackingBox}
               modelVerification={model3DVerification}
+              surfaceProfile={surfaceProfile}
               width={340}
               height={260}
             />
