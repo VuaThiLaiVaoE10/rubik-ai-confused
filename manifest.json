@@ -1,0 +1,19 @@
+{
+  "name": "Rubik AI Speedcube Arena",
+  "short_name": "Rubik AI",
+  "description": "Đấu trường Speedcubing tích hợp Trọng tài Camera AI, Mô hình 3D Three.js, Giải Kociemba và Solo 1v1.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#070b14",
+  "theme_color": "#0b1120",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
