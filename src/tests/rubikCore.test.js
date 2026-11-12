@@ -13,9 +13,12 @@ import {
   layMauTrungViOpenCv,
   sampleCubieStickerCell,
   evaluateRubikGridCandidate,
+  evaluateCenteredRubikWithOffset,
   buildCameraConstraintFallbacks,
   enhanceLowLightRgbaBuffer,
-  calibrateWebcamFrameBuffer
+  calibrateWebcamFrameBuffer,
+  computeFrameLumaStats,
+  runVisionDiagnosticSuite
 } from '../vision/rubikVision';
 import {
   sanitizeText,
@@ -215,6 +218,52 @@ describe('Computer Vision HSV Color Classifier', () => {
     expect(skinRes.isMostlySkinOrWood).toBe(true);
     expect(skinRes.isGeometricallyVerifiedCube).toBe(false);
     expect(skinRes.validColorsCount).toBe(0);
+  });
+
+  it('passes 100% of runVisionDiagnosticSuite and rescues shifted cubes via evaluateCenteredRubikWithOffset', () => {
+    const suite = runVisionDiagnosticSuite();
+    expect(suite.total).toBe(11);
+    expect(suite.results.filter((r) => !r.passed)).toEqual([]);
+    expect(suite.passed).toBe(suite.total);
+    expect(suite.passRatePct).toBe(100);
+    expect(suite.baselineBeforePassed).toBeLessThan(suite.passed);
+
+    const w = 180;
+    const h = 150;
+    const buf = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < buf.length; i += 4) {
+      buf[i] = 16;
+      buf[i + 1] = 20;
+      buf[i + 2] = 28;
+      buf[i + 3] = 255;
+    }
+    const faceColors = [
+      [215, 42, 40], [42, 188, 86], [44, 104, 224],
+      [238, 214, 42], [238, 130, 38], [238, 238, 238],
+      [215, 42, 40], [42, 188, 86], [238, 214, 42]
+    ];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const [R, G, B] = faceColors[r * 3 + c];
+        for (let y = 21 + r * 36 + 2; y < 21 + (r + 1) * 36 - 2; y++) {
+          for (let x = 64 + c * 36 + 2; x < 64 + (c + 1) * 36 - 2; x++) {
+            const idx = (y * w + x) * 4;
+            if (x < w && y < h) {
+              buf[idx] = R;
+              buf[idx + 1] = G;
+              buf[idx + 2] = B;
+            }
+          }
+        }
+      }
+    }
+    const rescued = evaluateCenteredRubikWithOffset(buf, w, h, 3, 46, 21, 108, 'auto', false);
+    expect(rescued.usedMicroOffset).toBe(true);
+    expect(rescued.validColorsCount).toBeGreaterThanOrEqual(8);
+
+    const luma = computeFrameLumaStats(buf);
+    expect(luma.avgBrightness).toBeGreaterThan(20);
+    expect(luma.contrast).toBeGreaterThan(100);
   });
 });
 

@@ -56,10 +56,12 @@ import {
   getColorTextHex,
   classifyRubikStickerCell,
   classifyCenterStickerFallback,
-  evaluateRubikGridCandidate,
+  evaluateCenteredRubikWithOffset,
   locateDynamicRubikBox,
   buildCameraConstraintFallbacks,
-  calibrateWebcamFrameBuffer
+  calibrateWebcamFrameBuffer,
+  computeFrameLumaStats,
+  runVisionDiagnosticSuite
 } from './vision/rubikVision';
 import { calculateAo } from './utils/timerStats';
 import { playSoundEffect, isSoundMuted, setSoundMuted } from './utils/soundEngine';
@@ -476,6 +478,9 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState(() => isCloudConfigured() ? 'connected' : 'unconfigured');
   const [cloudTestNotice, setCloudTestNotice] = useState(null);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Chẩn đoán & Benchmark Nhận Diện AI (Nút Test trực tiếp trong Bảng Admin của Khoa)
+  const [adminVisionReport, setAdminVisionReport] = useState(null);
 
   // Thông báo nhận diện kỷ lục AI thời gian thực (Toast Banner)
   const [lastNotice, setLastNotice] = useState(null);
@@ -2742,7 +2747,7 @@ export default function App() {
           const startX = Math.round(smoothCx - smoothSize / 2);
           const startY = Math.round(smoothCy - smoothSize / 2);
 
-          bestRegion = evaluateRubikGridCandidate(
+          bestRegion = evaluateCenteredRubikWithOffset(
             frameImg,
             w,
             h,
@@ -2750,10 +2755,14 @@ export default function App() {
             startX,
             startY,
             smoothSize,
-            0,
             surfaceProfileRef.current,
             isLowLight
           );
+
+          if (bestRegion.usedMicroOffset) {
+            smoothCx = bestRegion.startX + smoothSize / 2;
+            smoothCy = bestRegion.startY + smoothSize / 2;
+          }
 
           hasCubeSignal =
             Boolean(bestRegion.isGeometricallyVerifiedCube) &&
@@ -9472,6 +9481,165 @@ export default function App() {
                         : '#38bdf8'
                   }}>
                     {cloudTestNotice.text}
+                  </div>
+                )}
+              </div>
+
+              {/* PHẦN 4: CHẨN ĐOÁN & TEST NHẬN DIỆN AI (BEFORE / AFTER) */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.72)',
+                borderRadius: '10px',
+                padding: '12px',
+                border: '1px solid rgba(52, 211, 153, 0.35)',
+                marginBottom: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: '800', color: '#34d399' }}>
+                      🧪 4. Kiểm Tra & Chẩn Đoán Nhận Diện AI (Before / After)
+                    </div>
+                    <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>
+                      Chạy trực tiếp bộ 11 tình huống thực tế (chói UV, đèn vàng 2700K/3000K, Pastel, thiếu sáng LUT, wrap Hue Đỏ, lệch tay ±25% ô, Anti-Fake da tay).
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="admin-run-vision-test"
+                    onClick={() => {
+                      const suite = runVisionDiagnosticSuite();
+                      let liveCam = null;
+                      const vid = videoRef.current;
+                      if (cameraActive && vid && vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+                        try {
+                          const probeCanvas = document.createElement('canvas');
+                          probeCanvas.width = 80;
+                          probeCanvas.height = 60;
+                          const pctx = probeCanvas.getContext('2d', { willReadFrequently: true });
+                          if (pctx) {
+                            pctx.drawImage(vid, 0, 0, 80, 60);
+                            const imgData = pctx.getImageData(0, 0, 80, 60);
+                            const fStats = computeFrameLumaStats(imgData.data);
+                            const calRes = calibrateWebcamFrameBuffer(
+                              imgData.data,
+                              fStats.avgBrightness,
+                              fStats.contrast,
+                              fStats.avgR,
+                              fStats.avgG,
+                              fStats.avgB
+                            );
+                            liveCam = {
+                              resolution: `${vid.videoWidth}×${vid.videoHeight}`,
+                              avgBrightness: Math.round(fStats.avgBrightness),
+                              contrast: Math.round(fStats.contrast),
+                              lowLight: calRes.enhanced,
+                              whiteBalance: calRes.whiteBalanced
+                            };
+                          }
+                        } catch {
+                          liveCam = { error: true };
+                        }
+                      }
+                      setAdminVisionReport({
+                        ...suite,
+                        deviceMode: isLowSpec ? 'Auto Low-Spec (160×120)' : 'Standard HD (320×240)',
+                        surfaceProfile,
+                        liveCam
+                      });
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '7px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      border: 'none',
+                      color: '#ffffff',
+                      fontWeight: '800',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+                    }}
+                  >
+                    🧪 Chạy Test Nhận Diện AI
+                  </button>
+                </div>
+
+                {adminVisionReport && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    background: 'rgba(2, 6, 23, 0.72)',
+                    border: adminVisionReport.passed === adminVisionReport.total
+                      ? '1px solid rgba(52, 211, 153, 0.5)'
+                      : '1px solid rgba(251, 191, 36, 0.5)'
+                  }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '0.76rem',
+                        fontWeight: '800',
+                        background: adminVisionReport.passed === adminVisionReport.total ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                        color: adminVisionReport.passed === adminVisionReport.total ? '#34d399' : '#fbbf24'
+                      }}>
+                        Sau nâng cấp: {adminVisionReport.passed}/{adminVisionReport.total} PASS ({adminVisionReport.passRatePct}%)
+                      </span>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '0.74rem',
+                        fontWeight: '700',
+                        background: 'rgba(239, 68, 68, 0.14)',
+                        color: '#fca5a5'
+                      }}>
+                        Trước đây: {adminVisionReport.baselineBeforePassed}/{adminVisionReport.baselineBeforeTotal} PASS ({Math.round((adminVisionReport.baselineBeforePassed / adminVisionReport.baselineBeforeTotal) * 100)}%)
+                      </span>
+                      <span style={{ fontSize: '0.73rem', color: '#38bdf8', fontWeight: '700' }}>
+                        ⚡ {adminVisionReport.avgTrackMs} ms/frame • {adminVisionReport.deviceMode} • Lúc {adminVisionReport.ranAt}
+                      </span>
+                    </div>
+
+                    {adminVisionReport.liveCam && !adminVisionReport.liveCam.error && (
+                      <div style={{
+                        fontSize: '0.72rem',
+                        color: '#cbd5e1',
+                        marginBottom: '8px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: 'rgba(56, 189, 248, 0.1)',
+                        border: '1px solid rgba(56, 189, 248, 0.25)'
+                      }}>
+                        📷 Camera đang bật: {adminVisionReport.liveCam.resolution} | Độ sáng TB: {adminVisionReport.liveCam.avgBrightness}/255 | Tương phản: {adminVisionReport.liveCam.contrast} | LUT Thiếu sáng: {adminVisionReport.liveCam.lowLight ? 'BẬT' : 'Tắt'} | Cân bằng trắng: {adminVisionReport.liveCam.whiteBalance ? 'BẬT' : 'Tắt'}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px' }}>
+                      {adminVisionReport.results.map((item) => (
+                        <div key={item.id} style={{
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          background: item.passed ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.12)',
+                          border: item.passed ? '1px solid rgba(52, 211, 153, 0.25)' : '1px solid rgba(248, 113, 113, 0.35)',
+                          fontSize: '0.71rem'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', fontWeight: '700', color: item.passed ? '#6ee7b7' : '#fca5a5' }}>
+                            <span>{item.passed ? '✅' : '❌'} {item.name}</span>
+                            <span style={{
+                              fontSize: '0.65rem',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: item.beforeStatus === 'FAIL' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(148, 163, 184, 0.2)',
+                              color: item.beforeStatus === 'FAIL' ? '#fda4af' : '#cbd5e1',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              Trước: {item.beforeStatus}
+                            </span>
+                          </div>
+                          <div style={{ color: '#94a3b8', marginTop: '2px' }}>
+                            Kết quả: <strong style={{ color: '#e2e8f0' }}>{String(item.actual)}</strong> (Chuẩn: {item.expected})
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

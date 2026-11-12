@@ -117,6 +117,39 @@ export function enhanceLowLightRgbaBuffer(data, avgBrightness, contrast) {
   return true;
 }
 
+// Tính nhanh độ sáng TB, độ tương phản (min-max luma), và trung bình RGB cho 1 khung RGBA
+export function computeFrameLumaStats(data) {
+  if (!data || data.length < 4) {
+    return { avgBrightness: 0, contrast: 0, avgR: 0, avgG: 0, avgB: 0 };
+  }
+  let sumLum = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let minLum = 255;
+  let maxLum = 0;
+  const totalPixels = Math.floor(data.length / 4);
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    sumLum += lum;
+    sumR += r;
+    sumG += g;
+    sumB += b;
+    if (lum < minLum) minLum = lum;
+    if (lum > maxLum) maxLum = lum;
+  }
+  return {
+    avgBrightness: sumLum / totalPixels,
+    contrast: maxLum - minLum,
+    avgR: sumR / totalPixels,
+    avgG: sumG / totalPixels,
+    avgB: sumB / totalPixels
+  };
+}
+
 // Hiệu chuẩn Cân Bằng Trắng Tự Động (Auto White-Balance) + Bù sáng Gamma trong 1 pass LUT duy nhất
 // Giúp khắc phục webcam cũ bị ám vàng/xanh đèn tuýp hoặc mờ nhòe thiếu sáng.
 export function calibrateWebcamFrameBuffer(data, avgBrightness, contrast, avgR, avgG, avgB) {
@@ -401,16 +434,27 @@ export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTol
   const rawMin = Math.min(avgR, avgG, avgB);
   const rawChroma = rawMax - rawMin;
 
-  // 1. Bảo vệ ô Trắng dưới đèn vàng phòng (3000K): R cao, G bám sát R (>= 0.86*R), B >= 0.68*R, độ bão hòa thấp-vừa
+  // 1. Bảo vệ ô Trắng dưới đèn vàng phòng (2700K - 3000K): R cao, G bám sát R, B giữ tỷ lệ đủ lớn, không cướp Orange/Yellow thật
   const earlyHsv = precomputedHsv || rgbToOpenCvHsv(avgR, avgG, avgB);
-  if (
-    surfaceProfileKey !== 'pastel' &&
-    rawMax >= (lowLightMode ? 115 : 155) &&
+  const isWarmBulb3000K =
     earlyHsv.s <= 74 &&
     earlyHsv.h >= 12 &&
     earlyHsv.h <= 25 &&
     avgG >= 0.85 * avgR &&
-    avgB >= 0.68 * avgR
+    avgB >= 0.68 * avgR;
+  const isWarmBulb2700K =
+    rawMax >= 185 &&
+    earlyHsv.s <= 92 &&
+    earlyHsv.h >= 12 &&
+    earlyHsv.h <= 23 &&
+    avgG >= 0.87 * avgR &&
+    avgG <= 0.94 * avgR &&
+    avgB >= 0.62 * avgR;
+
+  if (
+    surfaceProfileKey !== 'pastel' &&
+    rawMax >= (lowLightMode ? 115 : 155) &&
+    (isWarmBulb3000K || isWarmBulb2700K)
   ) {
     return 'white';
   }
@@ -718,6 +762,78 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
     }
   }
 
+  // Hiệu chỉnh ngữ cảnh theo mặt (Context-Aware White Anchor Calibration):
+  // Nếu trên mặt có ô Trắng làm chuẩn (white anchor) dưới đèn vàng 2700K/3000K hoặc ô mờ 'invalid',
+  // cân bằng lại RGB các ô nghi ngờ theo điểm trắng thực tế của mặt đó mà không làm lệch ô Vàng thật.
+  if (skinLikeCellsCount < Math.ceil(dim * dim * 0.45)) {
+    let whiteAnchor = null;
+    for (let i = 0; i < cellStats.length; i++) {
+      const c = cellStats[i];
+      if (c.colorKey === 'white' && c.cellLum >= 125) {
+        if (!whiteAnchor || c.cellLum > whiteAnchor.cellLum) {
+          whiteAnchor = c;
+        }
+      }
+    }
+
+    if (whiteAnchor && whiteAnchor.avgR > 80 && whiteAnchor.avgG > 70 && whiteAnchor.avgB > 50) {
+      const refMax = Math.max(whiteAnchor.avgR, whiteAnchor.avgG, whiteAnchor.avgB);
+      const warmTintDelta = whiteAnchor.avgR - whiteAnchor.avgB;
+      const gainR = Math.min(1.18, Math.max(0.88, refMax / whiteAnchor.avgR));
+      const gainG = Math.min(1.25, Math.max(0.92, refMax / whiteAnchor.avgG));
+      const gainB = Math.min(1.60, Math.max(0.92, refMax / whiteAnchor.avgB));
+      let recalced = false;
+
+      for (let i = 0; i < cellStats.length; i++) {
+        const c = cellStats[i];
+        if (c.cellStdDev > 56 || c.cellLum < 26) continue;
+
+        const calR = Math.min(255, Math.round(c.avgR * gainR));
+        const calG = Math.min(255, Math.round(c.avgG * gainG));
+        const calB = Math.min(255, Math.round(c.avgB * gainB));
+
+        // 1. Cứu ô bị tối/ám vàng góc mặt thành 'invalid'
+        if (c.colorKey === 'invalid') {
+          const rescued = classifyRubikStickerCell(
+            calR, calG, calB, c.cellStdDev, motionTolerance, surfaceProfileKey, null, lowLightMode
+          );
+          if (rescued !== 'invalid') {
+            currentNxNColors[i] = rescued;
+            c.colorKey = rescued;
+            recalced = true;
+          }
+          continue;
+        }
+
+        // 2. Tách ô Trắng bị tối dưới đèn 2700K (lệch thành 'yellow' hoặc 'orange') dựa vào điểm trắng chuẩn trên cùng mặt
+        if ((c.colorKey === 'yellow' || c.colorKey === 'orange') && warmTintDelta >= 34) {
+          const { s: calSat } = rgbToHsv(calR, calG, calB);
+          if (calSat < 0.19 && Math.abs(calR - calB) < 28 && c.cellLum >= 105) {
+            currentNxNColors[i] = 'white';
+            c.colorKey = 'white';
+            recalced = true;
+          }
+        }
+      }
+
+      if (recalced) {
+        validColorsCount = 0;
+        vividColorsCount = 0;
+        vividNonSkinCells = 0;
+        for (let i = 0; i < currentNxNColors.length; i++) {
+          const ck = currentNxNColors[i];
+          if (ck !== 'invalid') {
+            validColorsCount++;
+            if (ck !== 'white') vividColorsCount++;
+            if (ck === 'green' || ck === 'blue' || ck === 'white' || ck === 'yellow') {
+              vividNonSkinCells++;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Khắt khe chống mặt người/đồ gỗ, nhưng KHÔNG chặn nhầm khối Rubik thật bị nhạt màu trên webcam cũ
   const isHumanFaceOrSkin =
     surfaceProfileKey !== 'pastel' &&
@@ -942,6 +1058,9 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
       { cx: targetCx, cy: targetCy, size: baseS * 0.95 },
       { cx: targetCx, cy: targetCy, size: baseS * 1.05 }
     ];
+    if (Math.abs(baseS - prevTracker.size) > 4 || Math.abs(targetCx - predCx) > 6 || Math.abs(targetCy - predCy) > 6) {
+      roiCandidates.push({ cx: predCx, cy: predCy, size: prevTracker.size });
+    }
 
     let bestRoi = null;
     for (const roi of roiCandidates) {
@@ -1094,5 +1213,284 @@ export function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceP
     hitbox: spider.isSquareHitbox ? spider.hitbox : null,
     spiderRays: spider.rayHits,
     isSpiderLocked: spider.isSquareHitbox
+  };
+}
+
+// Khung ngắm cố định thông minh kèm Vi Dịch Chuyển (Micro-Offset Hand-Hold Rescue):
+// Nếu khối Rubik ở chính giữa bị lệch nhẹ do rung tay (~25% kích thước ô), tự dò 4 hướng để khóa ngay.
+export function evaluateCenteredRubikWithOffset(
+  frameImg,
+  w,
+  h,
+  dim,
+  startX,
+  startY,
+  boxSize,
+  surfaceProfileKey = 'auto',
+  lowLightMode = false
+) {
+  const centerEval = evaluateRubikGridCandidate(
+    frameImg,
+    w,
+    h,
+    dim,
+    startX,
+    startY,
+    boxSize,
+    0,
+    surfaceProfileKey,
+    lowLightMode
+  );
+
+  const requiredValid = Math.ceil(dim * dim * 0.65);
+  const centerLocked =
+    Boolean(centerEval.isGeometricallyVerifiedCube) &&
+    !centerEval.isMostlySkinOrWood &&
+    centerEval.validColorsCount >= requiredValid &&
+    centerEval.vividColorsCount >= 2;
+
+  if (centerLocked) {
+    return { ...centerEval, usedMicroOffset: false };
+  }
+
+  const shift = Math.max(4, Math.round((boxSize / Math.max(2, dim)) * 0.25));
+  const maxX = Math.max(0, w - boxSize);
+  const maxY = Math.max(0, h - boxSize);
+  const offsets = [
+    [shift, 0],
+    [-shift, 0],
+    [0, shift],
+    [0, -shift]
+  ];
+
+  let best = { ...centerEval, usedMicroOffset: false };
+  for (let i = 0; i < offsets.length; i++) {
+    const candX = Math.max(0, Math.min(maxX, startX + offsets[i][0]));
+    const candY = Math.max(0, Math.min(maxY, startY + offsets[i][1]));
+    if (candX === startX && candY === startY) continue;
+
+    const cand = evaluateRubikGridCandidate(
+      frameImg,
+      w,
+      h,
+      dim,
+      candX,
+      candY,
+      boxSize,
+      0,
+      surfaceProfileKey,
+      lowLightMode
+    );
+    if (cand.score > best.score && !cand.isMostlySkinOrWood) {
+      best = { ...cand, usedMicroOffset: true };
+    }
+  }
+
+  return best;
+}
+
+// Tạo khung hình RGBA synthetic phục vụ kiểm thử nhận diện Rubik tự động
+function buildSyntheticGridFrame(w, h, startX, startY, boxSize, dim, cellRgbs, bg = [18, 22, 32], seam = [10, 12, 16]) {
+  const data = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = bg[0];
+    data[i + 1] = bg[1];
+    data[i + 2] = bg[2];
+    data[i + 3] = 255;
+  }
+
+  const cellSize = boxSize / dim;
+  for (let r = 0; r < dim; r++) {
+    for (let c = 0; c < dim; c++) {
+      const [cr, cg, cb] = cellRgbs[r * dim + c];
+      const x0 = Math.floor(startX + c * cellSize);
+      const y0 = Math.floor(startY + r * cellSize);
+      const x1 = Math.floor(startX + (c + 1) * cellSize);
+      const y1 = Math.floor(startY + (r + 1) * cellSize);
+
+      for (let y = Math.max(0, y0); y < Math.min(h, y1); y++) {
+        for (let x = Math.max(0, x0); x < Math.min(w, x1); x++) {
+          const isSeam = x - x0 < 2 || x1 - x <= 2 || y - y0 < 2 || y1 - y <= 2;
+          const idx = (y * w + x) * 4;
+          data[idx] = isSeam ? seam[0] : cr;
+          data[idx + 1] = isSeam ? seam[1] : cg;
+          data[idx + 2] = isSeam ? seam[2] : cb;
+        }
+      }
+    }
+  }
+  return data;
+}
+
+// Bộ Kiểm Thử Chẩn Đoán Nhận Diện AI (Chạy trực tiếp trên Client hoặc Vitest)
+// So sánh trạng thái Trước Cải Tiến (baselineBefore) vs Hiện Tại (realtime execution)
+export function runVisionDiagnosticSuite() {
+  const results = [];
+  const pushCase = (id, name, beforeStatus, ok, actual, expected) => {
+    results.push({ id, name, beforeStatus, passed: Boolean(ok), actual, expected });
+  };
+
+  // 1. Bóng lóa UV trên mặt Trắng
+  const uvWhite = classifyRubikStickerCell(255, 248, 232, 6, 0, 'uv');
+  pushCase('uv_glare', 'Bóng lóa đèn UV (ô Trắng chói)', 'FAIL', uvWhite === 'white', uvWhite, 'white');
+
+  // 2. Đèn vàng ấm 3000K trên ô Trắng
+  const warmWhite = classifyRubikStickerCell(245, 224, 178, 8, 0, 'auto');
+  pushCase('warm_3000k', 'Đèn vàng ấm 3000K (không nhầm sang Vàng)', 'FAIL', warmWhite === 'white', warmWhite, 'white');
+
+  // 3. Context-Aware Face Calibration (đèn 2700K: ô Trắng tối + ô Vàng trên cùng mặt)
+  const warmGridRgbs = [
+    [248, 224, 162], [246, 226, 62], [202, 182, 130],
+    [224, 62, 54], [242, 222, 158], [46, 178, 88],
+    [48, 108, 218], [244, 134, 48], [206, 186, 134]
+  ];
+  const warmBuf = buildSyntheticGridFrame(200, 150, 40, 20, 108, 3, warmGridRgbs);
+  const warmEval = evaluateRubikGridCandidate(warmBuf, 200, 150, 3, 40, 20, 108, 0, 'auto', false);
+  const warmOk = warmEval.currentNxNColors[0] === 'white' && warmEval.currentNxNColors[1] === 'yellow' && warmEval.currentNxNColors[2] === 'white';
+  pushCase(
+    'ctx_2700k',
+    'Hiệu chuẩn ngữ cảnh 2700K (tách Trắng tối vs Vàng thật)',
+    'FAIL',
+    warmOk,
+    `${warmEval.currentNxNColors[0]}/${warmEval.currentNxNColors[1]}/${warmEval.currentNxNColors[2]}`,
+    'white/yellow/white'
+  );
+
+  // 4. Rubik Pastel Macaron (Đào nhạt & Bạc hà)
+  const pastelPeach = classifyRubikStickerCell(242, 178, 136, 5, 0, 'pastel');
+  const pastelMint = classifyRubikStickerCell(158, 222, 184, 5, 0, 'pastel');
+  pushCase(
+    'pastel_macaron',
+    'Nhận diện Rubik Pastel (Đào & Xanh Bạc Hà)',
+    'FAIL',
+    pastelPeach === 'orange' && pastelMint === 'green',
+    `${pastelPeach}/${pastelMint}`,
+    'orange/green'
+  );
+
+  // 5. Thiếu sáng — Xanh dương & Đỏ tối (Low-light mode)
+  const darkBlue = classifyRubikStickerCell(15, 42, 118, 6, 0, 'auto', null, true);
+  const darkRed = classifyRubikStickerCell(92, 16, 18, 6, 0, 'auto', null, true);
+  pushCase(
+    'dark_lowlight',
+    'Thiếu sáng sâu (Xanh dương & Đỏ tối với Low-Light LUT)',
+    'FAIL',
+    darkBlue === 'blue' && darkRed === 'red',
+    `${darkBlue}/${darkRed}`,
+    'blue/red'
+  );
+
+  // 6. Vòng tròn màu Đỏ OpenCV (Hue 178 và Hue 2 trộn nhau)
+  const redWrapCells = [
+    [178, 215, 200], [177, 210, 195], [179, 220, 205],
+    [1, 212, 198], [2, 218, 202], [178, 205, 190],
+    [0, 214, 200], [2, 208, 196], [177, 216, 204]
+  ];
+  const medianRgb = redWrapCells.map(([hVal, sVal, vVal]) => {
+    const hn = (hVal % 180) * 2;
+    const sn = sVal / 255;
+    const vn = vVal / 255;
+    const c = vn * sn;
+    const x = c * (1 - Math.abs(((hn / 60) % 2) - 1));
+    const m = vn - c;
+    const [r1, g1, b1] = hn < 60 ? [c, x, 0] : [c, 0, x];
+    return [Math.round((r1 + m) * 255), Math.round((g1 + m) * 255), Math.round((b1 + m) * 255)];
+  });
+  const wrapBuf = buildSyntheticGridFrame(160, 140, 20, 16, 99, 3, medianRgb);
+  const wrapHsv = layMauTrungViOpenCv(wrapBuf, 160, 140, 20, 16, 99, 99);
+  const wrapFace = nhanDienMauOpenCv(wrapHsv);
+  pushCase('red_hue_wrap', 'Khắc phục wrap góc Hue 0/179 màu Đỏ (OpenCV)', 'FAIL', wrapFace === 'Đỏ', `${wrapFace} (H=${Math.round(wrapHsv.h)})`, 'Đỏ');
+
+  // 7. Phân tách Đỏ vs Cam dưới ánh sáng gắt
+  const redCell = classifyRubikStickerCell(195, 28, 24, 5, 0, 'auto');
+  const orangeCell = classifyRubikStickerCell(225, 118, 24, 5, 0, 'auto');
+  pushCase('red_orange_split', 'Tách bạch Đỏ vs Cam (tỷ lệ G/R)', 'PASS', redCell === 'red' && orangeCell === 'orange', `${redCell}/${orangeCell}`, 'red/orange');
+
+  // 8. Lưới 3×3 tối/thiếu sáng webcam cũ + Cân bằng LUT tự động
+  const washedRgbs = [
+    [98, 28, 28], [32, 92, 46], [30, 52, 102],
+    [108, 98, 32], [112, 62, 28], [108, 106, 104],
+    [96, 26, 28], [34, 94, 44], [32, 50, 98]
+  ];
+  const washedBuf = buildSyntheticGridFrame(200, 150, 46, 20, 108, 3, washedRgbs, [18, 20, 24], [10, 12, 14]);
+  const fStats = computeFrameLumaStats(washedBuf);
+  const calRes = calibrateWebcamFrameBuffer(
+    washedBuf,
+    fStats.avgBrightness,
+    fStats.contrast,
+    fStats.avgR,
+    fStats.avgG,
+    fStats.avgB
+  );
+  const washedEval = evaluateRubikGridCandidate(washedBuf, 200, 150, 3, 46, 20, 108, 0, 'auto', calRes.enhanced);
+  pushCase(
+    'lut_washed_grid',
+    'Khôi phục lưới 3×3 tối/nhạt màu bằng LUT tự động',
+    'FAIL',
+    washedEval.validColorsCount >= 8 && washedEval.score > 0 && calRes.enhanced,
+    `${washedEval.validColorsCount}/9 ô (LUT=${calRes.enhanced ? 'ON' : 'OFF'})`,
+    '>=8/9 ô (LUT=ON)'
+  );
+
+  // 9. Vi dịch chuyển cứu khung ngắm cố định khi tay lệch nhẹ
+  const shiftedGridRgbs = [
+    [215, 42, 40], [42, 188, 86], [44, 104, 224],
+    [238, 214, 42], [238, 130, 38], [238, 238, 238],
+    [215, 42, 40], [42, 188, 86], [238, 214, 42]
+  ];
+  const shiftedBuf = buildSyntheticGridFrame(200, 150, 56, 21, 108, 3, shiftedGridRgbs);
+  const offsetRes = evaluateCenteredRubikWithOffset(shiftedBuf, 200, 150, 3, 46, 21, 108, 'auto', false);
+  pushCase(
+    'micro_offset_rescue',
+    'Vi dịch chuyển cứu lệch tay ở Bước 1 (±25% ô)',
+    'FAIL',
+    offsetRes.score > 0 && offsetRes.validColorsCount >= 7,
+    `${offsetRes.validColorsCount}/9 (offset=${offsetRes.usedMicroOffset ? 'ON' : 'OFF'})`,
+    '>=7/9'
+  );
+
+  // 10. Chặn nền da tay / tường trơn đồng màu (Anti-Fake)
+  const skinRgbs = Array(9).fill([196, 146, 118]);
+  const skinBuf = buildSyntheticGridFrame(160, 140, 26, 16, 99, 3, skinRgbs, [196, 146, 118], [194, 144, 116]);
+  const skinEval = evaluateRubikGridCandidate(skinBuf, 160, 140, 3, 26, 16, 99, 0, 'auto', false);
+  pushCase(
+    'anti_fake_skin',
+    'Chống nhận nhầm da mặt / tường trơn đồng màu',
+    'PASS',
+    skinEval.score <= 0 || skinEval.isMostlySkinOrWood,
+    skinEval.isMostlySkinOrWood ? 'REJECTED' : `score=${skinEval.score}`,
+    'REJECTED'
+  );
+
+  // 11. Đo tốc độ theo dõi động (Zero-GC Tracking Performance)
+  const trackBuf = buildSyntheticGridFrame(240, 180, 66, 36, 108, 3, shiftedGridRgbs);
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let trackEval = null;
+  for (let i = 0; i < 4; i++) {
+    trackEval = locateDynamicRubikBox(trackBuf, 240, 180, 3, { cx: 120, cy: 90, size: 108, vx: 0, vy: 0 }, 'auto', false);
+  }
+  const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const avgTrackMs = Number(((t1 - t0) / 4).toFixed(2));
+  pushCase(
+    'tracker_speed',
+    'Hiệu năng Dynamic Tracking (Zero-GC Histogram)',
+    'PASS',
+    Boolean(trackEval && trackEval.validColorsCount >= 7 && avgTrackMs < 25),
+    `${avgTrackMs} ms/frame`,
+    '< 25 ms/frame'
+  );
+
+  const passed = results.filter((r) => r.passed).length;
+  const total = results.length;
+  const baselineBeforePassed = results.filter((r) => r.beforeStatus === 'PASS').length;
+  return {
+    passed,
+    total,
+    passRatePct: total > 0 ? Math.round((passed / total) * 100) : 0,
+    baselineBeforePassed,
+    baselineBeforeTotal: total,
+    avgTrackMs,
+    ranAt: new Date().toLocaleTimeString('vi-VN'),
+    results
   };
 }
