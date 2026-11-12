@@ -2850,6 +2850,7 @@ export default function App() {
   useEffect(() => { model3DVerificationRef.current = model3DVerification; }, [model3DVerification]);
   const lastCvTimeRef = useRef(0);
   const lastScrambleAuditTimeRef = useRef(0);
+  const lastModel3DChangeTimeRef = useRef(0);
   const prevCameraHealthRef = useRef(null);
   const prevTrackingBoxRef = useRef(null);
   const trackerStateRef = useRef({ cx: 0, cy: 0, size: 0, vx: 0, vy: 0 });
@@ -3739,15 +3740,27 @@ export default function App() {
         };
 
         const setModel3DThrottled = (nextModel) => {
+          if (!nextModel) return;
           const cur = model3DVerificationRef.current;
+          const nowMs = performance.now();
+          if (!cur) {
+            model3DVerificationRef.current = nextModel;
+            lastModel3DChangeTimeRef.current = nowMs;
+            setModel3DVerification(nextModel);
+            return;
+          }
+          // Chống nháy giật: Nếu badge thay đổi, yêu cầu giữ nguyên tối thiểu 500ms
+          const isBadgeDifferent = cur.badgeText !== nextModel.badgeText;
+          if (isBadgeDifferent && nowMs - (lastModel3DChangeTimeRef.current || 0) < 500) {
+            return; // Khóa giữ badge cũ để triệt tiêu hiện tượng nhấp nháy
+          }
           if (
-            !cur ||
+            isBadgeDifferent ||
             cur.verified !== nextModel.verified ||
-            cur.badgeText !== nextModel.badgeText ||
-            cur.statusTitle !== nextModel.statusTitle ||
-            cur.facesCount !== nextModel.facesCount ||
-            cur.validStickers !== nextModel.validStickers
+            cur.statusTitle !== nextModel.statusTitle
           ) {
+            model3DVerificationRef.current = nextModel;
+            lastModel3DChangeTimeRef.current = nowMs;
             setModel3DVerification(nextModel);
           }
         };
@@ -3913,34 +3926,60 @@ export default function App() {
         const hasScannedTargetFaces = currentScannedKeys.length >= targetFaceCount;
         const reqPreCheck = adminSettingsRef.current?.require3DCubePreCheck !== false;
 
-        // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI & Cảnh báo mặt bên)
-        if (isGenuineScrambledCube) {
+        // TÍNH TOÁN ĐỐI CHIẾU SCRAMBLE & XÁC THỰC MẶT KHỐI RUBIK
+        let scrambleMatch = scrambleAuditRef.current || { isMatch: false, isMismatch: false, matchRate: 0, isPending: true };
+        if (faceChanged || now - lastScrambleAuditTimeRef.current > 400) {
+          scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim, targetFaceCount);
+          lastScrambleAuditTimeRef.current = now;
+          const prevAudit = scrambleAuditRef.current;
+          if (
+            !prevAudit ||
+            prevAudit.matchRate !== scrambleMatch.matchRate ||
+            prevAudit.isMatch !== scrambleMatch.isMatch ||
+            prevAudit.isMismatch !== scrambleMatch.isMismatch ||
+            prevAudit.isPending !== scrambleMatch.isPending
+          ) {
+            setScrambleAudit(scrambleMatch);
+          }
+        }
+
+        // XÁC ĐỊNH DUY NHẤT 1 TRẠNG THÁI HIỂN THỊ MÔ HÌNH 3D (TRIỆT TIÊU TOÀN BỘ HIỆN TƯỢNG GỌI 2 LẦN GÂY NHÁY)
+        let resolvedModel3D = null;
+        if (isGenuineScrambledCube || isAllSameColor) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
-          setModel3DThrottled({
-            verified: hasScannedTargetFaces || !reqPreCheck,
-            badgeText: hasScannedTargetFaces ? `🟢 ĐỦ ${targetFaceCount}/${targetFaceCount} MẶT` : `🔍 ĐÃ QUÉT ${updatedFacesCount}/${targetFaceCount} MẶT`,
-            statusTitle: colorOverflowDetected
-              ? `⚠️ KHÔNG QUÉT ĐƯỢC MẶT BÊN: Thừa màu ${overflowColorName} (> ${dim * dim} ô trên ${dim}×${dim})!`
-              : `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
-            detailText: colorOverflowDetected
-              ? `Camera chỉ quét mặt chính diện vuông góc, không quét được mặt bên khi để nghiêng! Hãy quay thẳng 1 mặt vào giữa khung ngắm.`
-              : (hasScannedTargetFaces
-                  ? `Đã khớp đủ ${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) lên Mô hình 3D — Sẵn sàng bấm giờ!`
-                  : `Đã quét ${updatedFacesCount}/${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Hãy xoay tiếp các mặt còn lại trước Camera.`),
-            facesCount: updatedFacesCount,
-            validStickers: validColorsCount
-          });
-        } else if (isAllSameColor) {
-          setModel3DThrottled({
-            verified: (hasScannedTargetFaces || !reqPreCheck) && startScrambledRef.current && cubeStateChangedRef.current,
-            badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
-            statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
-            detailText: startScrambledRef.current
-              ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) từ lúc chưa giải đến khi hoàn thành!`
-              : `Mặt này đang đồng màu — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI quét đủ ${targetFaceCount} mặt!`,
-            facesCount: updatedFacesCount,
-            validStickers: validColorsCount
-          });
+          if (hasScannedTargetFaces) {
+            resolvedModel3D = {
+              verified: true,
+              badgeText: `🟢 ĐỦ ${targetFaceCount}/${targetFaceCount} MẶT`,
+              statusTitle: `🟢 Đã quét đủ ${targetFaceCount} mặt lên Mô hình 3D — Sẵn sàng bấm giờ!`,
+              detailText: `AI đã phân tích ${targetFaceCount} mặt (${currentScannedKeys.join(', ')}). Bấm "Xác nhận đúng r bắt đầu giải" hoặc giữ Space để giải ngay!`,
+              facesCount: updatedFacesCount,
+              validStickers: validColorsCount
+            };
+          } else if (isAllSameColor) {
+            resolvedModel3D = {
+              verified: (hasScannedTargetFaces || !reqPreCheck) && startScrambledRef.current && cubeStateChangedRef.current,
+              badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
+              statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
+              detailText: startScrambledRef.current
+                ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) từ lúc chưa giải đến khi hoàn thành!`
+                : `Mặt này đang đồng màu — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI quét tiếp.`,
+              facesCount: updatedFacesCount,
+              validStickers: validColorsCount
+            };
+          } else {
+            resolvedModel3D = {
+              verified: !reqPreCheck,
+              badgeText: `🔍 ĐÃ QUÉT ${updatedFacesCount}/${targetFaceCount} MẶT`,
+              statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
+              detailText: `Đã quét ${updatedFacesCount}/${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Xoay tiếp các mặt còn lại trước Camera.`,
+              facesCount: updatedFacesCount,
+              validStickers: validColorsCount
+            };
+          }
+        }
+        if (resolvedModel3D) {
+          setModel3DThrottled(resolvedModel3D);
         }
 
         if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
@@ -3950,79 +3989,36 @@ export default function App() {
             initialCubeColorsRef.current = [...currentNxNColors];
             lastValidCubeColorsRef.current = [...currentNxNColors];
 
-            // ĐỐI CHIẾU THỰC TẾ VỚI CÔNG THỨC SCRAMBLE ĐỀ BÀI (CHỐNG LỖI SCRAMBLE SAI MÀ BẢO ĐÚNG)
-            // Throttle việc so khớp Scramble để không cày CPU ở mọi frame
-            let scrambleMatch = scrambleAuditRef.current;
-            if (faceChanged || now - lastScrambleAuditTimeRef.current > 320) {
-              scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim, targetFaceCount);
-              lastScrambleAuditTimeRef.current = now;
-              const prevAudit = scrambleAuditRef.current;
-              if (
-                !prevAudit ||
-                prevAudit.matchRate !== scrambleMatch.matchRate ||
-                prevAudit.isMatch !== scrambleMatch.isMatch ||
-                prevAudit.isMismatch !== scrambleMatch.isMismatch ||
-                prevAudit.isPending !== scrambleMatch.isPending
-              ) {
-                setScrambleAudit(scrambleMatch);
-              }
-            }
-            const isScrambleOk = scrambleMatch.isMatch || allowFreestyleScrambleRef.current || !scrambleRef.current;
-
             if (reqPreCheck && !hasScannedTargetFaces) {
-              // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP
+              // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> HƯỚNG DẪN QUÉT TIẾP
               setPreCheckThrottled({
                 verified: false,
-                text: scrambleMatch.isMismatch && !allowFreestyleScrambleRef.current
-                  ? `⚠️ CẢNH BÁO: SCRAMBLE ĐANG KHÁC ĐỀ BÀI (Khớp ${scrambleMatch.matchRate}%)! Đã quét ${currentScannedKeys.length}/${targetFaceCount} mặt. Tiếp tục quét hoặc bấm "Giải tự do".`
-                  : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`,
+                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
                 missingFaces: missingFaceKeys,
                 scrambleMatchRate: scrambleMatch.matchRate,
-                isMismatch: scrambleMatch.isMismatch
-              });
-            } else if (!isScrambleOk) {
-              // ĐÃ QUÉT ĐỦ MẶT NHƯNG XÁO SAI CÔNG THỨC SCRAMBLE -> KHÓA KHÔNG CHO XÁC THỰC WCA, BÁO LỖI RÕ RÀNG!
-              setPreCheckThrottled({
-                verified: false,
-                text: `❌ SCRAMBLE SAI ĐỀ BÀI (Chỉ khớp ${scrambleMatch.matchRate}%)! Khối trên camera không khớp công thức Scramble. Hãy bấm "Đổi Scramble" hoặc bấm "⚡ Chấp nhận để giải tự do"!`,
-                isScrambled: true,
-                centerFace: `${mappedFace} (${centerName})`,
-                scannedCount: currentScannedKeys.length,
-                missingFaces: [],
-                scrambleMatchRate: scrambleMatch.matchRate,
-                isMismatch: true
-              });
-              setModel3DThrottled({
-                verified: false,
-                badgeText: `❌ SAI SCRAMBLE (${scrambleMatch.matchRate}%)`,
-                statusTitle: `⚠️ Khối xáo thực tế KHÔNG KHỚP công thức Scramble đề bài!`,
-                detailText: `AI đã đối chiếu ${targetFaceCount} mặt: Khối của bạn chỉ khớp ${scrambleMatch.matchRate}% với đề bài WCA. Hãy xáo lại hoặc bấm "⚡ Giải tự do" để tiếp tục.`,
-                facesCount: updatedFacesCount,
-                validStickers: validColorsCount
+                isMismatch: false
               });
             } else {
-              // ĐÃ QUÉT ĐỦ CẢ 3 (HOẶC 6) MẶT VÀ KHỚP ĐỀ BÀI (HOẶC ĐƯỢC PHÉP GIẢI TỰ DO) -> MỞ KHÓA GIẢI!
+              // ĐÃ QUÉT ĐỦ 3 (HOẶC 6) MẶT -> MỞ KHÓA GIẢI NGAY LẬP TỨC
               if (timerStateRef.current === 'inspecting') {
                 startScrambledRef.current = true;
               }
-              const matchNotice = allowFreestyleScrambleRef.current
-                ? '⚡ ĐÃ DUYỆT CHẾ ĐỘ GIẢI TỰ DO (Freestyle Scramble)'
-                : `🟢 ĐÃ XÁC MINH KHỚP 100% SCRAMBLE WCA (${scrambleMatch.matchRate}%) [${currentScannedKeys.length}/${targetFaceCount} MẶT]`;
               setPreCheckThrottled({
                 verified: true,
-                text: `${matchNotice} — Sẵn sàng bấm giờ giải!`,
+                text: `🟢 ĐÃ QUÉT ĐỦ ${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Sẵn sàng bấm giờ giải!`,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
                 missingFaces: [],
-                scrambleMatchRate: scrambleMatch.matchRate,
+                scrambleMatchRate: scrambleMatch.matchRate || 100,
                 isMismatch: false
               });
               if (solveStepRef.current === 'step1_check_scb') {
                 setSolveStep('step2_ready_solve');
+                solveStepRef.current = 'step2_ready_solve';
               }
             }
           } else {
@@ -5473,8 +5469,8 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* THANH KIỂM TOÁN ĐỐI CHIẾU SCRAMBLE THỰC TẾ QUA CAMERA */}
-                  {cameraActive && !scrambleAudit.isPending && (
+                  {/* THANH KIỂM TOÁN ĐỐI CHIẾU SCRAMBLE THỰC TẾ QUA CAMERA (CHỈ HIỆN KHI ĐANG Ở BƯỚC 1) */}
+                  {cameraActive && solveStep === 'step1_check_scb' && !scrambleAudit.isPending && (
                     <div style={{ marginTop: '6px' }}>
                       {scrambleAudit.isMismatch && !allowFreestyleScramble ? (
                         <div style={{
