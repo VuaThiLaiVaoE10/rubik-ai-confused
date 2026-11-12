@@ -156,7 +156,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    if (!isFxEnabled) return undefined;
+    if (!isFxEnabled || hudThemeKey === 'off') return undefined;
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const ctx = canvas.getContext('2d');
@@ -252,7 +252,64 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           color: i % 2 === 0 ? '#a5f3fc' : '#e0f2fe'
         });
       }
+    } else if (hudThemeKey === 'galaxy') {
+      const palette = ['#c084fc', '#818cf8', '#38bdf8', '#f472b6', '#f8fafc'];
+      for (let i = 0; i < 72; i++) {
+        ambient.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.25,
+          vy: (Math.random() - 0.5) * 0.25,
+          r: 0.9 + Math.random() * 2.4,
+          phase: Math.random() * Math.PI * 2,
+          twinkle: 1.5 + Math.random() * 2.5,
+          color: palette[i % palette.length],
+          depth: 0.4 + Math.random() * 0.9
+        });
+      }
+    } else if (hudThemeKey === 'inferno') {
+      const embers = ['#f97316', '#ef4444', '#facc15', '#fb923c'];
+      for (let i = 0; i < 55; i++) {
+        ambient.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.8,
+          vy: -(0.9 + Math.random() * 2.2),
+          size: 1.8 + Math.random() * 3.8,
+          phase: Math.random() * Math.PI * 2,
+          alpha: 0.45 + Math.random() * 0.55,
+          color: embers[i % embers.length]
+        });
+      }
+    } else if (hudThemeKey === 'matrix') {
+      const chars = '01アイウエオカキクケコサシスセソタチツテトナニヌネノHEX9';
+      const cols = Math.max(36, Math.ceil(width / 24));
+      for (let i = 0; i < cols; i++) {
+        ambient.push({
+          colIndex: i,
+          y: Math.random() * height,
+          speed: 2.4 + Math.random() * 3.8,
+          len: 8 + Math.floor(Math.random() * 12),
+          glyphSeed: Math.floor(Math.random() * chars.length),
+          chars
+        });
+      }
+    } else if (hudThemeKey === 'aurora') {
+      const hues = ['#34d399', '#2dd4bf', '#38bdf8', '#a78bfa'];
+      for (let i = 0; i < 38; i++) {
+        ambient.push({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.45,
+          vy: -0.25 - Math.random() * 0.5,
+          size: 2 + Math.random() * 3.6,
+          phase: Math.random() * Math.PI * 2,
+          color: hues[i % hues.length]
+        });
+      }
     }
+
+    const meteors = [];
 
     const spawnStormBolt = (targetX, targetY, isBig = false) => {
       const startX = targetX + (Math.random() - 0.5) * (isBig ? 180 : 240);
@@ -359,6 +416,55 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
               color: Math.random() > 0.4 ? '#facc15' : '#c084fc',
               kind: 'spark'
             });
+          } else if (hudThemeKey === 'galaxy') {
+            const c = Math.random() > 0.5 ? '#c084fc' : '#38bdf8';
+            particles.push({
+              x: x + (Math.random() - 0.5) * 8,
+              y: y + (Math.random() - 0.5) * 8,
+              vx: (Math.random() - 0.5) * 1.4,
+              vy: (Math.random() - 0.5) * 1.4,
+              size: 1.4 + Math.random() * 2.2,
+              alpha: 0.95,
+              gravity: 0,
+              color: c,
+              kind: 'spark'
+            });
+          } else if (hudThemeKey === 'inferno') {
+            particles.push({
+              x: x + (Math.random() - 0.5) * 10,
+              y: y + (Math.random() - 0.5) * 6,
+              vx: (Math.random() - 0.5) * 1.8,
+              vy: -1.4 - Math.random() * 1.8,
+              size: 1.8 + Math.random() * 2.8,
+              alpha: 1,
+              gravity: -0.07,
+              color: Math.random() > 0.35 ? '#f97316' : '#facc15',
+              kind: 'spark'
+            });
+          } else if (hudThemeKey === 'matrix') {
+            particles.push({
+              x,
+              y,
+              vx: (Math.random() - 0.5) * 1.2,
+              vy: 1.2 + Math.random() * 2.2,
+              size: 1.4 + Math.random() * 1.8,
+              alpha: 0.95,
+              gravity: 0.04,
+              color: Math.random() > 0.3 ? '#4ade80' : '#dcfce7',
+              kind: 'spark'
+            });
+          } else if (hudThemeKey === 'aurora') {
+            particles.push({
+              x: x + (Math.random() - 0.5) * 10,
+              y: y + (Math.random() - 0.5) * 10,
+              vx: (Math.random() - 0.5) * 1.2,
+              vy: -0.6 - Math.random() * 0.9,
+              size: 1.8 + Math.random() * 2.4,
+              alpha: 0.9,
+              gravity: -0.015,
+              color: Math.random() > 0.5 ? '#34d399' : '#a78bfa',
+              kind: 'spark'
+            });
           }
         }
       }
@@ -421,6 +527,82 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             alpha: 1,
             color: i % 2 === 0 ? '#67e8f9' : '#ffffff',
             kind: 'crystal'
+          });
+        }
+      } else if (hudThemeKey === 'galaxy') {
+        shockwaves.push({ x, y, r: 6, maxR: 170, alpha: 0.95, color: '#c084fc', color2: '#38bdf8' });
+        meteors.push({ x: Math.max(0, x - 240), y: Math.max(0, y - 160), vx: 13, vy: 8.5, len: 110, alpha: 1, color: '#e9d5ff' });
+        for (let i = 0; i < 24; i++) {
+          const ang = (Math.PI * 2 * i) / 24;
+          const spd = 2 + Math.random() * 4.4;
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            size: 1.6 + Math.random() * 2.5,
+            alpha: 1,
+            gravity: 0,
+            color: i % 3 === 0 ? '#f472b6' : (i % 2 === 0 ? '#a78bfa' : '#38bdf8'),
+            kind: 'spark'
+          });
+        }
+      } else if (hudThemeKey === 'inferno') {
+        shockwaves.push({ x, y, r: 8, maxR: 155, alpha: 0.95, color: '#f97316', color2: '#facc15' });
+        for (let i = 0; i < 26; i++) {
+          const ang = (Math.PI * 2 * i) / 26;
+          const spd = 2.2 + Math.random() * 4.6;
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 1.8,
+            size: 2.2 + Math.random() * 3.2,
+            alpha: 1,
+            gravity: -0.09,
+            color: i % 3 === 0 ? '#ef4444' : (i % 2 === 0 ? '#f97316' : '#facc15'),
+            kind: 'spark'
+          });
+        }
+      } else if (hudThemeKey === 'matrix') {
+        shockwaves.push({ x, y, r: 8, maxR: 190, alpha: 0.95, color: '#22c55e', color2: '#a7f3d0' });
+        for (const d of ambient) {
+          const colX = d.colIndex * 24 + 12;
+          if (Math.abs(colX - x) < 95) {
+            d.y = y;
+            d.speed = 6.2;
+          }
+        }
+        for (let i = 0; i < 20; i++) {
+          const ang = (Math.PI * 2 * i) / 20;
+          const spd = 2 + Math.random() * 4;
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            size: 1.6 + Math.random() * 2,
+            alpha: 1,
+            gravity: 0.05,
+            color: i % 2 === 0 ? '#4ade80' : '#dcfce7',
+            kind: 'spark'
+          });
+        }
+      } else if (hudThemeKey === 'aurora') {
+        shockwaves.push({ x, y, r: 8, maxR: 165, alpha: 0.9, color: '#34d399', color2: '#a78bfa' });
+        for (let i = 0; i < 22; i++) {
+          const ang = (Math.PI * 2 * i) / 22;
+          const spd = 1.6 + Math.random() * 3.4;
+          particles.push({
+            x,
+            y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 0.6,
+            size: 2.2 + Math.random() * 2.6,
+            alpha: 1,
+            gravity: -0.02,
+            color: i % 3 === 0 ? '#34d399' : (i % 2 === 0 ? '#2dd4bf' : '#a78bfa'),
+            kind: 'spark'
           });
         }
       }
@@ -724,6 +906,201 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
 
       // ---------------------------------------------------------
+      // THEME 5: GALAXY (Ngân hà sao lấp lánh, sao băng & lực hấp dẫn con trỏ)
+      // ---------------------------------------------------------
+      if (hudThemeKey === 'galaxy') {
+        if (Math.random() < 0.015 && meteors.length < 4) {
+          meteors.push({
+            x: Math.random() * width * 0.7,
+            y: Math.random() * height * 0.3,
+            vx: 11 + Math.random() * 5,
+            vy: 6 + Math.random() * 4,
+            len: 90 + Math.random() * 60,
+            alpha: 1,
+            color: Math.random() > 0.5 ? '#c084fc' : '#38bdf8'
+          });
+        }
+        if (pointer.active) {
+          const halo = ctx.createRadialGradient(pointer.x, pointer.y, 4, pointer.x, pointer.y, 130);
+          halo.addColorStop(0, 'rgba(192, 132, 252, 0.16)');
+          halo.addColorStop(0.5, 'rgba(56, 189, 248, 0.08)');
+          halo.addColorStop(1, 'rgba(192, 132, 252, 0)');
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(pointer.x, pointer.y, 130, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (const s of ambient) {
+          if (pointer.active) {
+            const dx = pointer.x - s.x;
+            const dy = pointer.y - s.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 12 && dist < 170) {
+              s.vx += (dx / dist) * 0.03 * s.depth;
+              s.vy += (dy / dist) * 0.03 * s.depth;
+            }
+          }
+          s.vx *= 0.99;
+          s.vy *= 0.99;
+          s.x = (s.x + s.vx + width) % width;
+          s.y = (s.y + s.vy + height) % height;
+          const glow = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(time * s.twinkle + s.phase));
+          ctx.globalAlpha = glow;
+          ctx.fillStyle = s.color;
+          ctx.shadowColor = s.color;
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        for (let i = meteors.length - 1; i >= 0; i--) {
+          const m = meteors[i];
+          m.x += m.vx;
+          m.y += m.vy;
+          m.alpha -= 0.022;
+          const tailGrad = ctx.createLinearGradient(m.x, m.y, m.x - m.len, m.y - m.len * 0.55);
+          tailGrad.addColorStop(0, `rgba(255,255,255,${Math.max(0, m.alpha)})`);
+          tailGrad.addColorStop(1, 'rgba(192,132,252,0)');
+          ctx.strokeStyle = tailGrad;
+          ctx.lineWidth = 2.4;
+          ctx.beginPath();
+          ctx.moveTo(m.x, m.y);
+          ctx.lineTo(m.x - m.len, m.y - m.len * 0.55);
+          ctx.stroke();
+          if (m.alpha <= 0 || m.x > width + 150 || m.y > height + 150) meteors.splice(i, 1);
+        }
+        ctx.restore();
+      }
+
+      // ---------------------------------------------------------
+      // THEME 6: INFERNO (Tàn lửa bốc lên, nhiệt xoáy quanh con trỏ)
+      // ---------------------------------------------------------
+      if (hudThemeKey === 'inferno') {
+        if (pointer.active) {
+          const fireGlow = ctx.createRadialGradient(pointer.x, pointer.y, 4, pointer.x, pointer.y, 115);
+          fireGlow.addColorStop(0, 'rgba(250, 204, 21, 0.16)');
+          fireGlow.addColorStop(0.45, 'rgba(249, 115, 22, 0.1)');
+          fireGlow.addColorStop(1, 'rgba(239, 68, 68, 0)');
+          ctx.fillStyle = fireGlow;
+          ctx.beginPath();
+          ctx.arc(pointer.x, pointer.y, 115, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (const e of ambient) {
+          e.x += e.vx + Math.sin(time * 2.5 + e.phase) * 0.55;
+          e.y += e.vy;
+          if (pointer.active) {
+            const dx = e.x - pointer.x;
+            const dy = e.y - pointer.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 1 && dist < 130) {
+              e.x += (dx / dist) * 1.4;
+              e.y -= 1.2;
+            }
+          }
+          if (e.y < -20) {
+            e.y = height + 15;
+            e.x = Math.random() * width;
+          }
+          if (e.x < -15) e.x = width + 15;
+          if (e.x > width + 15) e.x = -15;
+          ctx.globalAlpha = e.alpha * (0.65 + 0.35 * Math.sin(time * 6 + e.phase));
+          ctx.fillStyle = e.color;
+          ctx.shadowColor = e.color;
+          ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // ---------------------------------------------------------
+      // THEME 7: MATRIX (Mưa mã số xanh phát sáng & giải mã quanh con trỏ)
+      // ---------------------------------------------------------
+      if (hudThemeKey === 'matrix') {
+        ctx.save();
+        ctx.font = 'bold 14px monospace';
+        for (const d of ambient) {
+          const xPos = d.colIndex * 24 + 8;
+          if (xPos > width) continue;
+          d.y += d.speed;
+          d.speed += (3.2 - d.speed) * 0.01;
+          if (d.y - d.len * 18 > height) {
+            d.y = -20;
+            d.speed = 2.4 + Math.random() * 3.6;
+          }
+          const nearPtr = pointer.active && Math.hypot(xPos - pointer.x, d.y - pointer.y) < 120;
+          for (let k = 0; k < d.len; k++) {
+            const cy = d.y - k * 18;
+            if (cy < -18 || cy > height + 18) continue;
+            const ch = d.chars[(d.glyphSeed + k + Math.floor(time * 6)) % d.chars.length];
+            if (k === 0) {
+              ctx.fillStyle = nearPtr ? '#ffffff' : '#bbf7d0';
+              ctx.globalAlpha = nearPtr ? 0.95 : 0.72;
+            } else {
+              ctx.fillStyle = nearPtr ? '#4ade80' : '#22c55e';
+              ctx.globalAlpha = Math.max(0.05, (1 - k / d.len) * (nearPtr ? 0.85 : 0.38));
+            }
+            ctx.fillText(ch, xPos, cy);
+          }
+        }
+        ctx.restore();
+      }
+
+      // ---------------------------------------------------------
+      // THEME 8: AURORA (Dải lụa cực quang Bắc Cực + đom đóm băng)
+      // ---------------------------------------------------------
+      if (hudThemeKey === 'aurora') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const ribbons = [
+          { yBase: height * 0.18, amp: 36, speed: 0.9, c1: 'rgba(52, 211, 153, 0.16)', c2: 'rgba(167, 139, 250, 0.12)' },
+          { yBase: height * 0.28, amp: 44, speed: 1.3, c1: 'rgba(45, 212, 191, 0.14)', c2: 'rgba(56, 189, 248, 0.11)' }
+        ];
+        for (let rIdx = 0; rIdx < ribbons.length; rIdx++) {
+          const rb = ribbons[rIdx];
+          const grad = ctx.createLinearGradient(0, rb.yBase - 60, width, rb.yBase + 60);
+          grad.addColorStop(0, rb.c1);
+          grad.addColorStop(0.5, rb.c2);
+          grad.addColorStop(1, rb.c1);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 42;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          for (let sx = 0; sx <= width; sx += 48) {
+            const ptrBoost = pointer.active ? Math.exp(-Math.abs(sx - pointer.x) / 220) * (pointer.y - rb.yBase) * 0.14 : 0;
+            const sy = rb.yBase + Math.sin(sx * 0.0045 + time * rb.speed + rIdx) * rb.amp + ptrBoost;
+            if (sx === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          }
+          ctx.stroke();
+        }
+        for (const f of ambient) {
+          f.x += f.vx + Math.sin(time * 1.4 + f.phase) * 0.35;
+          f.y += f.vy;
+          if (f.y < -15) {
+            f.y = height + 15;
+            f.x = Math.random() * width;
+          }
+          if (f.x < -15) f.x = width + 15;
+          if (f.x > width + 15) f.x = -15;
+          ctx.globalAlpha = 0.4 + 0.5 * (0.5 + 0.5 * Math.sin(time * 2.8 + f.phase));
+          ctx.fillStyle = f.color;
+          ctx.shadowColor = f.color;
+          ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // ---------------------------------------------------------
       // LỚP HIỆU ỨNG CHUNG: Sét Fractal, Sóng Xung Kích & Hạt Tương Tác
       // ---------------------------------------------------------
       for (let i = bolts.length - 1; i >= 0; i--) {
@@ -830,7 +1207,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     };
   }, [isFxEnabled, hudThemeKey]);
 
-  if (!isFxEnabled) return null;
+  if (!isFxEnabled || hudThemeKey === 'off') return null;
 
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>

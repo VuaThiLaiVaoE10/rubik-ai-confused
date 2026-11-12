@@ -1,6 +1,17 @@
 import React from 'react';
 
 const RADAR_RING_CONFIGS = {
+  off: {
+    rings: [
+      { r: 22, fill: 'none', stroke: '#94a3b8', width: '0.6', dash: '2,2' }
+    ],
+    axisStroke: '#94a3b8',
+    axisWidth: '0.45',
+    spanMin: 16,
+    spanMax: 84,
+    lockedOpacity: '0.75',
+    idleOpacity: '0.4'
+  },
   sakura: {
     rings: [
       { r: 16, fill: 'rgba(244, 114, 182, 0.05)', stroke: '#f472b6', width: '0.9', dash: '3,3' },
@@ -37,6 +48,54 @@ const RADAR_RING_CONFIGS = {
     spanMax: 88,
     lockedOpacity: '0.85',
     idleOpacity: '0.55'
+  },
+  galaxy: {
+    rings: [
+      { r: 17, fill: 'rgba(129, 140, 248, 0.06)', stroke: '#818cf8', width: '0.9', dash: '3,3' },
+      { r: 33, fill: 'none', stroke: '#e879f9', width: '0.75', dash: '5,3' }
+    ],
+    axisStroke: '#a5b4fc',
+    axisWidth: '0.5',
+    spanMin: 10,
+    spanMax: 90,
+    lockedOpacity: '0.9',
+    idleOpacity: '0.58'
+  },
+  inferno: {
+    rings: [
+      { r: 18, fill: 'rgba(249, 115, 22, 0.06)', stroke: '#f97316', width: '0.95', dash: '4,2' },
+      { r: 34, fill: 'none', stroke: '#facc15', width: '0.75', dash: '3,3' }
+    ],
+    axisStroke: '#fb923c',
+    axisWidth: '0.55',
+    spanMin: 10,
+    spanMax: 90,
+    lockedOpacity: '0.9',
+    idleOpacity: '0.6'
+  },
+  matrix: {
+    rings: [
+      { r: 20, fill: 'rgba(34, 197, 94, 0.05)', stroke: '#22c55e', width: '0.9', dash: '2,2' },
+      { r: 36, fill: 'none', stroke: '#4ade80', width: '0.7', dash: '4,3' }
+    ],
+    axisStroke: '#22c55e',
+    axisWidth: '0.5',
+    spanMin: 8,
+    spanMax: 92,
+    lockedOpacity: '0.9',
+    idleOpacity: '0.55'
+  },
+  aurora: {
+    rings: [
+      { r: 18, fill: 'rgba(45, 212, 191, 0.05)', stroke: '#2dd4bf', width: '0.9', dash: '3,3' },
+      { r: 33, fill: 'none', stroke: '#a78bfa', width: '0.75', dash: '4,3' }
+    ],
+    axisStroke: '#5eead4',
+    axisWidth: '0.5',
+    spanMin: 10,
+    spanMax: 90,
+    lockedOpacity: '0.9',
+    idleOpacity: '0.58'
   }
 };
 

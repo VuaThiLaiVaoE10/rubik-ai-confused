@@ -39,8 +39,24 @@ describe('WCA Scramble Generator & Config', () => {
     }
   });
 
-  it('defines all 4 HUD themes and 7 sticker color definitions', () => {
-    expect(Object.keys(HUD_THEMES)).toEqual(['sakura', 'cyber', 'thunder', 'frost']);
+  it('defines off mode, 8 interactive HUD themes, and 7 sticker color definitions', () => {
+    expect(Object.keys(HUD_THEMES)).toEqual([
+      'off',
+      'sakura',
+      'cyber',
+      'thunder',
+      'frost',
+      'galaxy',
+      'inferno',
+      'matrix',
+      'aurora'
+    ]);
+    for (const theme of Object.values(HUD_THEMES)) {
+      expect(typeof theme.id).toBe('string');
+      expect(typeof theme.icon).toBe('string');
+      expect(typeof theme.shortName).toBe('string');
+      expect(typeof theme.color).toBe('string');
+    }
     expect(Object.keys(COLOR_DEFINITIONS)).toEqual([
       'white',
       'yellow',

@@ -1772,18 +1772,41 @@ export default function App() {
     localStorage.setItem('rubik_3d_mode_v2', mode);
   };
 
-  // Phong cách giao diện Lưới Mạng Nhện & Hitbox Rubik (Mặc định: 🌸 Hoa Anh Đào theo yêu cầu của bạn)
+  // Phong cách giao diện & hiệu ứng toàn trang web (Hỗ trợ tắt theme 'off' + 8 theme tương tác)
   const [hudThemeKey, setHudThemeKey] = useState(() => {
-    return localStorage.getItem('rubik_hud_theme') || 'sakura';
+    const saved = localStorage.getItem('rubik_hud_theme');
+    return (saved && HUD_THEMES[saved]) ? saved : 'sakura';
   });
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
   const currentHudTheme = HUD_THEMES[hudThemeKey] || HUD_THEMES.sakura;
 
-  const cycleHudTheme = () => {
-    const keys = Object.keys(HUD_THEMES);
-    const nextIdx = (keys.indexOf(hudThemeKey) + 1) % keys.length;
-    const nextKey = keys[nextIdx];
+  const selectHudTheme = (nextKey) => {
+    if (!HUD_THEMES[nextKey]) return;
+    if (nextKey !== 'off') {
+      localStorage.setItem('rubik_last_active_theme', nextKey);
+    } else if (hudThemeKey !== 'off') {
+      localStorage.setItem('rubik_last_active_theme', hudThemeKey);
+    }
     setHudThemeKey(nextKey);
     localStorage.setItem('rubik_hud_theme', nextKey);
+    setShowThemeMenu(false);
+  };
+
+  const toggleThemeOff = () => {
+    if (hudThemeKey === 'off') {
+      const savedLast = localStorage.getItem('rubik_last_active_theme');
+      const restoreKey = (savedLast && savedLast !== 'off' && HUD_THEMES[savedLast]) ? savedLast : 'sakura';
+      selectHudTheme(restoreKey);
+    } else {
+      selectHudTheme('off');
+    }
+  };
+
+  const cycleHudTheme = () => {
+    const keys = Object.keys(HUD_THEMES).filter((k) => k !== 'off');
+    const curIdx = keys.indexOf(hudThemeKey);
+    const nextIdx = curIdx === -1 ? 0 : (curIdx + 1) % keys.length;
+    selectHudTheme(keys[nextIdx]);
   };
 
   // Trạng thái hiển thị Scramble & Bước đi: Mặc định ẩn khi chưa giải theo yêu cầu của bạn, chỉ tự động hiện ra khi bắt đầu giải
@@ -3418,30 +3441,125 @@ export default function App() {
             </button>
           )}
 
-          {/* NÚT ĐỔI THEME TOÀN TRANG WEB */}
-          <button
-            type="button"
-            onClick={cycleHudTheme}
-            title="Bấm để đổi theme toàn trang web: Hoa Anh Đào, Mạng Nhện Neon, Lôi Thần, Băng Tuyết"
-            style={{
-              padding: isMobile ? '5px 8px' : '6px 13px',
-              borderRadius: '6px',
-              border: `1.5px solid ${currentHudTheme.color}`,
-              background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : currentHudTheme.innerCardBg,
-              color: currentHudTheme.color,
-              fontWeight: '800',
-              fontSize: isMobile ? '0.74rem' : '0.8rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: `0 0 14px ${currentHudTheme.glowColor}`,
-              transition: 'all 0.2s ease'
-            }}
-          >
-            <span>{currentHudTheme.shortName}</span>
-            <span style={{ fontSize: '0.65rem' }}>↻</span>
-          </button>
+          {/* BỘ CHỌN THEME ĐẦY ĐỦ + NÚT TẮT THEME NHANH */}
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => setShowThemeMenu((prev) => !prev)}
+              title="Mở danh sách chọn Theme (9 phong cách: Mặc định Tắt Theme + 8 Theme tương tác)"
+              style={{
+                padding: isMobile ? '5px 8px' : '6px 12px',
+                borderRadius: '6px',
+                border: `1.5px solid ${currentHudTheme.color}`,
+                background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : currentHudTheme.innerCardBg,
+                color: currentHudTheme.color,
+                fontWeight: '800',
+                fontSize: isMobile ? '0.74rem' : '0.8rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: hudThemeKey === 'off' ? 'none' : `0 0 14px ${currentHudTheme.glowColor}`,
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span>{currentHudTheme.shortName}</span>
+              <span style={{ fontSize: '0.65rem' }}>{showThemeMenu ? '▴' : '▾'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleThemeOff}
+              title={hudThemeKey === 'off' ? 'Bấm để bật lại Theme gần nhất' : 'Bấm để TẮT Theme về giao diện WCA Mặc định tối giản'}
+              style={{
+                padding: isMobile ? '5px 8px' : '6px 11px',
+                borderRadius: '6px',
+                border: hudThemeKey === 'off' ? '1.5px solid #38bdf8' : '1px solid #64748b',
+                background: hudThemeKey === 'off' ? 'rgba(56, 189, 248, 0.16)' : 'rgba(15, 23, 42, 0.72)',
+                color: hudThemeKey === 'off' ? '#38bdf8' : '#cbd5e1',
+                fontWeight: '800',
+                fontSize: isMobile ? '0.72rem' : '0.76rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span>{hudThemeKey === 'off' ? '🎨 Bật Theme' : '🚫 Tắt Theme'}</span>
+            </button>
+
+            {showThemeMenu && (
+              <>
+                <div
+                  onClick={() => setShowThemeMenu(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 9990 }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: isMobile ? '220px' : '252px',
+                    background: 'rgba(10, 15, 28, 0.96)',
+                    backdropFilter: 'blur(14px)',
+                    border: `1.5px solid ${currentHudTheme.color}`,
+                    borderRadius: '12px',
+                    padding: '8px',
+                    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.65)',
+                    zIndex: 9995,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}
+                >
+                  <div style={{ fontSize: '0.68rem', fontWeight: '800', color: '#94a3b8', padding: '2px 8px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Chọn Giao Diện &amp; VFX
+                  </div>
+                  {Object.values(HUD_THEMES).map((themeItem) => {
+                    const isActive = hudThemeKey === themeItem.id;
+                    return (
+                      <button
+                        key={themeItem.id}
+                        type="button"
+                        onClick={() => selectHudTheme(themeItem.id)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          borderRadius: '8px',
+                          border: isActive ? `1px solid ${themeItem.color}` : '1px solid transparent',
+                          background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                          color: isActive ? themeItem.color : '#e2e8f0',
+                          fontWeight: isActive ? '800' : '600',
+                          fontSize: '0.78rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          textAlign: 'left',
+                          transition: 'background 0.15s ease'
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              width: '9px',
+                              height: '9px',
+                              borderRadius: '50%',
+                              background: themeItem.color,
+                              boxShadow: themeItem.id === 'off' ? 'none' : `0 0 8px ${themeItem.color}`
+                            }}
+                          />
+                          <span>{themeItem.name}</span>
+                        </span>
+                        {isActive && <span style={{ fontSize: '0.72rem' }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) */}
           <button
@@ -4925,11 +5043,11 @@ export default function App() {
 
                 {/* Các nút điều khiển kích thước & chế độ màn hình 3D phía trên */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  {/* Nút chỉnh riêng phong cách HUD: Hoa Anh Đào, Mạng Nhện, Lôi Thần, Băng Tuyết */}
+                  {/* Nút chỉnh riêng phong cách HUD hoặc bật/tắt theme */}
                   <button
                     type="button"
                     onClick={cycleHudTheme}
-                    title="Bấm để đổi phong cách giao diện HUD (Hoa Anh Đào / Mạng Nhện Cyber / Lôi Thần / Băng Tuyết)"
+                    title="Bấm để đổi nhanh phong cách HUD (8 theme tương tác)"
                     style={{
                       padding: '3px 9px',
                       borderRadius: '5px',
@@ -4942,7 +5060,7 @@ export default function App() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '4px',
-                      boxShadow: `0 0 10px ${currentHudTheme.glowColor}`,
+                      boxShadow: hudThemeKey === 'off' ? 'none' : `0 0 10px ${currentHudTheme.glowColor}`,
                       transition: 'all 0.2s ease'
                     }}
                   >
@@ -5206,15 +5324,15 @@ export default function App() {
                         gap: '4px',
                         boxShadow: `0 0 8px ${currentHudTheme.glowColor}`
                       }}>
-                        <span>{trackingBox.isLocked ? '🎯' : (hudThemeKey === 'sakura' ? '🌸' : hudThemeKey === 'cyber' ? '🕸️' : hudThemeKey === 'thunder' ? '⚡' : '💎')}</span>
+                        <span>{trackingBox.isLocked ? '🎯' : currentHudTheme.icon}</span>
                         <span>
                           {solveStep === 'step1_check_scb'
                             ? (trackingBox.isLocked
                                 ? '🎯 ĐÃ BẮT MẶT (CỐ ĐỊNH TRUNG TÂM)'
-                                : `${hudThemeKey === 'sakura' ? '🌸 SAKURA' : hudThemeKey === 'cyber' ? '🕸️ MẠNG NHỆN' : hudThemeKey === 'thunder' ? '⚡ LÔI THẦN' : '💎 BĂNG TUYẾT'}: QUÉT TRUNG TÂM (6 MẶT)`)
+                                : `${currentHudTheme.shortName.toUpperCase()}: QUÉT TRUNG TÂM (6 MẶT)`)
                             : (trackingBox.isLocked
                                 ? `🎯 KHÓA THEO KHỐI (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
-                                : `${hudThemeKey === 'sakura' ? '🌸 SAKURA' : hudThemeKey === 'cyber' ? '🕸️ MẠNG NHỆN' : hudThemeKey === 'thunder' ? '⚡ LÔI THẦN' : '💎 BĂNG TUYẾT'}: TỰ DO BÁM ĐUỔI`)}
+                                : `${currentHudTheme.shortName.toUpperCase()}: TỰ DO BÁM ĐUỔI`)}
                         </span>
                       </div>
 
