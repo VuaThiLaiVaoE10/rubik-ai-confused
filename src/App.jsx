@@ -1125,7 +1125,17 @@ export default function App() {
     };
     try {
       const saved = localStorage.getItem('rubik_admin_settings');
-      if (saved) return { ...defaults, ...JSON.parse(saved) };
+      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v3');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!migrated) {
+          localStorage.setItem('rubik_faces_mode_migrated_v3', '1');
+          parsed.requiredPreCheckFaces = 3;
+          parsed.requireAll6FacesPreCheck = false;
+          localStorage.setItem('rubik_admin_settings', JSON.stringify(parsed));
+        }
+        return { ...defaults, ...parsed };
+      }
     } catch {}
     return defaults;
   });
@@ -1255,17 +1265,21 @@ export default function App() {
       });
       return true;
     }
+    // Nếu người chơi đã ở Bước 2 (Đã xác nhận đúng SCB) -> Mở khóa đồng hồ giải ngay lập tức!
+    if (solveStepRef.current === 'step2_ready_solve') {
+      return false;
+    }
     if (cfg.require3DCubePreCheck !== false) {
       const now = performance.now();
       const isCubeVerifiedFresh =
         Boolean(preCheckRef.current && preCheckRef.current.verified) &&
         lastCubeVerifiedAtRef.current > 0 &&
-        now - lastCubeVerifiedAtRef.current <= 25000;
+        now - lastCubeVerifiedAtRef.current <= 35000;
 
       if (!isCubeVerifiedFresh) {
         setLastNotice({
           type: 'warning',
-          text: `🧊 CHƯA XÁC MINH KHỐI RUBIK TRÊN 3D: Hãy đưa hoặc di chuyển khối Rubik ${puzzleTypeRef.current} (đã xáo trộn) trước Camera để AI phân tích lên Mô hình 3D trước khi bấm đồng hồ!`
+          text: `🔍 BƯỚC 1 CHƯA XÁC NHẬN: Hãy quét ${cfg.requiredPreCheckFaces === 6 ? 6 : 3} mặt trước Camera hoặc bấm "✅ Xác nhận đúng SCB" để mở khóa giải!`
         });
         return true;
       }
@@ -1304,6 +1318,13 @@ export default function App() {
     if (curState === 'running') {
       stopTimerRef.current();
       playAppSound('stop');
+      return;
+    }
+
+    // Nếu đang ở Bước 3 (Hoàn thành) -> Chạm vào màn hình để bắt đầu lượt mới ngay!
+    if (curState === 'idle' && solveStepRef.current === 'step3_completed') {
+      startNextSolveRoundRef.current();
+      playAppSound('ready');
       return;
     }
 
@@ -1556,6 +1577,86 @@ export default function App() {
   const [scrambleAudit, setScrambleAudit] = useState({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
   const scrambleAuditRef = useRef(scrambleAudit);
   useEffect(() => { scrambleAuditRef.current = scrambleAudit; }, [scrambleAudit]);
+
+  // =========================================================================
+  // QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
+  // 1. 'step1_check_scb': Kiểm tra scb (quét 3 mặt mặc định hoặc 6 mặt)
+  // 2. 'step2_ready_solve': Xác nhận đúng r bắt đầu giải
+  // 3. 'step3_completed': Hoàn thành
+  // =========================================================================
+  const [solveStep, setSolveStep] = useState('step1_check_scb');
+  const solveStepRef = useRef('step1_check_scb');
+  useEffect(() => { solveStepRef.current = solveStep; }, [solveStep]);
+
+  const [completedSolveInfo, setCompletedSolveInfo] = useState(null);
+
+  // Xác nhận đúng SCB và chuyển sang Bước 2 (Mở khóa đồng hồ)
+  const confirmScrambleAndReady = useCallback(() => {
+    setPreCheckStatus(prev => ({
+      ...prev,
+      verified: true,
+      text: '🟢 ĐÃ XÁC NHẬN SCB ĐÚNG — Đã mở khóa đồng hồ! Sẵn sàng bấm giờ giải.'
+    }));
+    lastCubeVerifiedAtRef.current = performance.now();
+    startScrambledRef.current = true;
+    setAllowFreestyleScramble(true);
+    allowFreestyleScrambleRef.current = true;
+    setSolveStep('step2_ready_solve');
+    playAppSound('ready');
+    setLastNotice({
+      type: 'success',
+      text: '✅ BƯỚC 2: ĐÃ XÁC NHẬN SCB ĐÚNG! Bạn có thể giữ phím Space (hoặc chạm tay) để bắt đầu giải ngay.'
+    });
+  }, [playAppSound]);
+  const confirmScrambleAndReadyRef = useRef(confirmScrambleAndReady);
+  useEffect(() => { confirmScrambleAndReadyRef.current = confirmScrambleAndReady; }, [confirmScrambleAndReady]);
+
+  // Chuyển sang lượt giải tiếp theo (Tạo Scramble mới & quay về Bước 1)
+  const startNextSolveRound = useCallback(() => {
+    const nextP = puzzleTypeRef.current;
+    setScramble(generateScramble(nextP));
+    setScannedFaces({});
+    scannedFacesRef.current = {};
+    setAllowFreestyleScramble(false);
+    allowFreestyleScrambleRef.current = false;
+    setTimeMs(0);
+    setTrackedMoves([]);
+    setLastMoveDetected('');
+    setCompletedSolveInfo(null);
+    setSolveStep('step1_check_scb');
+    setPreCheckStatus({
+      verified: false,
+      text: `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[nextP]?.name} đã xáo trộn vào khung ngắm để kiểm tra SCB...`,
+      isScrambled: false,
+      centerFace: null
+    });
+    setLastNotice(null);
+  }, []);
+  const startNextSolveRoundRef = useRef(startNextSolveRound);
+  useEffect(() => { startNextSolveRoundRef.current = startNextSolveRound; }, [startNextSolveRound]);
+
+  // Toggle nhanh giữa chế độ 3 mặt (Nhanh) và 6 mặt (Admin Khoa)
+  const handleToggleFaceVerificationMode = useCallback((faces) => {
+    const nextFaces = faces === 6 ? 6 : 3;
+    setAdminSettings(prev => {
+      const updated = {
+        ...prev,
+        requiredPreCheckFaces: nextFaces,
+        requireAll6FacesPreCheck: nextFaces === 6
+      };
+      adminSettingsRef.current = updated;
+      try {
+        localStorage.setItem('rubik_admin_settings', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setLastNotice({
+      type: 'success',
+      text: nextFaces === 6
+        ? '🛡️ Đã chuyển sang: Bắt buộc quét đủ 6 mặt (Bản gốc nâng cao Admin Khoa)!'
+        : '⚡ Đã chuyển sang: Xác minh 3 mặt (Nhanh gọn chuẩn Cuber)!'
+    });
+  }, []);
 
   // History & Solves (Chỉ giữ các lượt giải đã bật Camera AI & xác minh hợp lệ)
   const [solves, setSolves] = useState(() => {
@@ -2561,7 +2662,18 @@ export default function App() {
       });
     }
 
-    // Reset toàn bộ trạng thái xác thực khối Rubik sau mỗi lượt giải để chống dùng lại kết quả cũ
+    // Hoàn thành lượt giải -> Chuyển sang Bước 3 (Hoàn thành)
+    setSolveStep('step3_completed');
+    setCompletedSolveInfo({
+      time: finalSec,
+      scramble: scrambleRef.current,
+      moves: movesRecorded,
+      movesCount: cubeMovesSeenRef.current,
+      kociemba: kociembaOptimal,
+      verified: isRecordEligible
+    });
+
+    // Reset cờ kiểm soát trong lượt giải
     startScrambledRef.current = false;
     lastCubeVerifiedAtRef.current = 0;
     validCubeStreakRef.current = 0;
@@ -2573,23 +2685,16 @@ export default function App() {
     if (cameraActiveRef.current) {
       setPreCheckStatus({
         verified: false,
-        text: `🔍 Đưa khối Rubik đã xáo trộn vào khung lưới để xác nhận lượt tiếp theo...`,
+        text: `🎉 Hoàn thành lượt giải ${finalSec}s! Bấm "Bắt đầu lượt mới" (hoặc bấm Space) để sang lượt tiếp theo.`,
         isScrambled: false,
         centerFace: null
       });
     }
-
-    setTrackedMoves([]);
-    setLastMoveDetected('');
-    setScramble(generateScramble(currentP));
-    setScannedFaces({});
-    scannedFacesRef.current = {};
-    setAllowFreestyleScramble(false);
-    setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
-  }, [penaltyText, targetSeconds]);
+  }, [penaltyText, targetSeconds, kociembaOptimal]);
 
   // Start Solve Timer
   const startTimer = useCallback(() => {
+    setSolveStep('step2_ready_solve');
     if (inspectionIntervalRef.current) {
       clearInterval(inspectionIntervalRef.current);
       inspectionIntervalRef.current = null;
@@ -2653,6 +2758,12 @@ export default function App() {
 
         if (currentState === 'running') {
           stopTimerRef.current();
+          return;
+        }
+
+        // Nếu đang ở Bước 3 (Hoàn thành) -> Bấm Space để sang lượt mới ngay!
+        if (currentState === 'idle' && solveStepRef.current === 'step3_completed') {
+          startNextSolveRoundRef.current();
           return;
         }
 
@@ -3032,6 +3143,12 @@ export default function App() {
         const minStickersRequired = Math.max(3, Math.ceil(dim * dim * 0.65));
         const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.33));
 
+        if (solveStepRef.current === 'step3_completed') {
+          // Người chơi đang ở Bước 3 (Hoàn thành) -> Giữ nguyên màn hình kết quả, không ghi đè trạng thái quét dở
+          animFrameRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+
         if (!hasCubeSignal || validColorsCount < minStickersRequired) {
           validCubeStreakRef.current = 0;
           solvedStreakRef.current = 0;
@@ -3278,6 +3395,9 @@ export default function App() {
                 scrambleMatchRate: scrambleMatch.matchRate,
                 isMismatch: false
               });
+              if (solveStepRef.current === 'step1_check_scb') {
+                setSolveStep('step2_ready_solve');
+              }
             }
           } else {
             validCubeStreakRef.current = 0;
@@ -4235,7 +4355,7 @@ export default function App() {
             )}
 
             {/* =========================================================================
-                NHIỆM VỤ 3 BƯỚC GIẢI RUBIK AI (THEO YÊU CẦU CỦA USER):
+                QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
                 1. Kiểm tra scb
                 2. Xác nhận đúng r bắt đầu giải
                 3. Hoàn thành
@@ -4243,11 +4363,11 @@ export default function App() {
             {(() => {
               const targetFaceCount = (adminSettings.requiredPreCheckFaces === 6 || adminSettings.requireAll6FacesPreCheck === true) ? 6 : 3;
               const scannedCount = Object.keys(scannedFaces).length;
-              const isStep1Done = Boolean(preCheckStatus.verified);
-              const isStep1Error = Boolean(scrambleAudit.isMismatch && !allowFreestyleScramble);
-              const isStep2Active = isStep1Done && (timerState === 'running' || timerState === 'inspecting' || timerState === 'holding' || timerState === 'ready');
-              const isStep2Ready = isStep1Done && timerState === 'idle' && !linger3D;
-              const isStep3Done = Boolean(linger3D || (timerState === 'idle' && solves.length > 0 && timeMs > 0 && !isStep2Active));
+              const isStep1Done = Boolean(preCheckStatus.verified || solveStep === 'step2_ready_solve' || solveStep === 'step3_completed');
+              const isStep1Error = Boolean(scrambleAudit.isMismatch && !allowFreestyleScramble && solveStep === 'step1_check_scb');
+              const isStep2Active = solveStep === 'step2_ready_solve' && (timerState === 'running' || timerState === 'inspecting' || timerState === 'holding' || timerState === 'ready');
+              const isStep2Ready = solveStep === 'step2_ready_solve' && timerState === 'idle';
+              const isStep3Active = solveStep === 'step3_completed';
 
               return (
                 <div style={{
@@ -4271,10 +4391,10 @@ export default function App() {
                   }}>
                     <span style={{ fontSize: '0.72rem', fontWeight: '800', color: currentHudTheme.color, display: 'flex', alignItems: 'center', gap: '5px' }}>
                       <span>🎯</span>
-                      <span>NHIỆM VỤ GIẢI RUBIK ({targetFaceCount === 6 ? 'Bản 6 mặt Admin Khoa' : 'Xác minh 3 mặt'})</span>
+                      <span>QUY TRÌNH 3 BƯỚC GIẢI ({targetFaceCount === 6 ? 'Chế độ 6 mặt Admin Khoa' : 'Chế độ 3 mặt Nhanh'})</span>
                     </span>
-                    <span style={{ fontSize: '0.64rem', color: '#94a3b8' }}>
-                      {isStep3Done ? '🎉 Đã hoàn thành lượt giải!' : isStep2Active ? '⚡ Đang trong lượt giải...' : isStep1Done ? '🟢 Sẵn sàng bắt đầu giải!' : '🔍 Đang kiểm tra Scramble...'}
+                    <span style={{ fontSize: '0.64rem', color: isStep3Active ? '#facc15' : isStep2Active ? '#4ade80' : isStep1Done ? '#38bdf8' : '#94a3b8' }}>
+                      {isStep3Active ? '🎉 Đã hoàn thành lượt giải!' : isStep2Active ? '⚡ Đang trong lượt giải...' : isStep2Ready ? '🟢 Đã mở khóa — Sẵn sàng bấm giờ!' : '🔍 Đang kiểm tra Scramble...'}
                     </span>
                   </div>
 
@@ -4289,43 +4409,82 @@ export default function App() {
                       borderRadius: '8px',
                       background: isStep1Error
                         ? 'rgba(239, 68, 68, 0.15)'
-                        : isStep1Done
-                          ? 'rgba(34, 197, 94, 0.14)'
-                          : 'rgba(30, 41, 59, 0.5)',
+                        : (solveStep === 'step1_check_scb'
+                          ? 'rgba(56, 189, 248, 0.16)'
+                          : 'rgba(34, 197, 94, 0.14)'),
                       border: isStep1Error
                         ? '1.5px solid #ef4444'
-                        : isStep1Done
-                          ? '1.5px solid #22c55e'
-                          : `1px solid ${currentHudTheme.color}50`,
-                      boxShadow: isStep1Done ? '0 0 10px rgba(34, 197, 94, 0.25)' : 'none',
+                        : (solveStep === 'step1_check_scb'
+                          ? `1.5px solid #38bdf8`
+                          : '1.5px solid #22c55e'),
+                      boxShadow: solveStep === 'step1_check_scb' ? '0 0 10px rgba(56, 189, 248, 0.3)' : (isStep1Done ? '0 0 8px rgba(34, 197, 94, 0.2)' : 'none'),
                       transition: 'all 0.25s ease'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
                         <span style={{
                           fontSize: '0.75rem',
                           fontWeight: '800',
-                          color: isStep1Error ? '#f87171' : isStep1Done ? '#4ade80' : '#38bdf8'
+                          color: isStep1Error ? '#f87171' : (solveStep === 'step1_check_scb' ? '#38bdf8' : '#4ade80')
                         }}>
-                          1. Kiểm tra SCB
+                          1. Kiểm tra scb
                         </span>
                         <span style={{
                           fontSize: '0.62rem',
                           padding: '1px 6px',
                           borderRadius: '6px',
                           fontWeight: '700',
-                          background: isStep1Error ? '#ef4444' : isStep1Done ? '#22c55e' : '#0284c7',
+                          background: isStep1Error ? '#ef4444' : (solveStep === 'step1_check_scb' ? '#0284c7' : '#22c55e'),
                           color: '#ffffff'
                         }}>
-                          {isStep1Error ? '❌ Sai' : isStep1Done ? '✓ Đạt' : `${scannedCount}/${targetFaceCount}`}
+                          {isStep1Error ? '❌ Sai' : (solveStep === 'step1_check_scb' ? `${scannedCount}/${targetFaceCount}` : '✓ Đã khớp')}
                         </span>
                       </div>
-                      <div style={{ fontSize: '0.66rem', color: isStep1Error ? '#fca5a5' : isStep1Done ? '#86efac' : '#cbd5e1', lineHeight: '1.3' }}>
+                      <div style={{ fontSize: '0.66rem', color: isStep1Error ? '#fca5a5' : (solveStep === 'step1_check_scb' ? '#cbd5e1' : '#86efac'), lineHeight: '1.3' }}>
                         {isStep1Error
                           ? `Lệch Scramble (khớp ${scrambleAudit.matchRate}%)`
-                          : isStep1Done
-                            ? `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`
-                            : (cameraActive ? `Quét ${scannedCount}/${targetFaceCount} mặt trước Camera` : 'Bật Camera để quét')}
+                          : (solveStep === 'step1_check_scb'
+                            ? `Quét ${scannedCount}/${targetFaceCount} mặt trước Camera`
+                            : `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`)}
                       </div>
+                      {solveStep === 'step1_check_scb' && (
+                        <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={confirmScrambleAndReady}
+                            title="Xác nhận khối Rubik đã xáo đúng và chuyển sang bước 2 để giải"
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '5px',
+                              background: '#16a34a',
+                              border: '1px solid #4ade80',
+                              color: '#ffffff',
+                              fontSize: '0.64rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              flex: 1
+                            }}
+                          >
+                            ✅ Xác nhận đúng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
+                            title="Đổi chế độ quét 3 mặt hoặc 6 mặt"
+                            style={{
+                              padding: '3px 6px',
+                              borderRadius: '5px',
+                              background: 'rgba(15, 23, 42, 0.7)',
+                              border: '1px solid #475569',
+                              color: '#94a3b8',
+                              fontSize: '0.62rem',
+                              fontWeight: '700',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {targetFaceCount === 6 ? '6M' : '3M'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* BƯỚC 2: XÁC NHẬN ĐÚNG R BẮT ĐẦU GIẢI */}
@@ -4349,16 +4508,16 @@ export default function App() {
                         <span style={{
                           fontSize: '0.75rem',
                           fontWeight: '800',
-                          color: isStep2Active ? '#4ade80' : isStep2Ready ? '#38bdf8' : '#64748b'
+                          color: isStep2Active ? '#4ade80' : isStep2Ready ? '#38bdf8' : (isStep3Active ? '#94a3b8' : '#64748b')
                         }}>
-                          2. Bắt đầu giải
+                          2. Xác nhận đúng r bắt đầu giải
                         </span>
                         <span style={{
                           fontSize: '0.62rem',
                           padding: '1px 6px',
                           borderRadius: '6px',
                           fontWeight: '700',
-                          background: isStep2Active ? '#16a34a' : isStep2Ready ? '#0284c7' : '#334155',
+                          background: isStep2Active ? '#16a34a' : isStep2Ready ? '#0284c7' : (isStep3Active ? '#334155' : '#334155'),
                           color: isStep1Done ? '#ffffff' : '#94a3b8'
                         }}>
                           {timerState === 'running'
@@ -4367,9 +4526,11 @@ export default function App() {
                               ? '● Sẵn sàng'
                               : timerState === 'inspecting'
                                 ? '⏱️ WCA'
-                                : isStep1Done
+                                : isStep2Ready
                                   ? '🟢 Mở khóa'
-                                  : '🔒 Khóa'}
+                                  : isStep3Active
+                                    ? '✓ Xong'
+                                    : '🔒 Chờ B1'}
                         </span>
                       </div>
                       <div style={{ fontSize: '0.66rem', color: isStep2Active ? '#86efac' : isStep2Ready ? '#7dd3fc' : '#64748b', lineHeight: '1.3' }}>
@@ -4379,9 +4540,11 @@ export default function App() {
                             ? `Quan sát (${inspectionTimeLeft}s)`
                             : timerState === 'ready'
                               ? 'Thả tay để bắt đầu giải!'
-                              : isStep1Done
+                              : isStep2Ready
                                 ? (isMobile ? 'Chạm giữ để giải' : 'Giữ Space để giải')
-                                : 'Đợi xác nhận bước 1'}
+                                : isStep3Active
+                                  ? `Đã giải xong (${(timeMs / 1000).toFixed(2)}s)`
+                                  : 'Cần xác nhận bước 1'}
                       </div>
                     </div>
 
@@ -4389,20 +4552,20 @@ export default function App() {
                     <div style={{
                       padding: '8px 10px',
                       borderRadius: '8px',
-                      background: isStep3Done
+                      background: isStep3Active
                         ? 'rgba(234, 179, 8, 0.18)'
                         : 'rgba(15, 23, 42, 0.45)',
-                      border: isStep3Done
+                      border: isStep3Active
                         ? '1.5px solid #eab308'
                         : '1px dashed #334155',
-                      boxShadow: isStep3Done ? '0 0 12px rgba(234, 179, 8, 0.35)' : 'none',
+                      boxShadow: isStep3Active ? '0 0 12px rgba(234, 179, 8, 0.35)' : 'none',
                       transition: 'all 0.25s ease'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
                         <span style={{
                           fontSize: '0.75rem',
                           fontWeight: '800',
-                          color: isStep3Done ? '#facc15' : '#64748b'
+                          color: isStep3Active ? '#facc15' : '#64748b'
                         }}>
                           3. Hoàn thành
                         </span>
@@ -4411,17 +4574,39 @@ export default function App() {
                           padding: '1px 6px',
                           borderRadius: '6px',
                           fontWeight: '700',
-                          background: isStep3Done ? '#ca8a04' : '#334155',
-                          color: isStep3Done ? '#ffffff' : '#94a3b8'
+                          background: isStep3Active ? '#ca8a04' : '#334155',
+                          color: isStep3Active ? '#ffffff' : '#94a3b8'
                         }}>
-                          {isStep3Done ? '🏆 Xong' : '○ Chờ'}
+                          {isStep3Active ? '🏆 Xong' : '○ Chờ'}
                         </span>
                       </div>
-                      <div style={{ fontSize: '0.66rem', color: isStep3Done ? '#fef08a' : '#64748b', lineHeight: '1.3' }}>
-                        {isStep3Done
+                      <div style={{ fontSize: '0.66rem', color: isStep3Active ? '#fef08a' : '#64748b', lineHeight: '1.3' }}>
+                        {isStep3Active
                           ? `Thành tích: ${(timeMs / 1000).toFixed(2)}s ${solves[0]?.verified ? '(✓ AI)' : ''}`
-                          : 'Chạm dừng hoặc giải xong'}
+                          : 'Dừng đồng hồ để hoàn thành'}
                       </div>
+                      {isStep3Active && (
+                        <div style={{ marginTop: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={startNextSolveRound}
+                            title="Tạo Scramble mới và bắt đầu lượt tiếp theo"
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '5px',
+                              background: '#2563eb',
+                              border: '1px solid #60a5fa',
+                              color: '#ffffff',
+                              fontSize: '0.64rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              width: '100%'
+                            }}
+                          >
+                            🔄 Lượt mới (Space)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -5691,28 +5876,130 @@ export default function App() {
                   ? '#22c55e'
                   : timerState === 'holding'
                     ? '#f59e0b'
-                    : !cameraActive
-                      ? '#f87171'
-                      : !preCheckStatus.verified
-                        ? '#38bdf8'
-                        : '#4ade80'
+                    : timerState === 'running'
+                      ? '#4ade80'
+                      : solveStep === 'step3_completed'
+                        ? '#facc15'
+                        : solveStep === 'step2_ready_solve'
+                          ? '#22c55e'
+                          : !cameraActive
+                            ? '#f87171'
+                            : !preCheckStatus.verified
+                              ? '#38bdf8'
+                              : '#4ade80'
             }}>
               {timerState === 'inspecting' && (isMobile ? '⏱️ ĐANG QUAN SÁT (15s) — CHẠM GIỮ ĐỂ SẴN SÀNG!' : '⏱️ ĐANG QUAN SÁT (15s WCA) — GIỮ SPACE ĐỂ SẴN SÀNG!')}
               {timerState === 'ready' && (isMobile ? '● SẴN SÀNG — THẢ TAY ĐỂ BẮT ĐẦU!' : '● SẴN SÀNG — THẢ PHÍM SPACE ĐỂ BẮT ĐẦU!')}
               {timerState === 'holding' && '○ Giữ yên thêm một chút... (Vuốt để cuộn trang)'}
-              {timerState === 'running' && (isMobile ? '⚡ Đang tính giờ... Chạm bất kỳ đâu để DỪNG!' : 'Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)')}
+              {timerState === 'running' && (isMobile ? '⚡ Đang tính giờ... Chạm bất kỳ đâu để DỪNG!' : '⚡ Đang tính giờ... (Nhấn phím bất kỳ hoặc click để dừng)')}
               {timerState === 'idle' && (
-                !cameraActive
-                  ? '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
-                  : !preCheckStatus.verified
-                    ? (Object.keys(scannedFaces).length > 0 && Object.keys(scannedFaces).length < (adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)
-                        ? `🔒 CHƯA QUÉT ĐỦ ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} MẶT: Đã quét ${Object.keys(scannedFaces).length}/${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt — Hãy xoay tiếp các mặt còn thiếu`
-                        : `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[puzzleType]?.name} (đã xáo trộn) trước Camera và xoay ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt để mở khóa đồng hồ`)
-                    : isMobile
-                      ? `🟢 ĐÃ XÁC MINH ${adminSettings.requiredPreCheckFaces === 6 ? 'ĐỦ CẢ 6 MẶT' : '3 MẶT'} — Chạm giữ bên dưới để giải!`
-                      : `🟢 ĐÃ XÁC MINH ${adminSettings.requiredPreCheckFaces === 6 ? 'ĐỦ CẢ 6 MẶT' : '3 MẶT'} — Giữ phím SPACE để giải!`
+                solveStep === 'step3_completed' ? (
+                  `🎉 BƯỚC 3: HOÀN THÀNH — Lượt giải ${(timeMs / 1000).toFixed(2)}s! Bấm nút "Lượt mới" bên dưới (hoặc bấm Space) để sang lượt tiếp theo.`
+                ) : solveStep === 'step2_ready_solve' ? (
+                  isMobile
+                    ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Chạm giữ bên dưới để vào vạch xuất phát!`
+                    : `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Giữ phím SPACE để vào vạch xuất phát!`
+                ) : !cameraActive ? (
+                  '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
+                ) : !preCheckStatus.verified ? (
+                  `🔍 BƯỚC 1: KIỂM TRA SCB — Quét ${Object.keys(scannedFaces).length}/${(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt hoặc bấm "Xác nhận đúng r bắt đầu giải" để mở khóa!`
+                ) : (
+                  isMobile
+                    ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN — Chạm giữ bên dưới để giải!`
+                    : `🟢 BƯỚC 2: ĐÃ XÁC NHẬN — Giữ phím SPACE để giải!`
+                )
               )}
             </div>
+
+            {/* BƯỚC 1: NÚT XÁC NHẬN NHANH ĐỂ MỞ KHÓA GIẢI */}
+            {timerState === 'idle' && solveStep === 'step1_check_scb' && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  onClick={confirmScrambleAndReady}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                    border: '2px solid #4ade80',
+                    color: '#ffffff',
+                    fontSize: '0.86rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 18px rgba(34, 197, 94, 0.4)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>✅ Xác nhận đúng r bắt đầu giải</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleFaceVerificationMode(adminSettings.requiredPreCheckFaces === 6 ? 3 : 6)}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: 'rgba(15, 23, 42, 0.85)',
+                    border: '1.5px solid #475569',
+                    color: '#cbd5e1',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>{adminSettings.requiredPreCheckFaces === 6 ? '🛡️ Chế độ 6 Mặt (Admin)' : '⚡ Chế độ 3 Mặt (Nhanh)'}</span>
+                  <span style={{ fontSize: '0.7rem', color: '#38bdf8', marginLeft: '4px' }}>[Đổi]</span>
+                </button>
+              </div>
+            )}
+
+            {/* BƯỚC 3: THẺ KẾT QUẢ VÀ NÚT SANG LƯỢT TIẾP THEO */}
+            {timerState === 'idle' && solveStep === 'step3_completed' && (
+              <div style={{
+                marginTop: '14px',
+                padding: '14px 18px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, rgba(16, 24, 39, 0.95), rgba(6, 26, 17, 0.95))',
+                border: '2px solid #22c55e',
+                boxShadow: '0 6px 28px rgba(34, 197, 94, 0.35)',
+                textAlign: 'center',
+                maxWidth: '480px',
+                width: '100%'
+              }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#4ade80', marginBottom: '4px' }}>
+                  🎉 HOÀN THÀNH XUẤT SẮC: {(timeMs / 1000).toFixed(2)}s
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '10px' }}>
+                  {solves[0]?.verified ? '✓ AI Camera đã xác thực chuẩn WCA & Bảng Kỷ Lục' : 'Luyện tập cá nhân'}
+                </div>
+                {kociembaOptimal && (
+                  <div style={{ fontSize: '0.74rem', color: '#38bdf8', background: 'rgba(2, 132, 199, 0.15)', padding: '5px 10px', borderRadius: '6px', marginBottom: '12px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                    ⚡ Nghiệm tối ưu Kociemba: {kociembaOptimal.moveCount} bước ({kociembaOptimal.solution})
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={startNextSolveRound}
+                  style={{
+                    padding: '11px 22px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    border: '1.5px solid #60a5fa',
+                    color: '#ffffff',
+                    fontSize: '0.92rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 18px rgba(37, 99, 235, 0.45)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>🔄 BẮT ĐẦU LƯỢT TIẾP THEO (TẠO SCRAMBLE MỚI)</span>
+                </button>
+              </div>
+            )}
 
             {/* NÚT MỞ KHÓA CAMERA HOẶC BÀN ĐẶT TAY SPEEDCUBING */}
             {!cameraActive && timerState === 'idle' ? (
