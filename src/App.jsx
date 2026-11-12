@@ -1855,17 +1855,22 @@ export default function App() {
 
   // CHU TRÌNH 6 MÀU RUBIK & HÀM CLICK SỬA MÀU Ô TRỰC QUAN
   const RUBIK_COLOR_CYCLE = ['white', 'yellow', 'red', 'orange', 'green', 'blue'];
+  const manualStickerOverridesRef = useRef({});
 
   const handleCycleStickerColor = useCallback((stickerIndex) => {
     setDetectedColors(prev => {
       const next = [...prev];
-      const currentColor = next[stickerIndex] || 'white';
-      const currentIndex = RUBIK_COLOR_CYCLE.indexOf(currentColor);
+      const currentColor = next[stickerIndex];
+      const validCurrent = RUBIK_COLOR_CYCLE.includes(currentColor) ? currentColor : 'white';
+      const currentIndex = RUBIK_COLOR_CYCLE.indexOf(validCurrent);
       const nextColor = RUBIK_COLOR_CYCLE[(currentIndex + 1) % RUBIK_COLOR_CYCLE.length];
       next[stickerIndex] = nextColor;
 
+      // Khóa ô này trong bộ nhớ override để camera không ghi đè lại
+      manualStickerOverridesRef.current[stickerIndex] = nextColor;
+
       // Đồng bộ ngay vào mặt hiện tại nếu đang quét
-      const centerColor = next[4];
+      const centerColor = next[4] && RUBIK_COLOR_CYCLE.includes(next[4]) ? next[4] : 'white';
       const faceCodeMap = { white: 'U', yellow: 'D', red: 'R', orange: 'L', green: 'F', blue: 'B' };
       const currentFace = faceCodeMap[centerColor] || currentActiveFaceRef.current || 'F';
       if (scannedFacesRef.current && scannedFacesRef.current[currentFace]) {
@@ -1959,6 +1964,7 @@ export default function App() {
     };
     scannedFacesRef.current = nextFaces;
     setScannedFaces(nextFaces);
+    manualStickerOverridesRef.current = {};
     playAppSound('ready');
 
     const order = ['U', 'R', 'F', 'D', 'L', 'B'];
@@ -3666,7 +3672,12 @@ export default function App() {
             });
           }
           if (prevColorsRef.current !== null) {
-            setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+            const hasOverrides = Object.keys(manualStickerOverridesRef.current).length > 0;
+            if (hasOverrides) {
+              setDetectedColors(prev => prev.map((c, i) => manualStickerOverridesRef.current[i] || 'invalid'));
+            } else {
+              setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+            }
             prevColorsRef.current = null;
           }
           animFrameRef.current = requestAnimationFrame(processFrame);
@@ -3837,7 +3848,8 @@ export default function App() {
         const nowMs = performance.now();
         if (colorsChanged && nowMs - (lastDetectedColorUpdateRef.current || 0) >= 120) {
           lastDetectedColorUpdateRef.current = nowMs;
-          setDetectedColors(currentNxNColors);
+          const mergedColors = currentNxNColors.map((c, i) => manualStickerOverridesRef.current[i] || c);
+          setDetectedColors(mergedColors);
           prevColorsRef.current = [...currentNxNColors];
         }
 
@@ -6437,6 +6449,7 @@ export default function App() {
                         type="button"
                         onClick={() => {
                           setScannedFaces({});
+                          manualStickerOverridesRef.current = {};
                           const targetCount = (adminSettingsRef.current?.requiredPreCheckFaces === 6 || adminSettingsRef.current?.requireAll6FacesPreCheck === true) ? 6 : 3;
                           setPreCheckStatus({
                             verified: false,
