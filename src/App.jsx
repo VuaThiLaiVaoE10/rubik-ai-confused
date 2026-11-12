@@ -3434,7 +3434,7 @@ export default function App() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '1.25rem' }}>{offTheme.icon}</span>
                     <span>
-                      <div style={{ fontWeight: '800', fontSize: '0.88rem' }}>{offTheme.name}</div>
+                      <div style={{ fontWeight: '800', fontSize: '0.88rem' }}>{offTheme.name.replace(/^[^\s]+\s/, '')}</div>
                       <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>Tắt toàn bộ hiệu ứng Canvas nền (0% GPU/CPU) — Nền tối WCA tiêu chuẩn</div>
                     </span>
                   </span>
