@@ -1359,13 +1359,17 @@ export default function App() {
     if (isKhoaAdminRef.current && cfg.adminVipBypass !== false) {
       return false; // Đặc quyền Admin Khoa: cho phép bấm đồng hồ tự do mọi lúc
     }
+    // Nếu người chơi đã ở Bước 2 (Đã xác nhận đúng SCB) -> Mở khóa đồng hồ giải ngay lập tức không ràng buộc!
+    if (solveStepRef.current === 'step2_ready_solve') {
+      return false;
+    }
     if (cfg.requireCameraToSolve === false) {
       return false;
     }
     if (!cameraActiveRef.current) {
       setLastNotice({
         type: 'warning',
-        text: '📷 BẮT BUỘC BẬT CAMERA AI: Bạn phải nhấn "📷 Bật Cam" và đưa khối Rubik vào xác minh trên Mô hình 3D thì mới được giải!'
+        text: '🔍 BƯỚC 1 CHƯA XÁC NHẬN: Bấm nút "✅ Xác nhận đúng r bắt đầu giải" hoặc nhấn "📷 Bật Cam" để mở khóa giải!'
       });
       return true;
     }
@@ -1375,10 +1379,6 @@ export default function App() {
         text: '⚠️ CAMERA CHƯA ĐỦ ĐIỀU KIỆN: Camera đang bị che tối hoặc mờ. Vui lòng kiểm tra ống kính trước khi bấm giờ!'
       });
       return true;
-    }
-    // Nếu người chơi đã ở Bước 2 (Đã xác nhận đúng SCB) -> Mở khóa đồng hồ giải ngay lập tức!
-    if (solveStepRef.current === 'step2_ready_solve') {
-      return false;
     }
     if (cfg.require3DCubePreCheck !== false) {
       const now = performance.now();
@@ -1390,7 +1390,7 @@ export default function App() {
       if (!isCubeVerifiedFresh) {
         setLastNotice({
           type: 'warning',
-          text: `🔍 BƯỚC 1 CHƯA XÁC NHẬN: Hãy quét ${cfg.requiredPreCheckFaces === 6 ? 6 : 3} mặt trước Camera hoặc bấm "✅ Xác nhận đúng SCB" để mở khóa giải!`
+          text: `🔍 BƯỚC 1 CHƯA XÁC NHẬN: Hãy quét ${cfg.requiredPreCheckFaces === 6 ? 6 : 3} mặt trước Camera hoặc bấm "✅ Xác nhận đúng r bắt đầu giải" để mở khóa!`
         });
         return true;
       }
@@ -1739,6 +1739,7 @@ export default function App() {
     startScrambledRef.current = true;
     setAllowFreestyleScramble(true);
     allowFreestyleScrambleRef.current = true;
+    solveStepRef.current = 'step2_ready_solve';
     setSolveStep('step2_ready_solve');
     playAppSound('ready');
     setLastNotice({
@@ -5061,32 +5062,37 @@ export default function App() {
                             : `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`)}
                       </div>
                       {solveStep === 'step1_check_scb' && (
-                        <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap' }}>
                           <button
                             type="button"
                             onClick={confirmScrambleAndReady}
                             title="Xác nhận khối Rubik đã xáo đúng và chuyển sang bước 2 để giải"
                             style={{
-                              padding: '3px 8px',
-                              borderRadius: '5px',
-                              background: '#16a34a',
-                              border: '1px solid #4ade80',
+                              padding: '5px 10px',
+                              borderRadius: '6px',
+                              background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                              border: '1.5px solid #4ade80',
                               color: '#ffffff',
-                              fontSize: '0.64rem',
+                              fontSize: '0.68rem',
                               fontWeight: '800',
                               cursor: 'pointer',
-                              flex: 1
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              boxShadow: '0 2px 8px rgba(34, 197, 94, 0.35)'
                             }}
                           >
-                            ✅ Xác nhận đúng
+                            <span>✅ Xác nhận đúng r bắt đầu giải</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
                             title="Đổi chế độ quét 3 mặt hoặc 6 mặt"
                             style={{
-                              padding: '3px 6px',
-                              borderRadius: '5px',
+                              padding: '5px 8px',
+                              borderRadius: '6px',
                               background: 'rgba(15, 23, 42, 0.7)',
                               border: '1px solid #475569',
                               color: '#94a3b8',
@@ -5095,7 +5101,7 @@ export default function App() {
                               cursor: 'pointer'
                             }}
                           >
-                            {targetFaceCount === 6 ? '6M' : '3M'}
+                            {targetFaceCount === 6 ? '⚡ 6M' : '⚡ 3M'}
                           </button>
                         </div>
                       )}
@@ -6411,6 +6417,82 @@ export default function App() {
                 </button>
               </div>
             </div>
+          ) : solveStep === 'step2_ready_solve' ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              background: 'rgba(34, 197, 94, 0.15)',
+              border: '1.5px solid rgba(34, 197, 94, 0.45)',
+              color: '#86efac',
+              fontSize: '0.76rem',
+              fontWeight: '700',
+              maxWidth: '620px',
+              width: '100%',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div>
+                🟢 <strong>BƯỚC 2: ĐÃ XÁC NHẬN SCB ĐÚNG!</strong> Đồng hồ đã mở khóa hoàn toàn — Giữ phím Space (hoặc chạm giữ) để bắt đầu giải ngay.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={toggleCamera}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    border: '1px solid #4ade80',
+                    color: '#ffffff',
+                    fontSize: '0.7rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📷 Bật thêm Camera nếu muốn
+                </button>
+              </div>
+            </div>
+          ) : solveStep === 'step3_completed' ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 14px',
+              borderRadius: '10px',
+              background: 'rgba(234, 179, 8, 0.15)',
+              border: '1.5px solid rgba(234, 179, 8, 0.45)',
+              color: '#fef08a',
+              fontSize: '0.76rem',
+              fontWeight: '700',
+              maxWidth: '620px',
+              width: '100%',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <div>
+                🎉 <strong>BƯỚC 3: HOÀN THÀNH LƯỢT GIẢI!</strong> Thành tích: {(timeMs / 1000).toFixed(2)}s. Bấm Space hoặc nút "Lượt mới" để sang lượt tiếp theo.
+              </div>
+              <button
+                type="button"
+                onClick={startNextSolveRound}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  background: '#2563eb',
+                  border: '1px solid #60a5fa',
+                  color: '#ffffff',
+                  fontSize: '0.72rem',
+                  fontWeight: '800',
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Lượt Mới
+              </button>
+            </div>
           ) : (
             <div style={{
               display: 'flex',
@@ -6429,30 +6511,45 @@ export default function App() {
               gap: '8px'
             }}>
               <div>
-                🔒 <strong>ĐỒNG HỒ ĐANG KHÓA:</strong> Bắt buộc phải bật Camera AI và xác minh khối Rubik trên Mô hình 3D mới được phép bấm giờ giải!
+                🔍 <strong>BƯỚC 1: KIỂM TRA SCRAMBLE</strong> — Quét khối trước Camera hoặc bấm xác nhận để mở khóa giải:
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={toggleCamera}
+                  onClick={confirmScrambleAndReady}
                   style={{
                     padding: '6px 12px',
                     borderRadius: '6px',
                     background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                    border: '1px solid #4ade80',
+                    border: '1.5px solid #4ade80',
                     color: '#ffffff',
                     fontSize: '0.74rem',
                     fontWeight: '800',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '5px',
-                    flexShrink: 0,
+                    gap: '4px',
                     boxShadow: '0 4px 14px rgba(34, 197, 94, 0.35)'
                   }}
                 >
-                  <span>📷 Bật Camera AI & Mô Hình 3D Ngay</span>
+                  <span>✅ Xác nhận đúng r bắt đầu giải</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleCamera}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    border: '1px solid #475569',
+                    color: '#cbd5e1',
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>📷 Bật Cam AI</span>
                 </button>
               </div>
             </div>
@@ -6568,9 +6665,9 @@ export default function App() {
                     ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Chạm giữ bên dưới để vào vạch xuất phát!`
                     : `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Giữ phím SPACE để vào vạch xuất phát!`
                 ) : !cameraActive ? (
-                  '🔒 ĐỒNG HỒ ĐANG KHÓA — Bắt buộc Bật Camera AI mới được giải!'
+                  '🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Bấm nút "✅ Xác nhận đúng r bắt đầu giải" bên dưới hoặc bật Cam để mở khóa giải!'
                 ) : !preCheckStatus.verified ? (
-                  `🔍 BƯỚC 1: KIỂM TRA SCB — Quét ${Object.keys(scannedFaces).length}/${(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt hoặc bấm "Xác nhận đúng r bắt đầu giải" để mở khóa!`
+                  `🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Quét ${Object.keys(scannedFaces).length}/${(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt hoặc bấm "Xác nhận đúng r bắt đầu giải" để mở khóa!`
                 ) : (
                   isMobile
                     ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN — Chạm giữ bên dưới để giải!`
