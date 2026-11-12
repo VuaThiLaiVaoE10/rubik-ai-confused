@@ -67,8 +67,6 @@ function drawCyberMechSpider(ctx, x, y, time, scale = 1, angle = 0) {
   // 8 chân cơ khí co duỗi nhịp nhàng
   ctx.strokeStyle = '#38bdf8';
   ctx.lineWidth = 1.6;
-  ctx.shadowColor = '#38bdf8';
-  ctx.shadowBlur = 10;
   for (let side of [-1, 1]) {
     for (let leg = 0; leg < 4; leg++) {
       const phase = time * 4 + leg * 0.9 + (side > 0 ? 0 : Math.PI);
@@ -108,8 +106,6 @@ function drawCyberMechSpider(ctx, x, y, time, scale = 1, angle = 0) {
 
   // Lõi năng lượng & cặp mắt phát sáng
   ctx.fillStyle = '#22c55e';
-  ctx.shadowColor = '#22c55e';
-  ctx.shadowBlur = 12;
   ctx.beginPath();
   ctx.arc(0, -3, 2.8, 0, Math.PI * 2);
   ctx.fill();
@@ -301,12 +297,12 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     if (!ctx) return undefined;
 
     let animId = 0;
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     let width = window.innerWidth;
     let height = window.innerHeight;
 
     const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       width = window.innerWidth;
       height = window.innerHeight;
       canvas.width = Math.floor(width * dpr);
@@ -314,6 +310,23 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
+
+    const MAX_PARTICLES = 96;
+    const MAX_BOLTS = 4;
+    const MAX_METEORS = 5;
+    const MAX_SHOCKWAVES = 4;
+    const MAX_CRACKS = 48;
+    const CLICK_COOLDOWN_MS = 180;
+    const MOVE_COOLDOWN_MS = 28;
+    let lastClickBurstTs = 0;
+    let lastMoveSpawnTs = 0;
+
+    const pushParticle = (item) => {
+      if (particles.length >= MAX_PARTICLES) {
+        particles.shift();
+      }
+      particles.push(item);
+    };
 
     const pointer = {
       x: -9999,
@@ -336,7 +349,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     // Khởi tạo đối tượng nền theo từng Theme
     const ambient = [];
     if (hudThemeKey === 'sakura') {
-      for (let i = 0; i < 36; i++) {
+      for (let i = 0; i < 28; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
@@ -377,7 +390,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
     } else if (hudThemeKey === 'frost') {
       // Lăng kính kim cương lơ lửng chậm rãi trong không trung (không rơi dọc như hoa đào)
-      for (let i = 0; i < 24; i++) {
+      for (let i = 0; i < 18; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
@@ -392,7 +405,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
     } else if (hudThemeKey === 'galaxy') {
       const palette = ['#c084fc', '#818cf8', '#38bdf8', '#f472b6', '#ffffff'];
-      for (let i = 0; i < 64; i++) {
+      for (let i = 0; i < 46; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
@@ -408,7 +421,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
     } else if (hudThemeKey === 'inferno') {
       const outer = ['#ef4444', '#f97316', '#ea580c'];
-      for (let i = 0; i < 42; i++) {
+      for (let i = 0; i < 30; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
@@ -467,13 +480,15 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           branches.push(buildLightningPath(pick[0], pick[1], bx2, by2, 42));
         }
       }
+      if (bolts.length >= MAX_BOLTS) bolts.shift();
       bolts.push({
         mainSegs,
         branches,
         alpha: 1,
-        decay: isBig ? 0.038 : 0.055,
-        flashAlpha: isBig ? 0.24 : 0.12
+        decay: isBig ? 0.042 : 0.06,
+        flashAlpha: isBig ? 0.22 : 0.1
       });
+      if (shockwaves.length >= MAX_SHOCKWAVES) shockwaves.shift();
       shockwaves.push({
         x: targetX,
         y: targetY,
@@ -483,11 +498,11 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         color: '#facc15',
         color2: '#c084fc'
       });
-      const sparkCount = isBig ? 22 : 10;
+      const sparkCount = isBig ? 14 : 8;
       for (let i = 0; i < sparkCount; i++) {
         const ang = Math.random() * Math.PI * 2;
         const spd = 2 + Math.random() * (isBig ? 7 : 4.5);
-        particles.push({
+        pushParticle({
           x: targetX,
           y: targetY,
           vx: Math.cos(ang) * spd,
@@ -513,13 +528,15 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       trailPoints.push({ x, y, life: 1 });
       if (trailPoints.length > 22) trailPoints.shift();
 
+      const nowTs = performance.now();
       const dist = Math.hypot(x - pointer.lastX, y - pointer.lastY);
-      if (dist >= 14) {
+      if (dist >= 22 && nowTs - lastMoveSpawnTs >= MOVE_COOLDOWN_MS) {
+        lastMoveSpawnTs = nowTs;
         pointer.lastX = x;
         pointer.lastY = y;
-        if (particles.length < 180) {
+        if (particles.length < MAX_PARTICLES - 12) {
           if (hudThemeKey === 'sakura') {
-            particles.push({
+            pushParticle({
               x,
               y,
               vx: pointer.vx * 0.15 + (Math.random() - 0.5) * 1.4,
@@ -537,6 +554,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           } else if (hudThemeKey === 'frost') {
             const ang = Math.atan2(pointer.vy, pointer.vx) + (Math.random() - 0.5) * 1.4;
             const len = 14 + Math.random() * 24;
+            if (iceCracks.length >= MAX_CRACKS) iceCracks.shift();
             iceCracks.push({
               x1: x,
               y1: y,
@@ -544,9 +562,8 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
               y2: y + Math.sin(ang) * len,
               alpha: 0.85
             });
-            if (iceCracks.length > 90) iceCracks.shift();
           } else if (hudThemeKey === 'thunder') {
-            particles.push({
+            pushParticle({
               x,
               y,
               vx: (Math.random() - 0.5) * 4,
@@ -559,7 +576,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             });
           } else if (hudThemeKey === 'galaxy') {
             const c = Math.random() > 0.5 ? '#c084fc' : '#38bdf8';
-            particles.push({
+            pushParticle({
               x: x + (Math.random() - 0.5) * 10,
               y: y + (Math.random() - 0.5) * 10,
               vx: (Math.random() - 0.5) * 1.4,
@@ -572,7 +589,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
               kind: 'star'
             });
           } else if (hudThemeKey === 'inferno') {
-            particles.push({
+            pushParticle({
               x: x + (Math.random() - 0.5) * 12,
               y: y + (Math.random() - 0.5) * 6,
               vx: (Math.random() - 0.5) * 1.4,
@@ -586,7 +603,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             });
           } else if (hudThemeKey === 'matrix') {
             const codeChars = '01ABCDEFアイウネシ';
-            particles.push({
+            pushParticle({
               x: x + (Math.random() - 0.5) * 14,
               y: y + (Math.random() - 0.5) * 8,
               vx: (Math.random() - 0.5) * 0.9,
@@ -608,11 +625,18 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       const y = e.clientY;
       pointer.down = true;
 
+      // Chống spam click liên tục gây lag/giật Web
+      const nowTs = performance.now();
+      if (nowTs - lastClickBurstTs < CLICK_COOLDOWN_MS) {
+        return;
+      }
+      lastClickBurstTs = nowTs;
+
       if (hudThemeKey === 'sakura') {
-        for (let i = 0; i < 24; i++) {
-          const ang = (Math.PI * 2 * i) / 24 + (Math.random() - 0.5) * 0.25;
+        for (let i = 0; i < 16; i++) {
+          const ang = (Math.PI * 2 * i) / 16 + (Math.random() - 0.5) * 0.25;
           const spd = 2.2 + Math.random() * 4.8;
-          particles.push({
+          pushParticle({
             x,
             y,
             vx: Math.cos(ang) * spd,
@@ -629,6 +653,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'cyber') {
+        if (shockwaves.length >= MAX_SHOCKWAVES) shockwaves.shift();
         shockwaves.push({ x, y, r: 8, maxR: 185, alpha: 1, color: '#38bdf8', color2: '#22c55e' });
         for (const n of ambient) {
           const dx = n.x - x;
@@ -649,15 +674,17 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           const len1 = 26 + Math.random() * 28;
           const mx = x + Math.cos(ang) * len1;
           const my = y + Math.sin(ang) * len1;
+          if (iceCracks.length >= MAX_CRACKS) iceCracks.shift();
           iceCracks.push({ x1: x, y1: y, x2: mx, y2: my, alpha: 1 });
           const ang2 = ang + (Math.random() > 0.5 ? 0.5 : -0.5);
           const len2 = 16 + Math.random() * 20;
+          if (iceCracks.length >= MAX_CRACKS) iceCracks.shift();
           iceCracks.push({ x1: mx, y1: my, x2: mx + Math.cos(ang2) * len2, y2: my + Math.sin(ang2) * len2, alpha: 0.92 });
         }
-        for (let i = 0; i < 18; i++) {
-          const ang = (Math.PI * 2 * i) / 18 + (Math.random() - 0.5) * 0.25;
+        for (let i = 0; i < 14; i++) {
+          const ang = (Math.PI * 2 * i) / 14 + (Math.random() - 0.5) * 0.25;
           const spd = 2.6 + Math.random() * 4.8;
-          particles.push({
+          pushParticle({
             x,
             y,
             vx: Math.cos(ang) * spd,
@@ -671,12 +698,14 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'galaxy') {
+        if (meteors.length >= MAX_METEORS) meteors.shift();
         meteors.push({ x: Math.max(0, x - 260), y: Math.max(0, y - 160), vx: 13.5, vy: 8.5, len: 135, alpha: 1, color: '#e9d5ff' });
+        if (meteors.length >= MAX_METEORS) meteors.shift();
         meteors.push({ x: Math.min(width, x + 260), y: Math.max(0, y - 140), vx: -12.5, vy: 8, len: 115, alpha: 1, color: '#38bdf8' });
-        for (let i = 0; i < 18; i++) {
-          const ang = (Math.PI * 2 * i) / 18;
+        for (let i = 0; i < 14; i++) {
+          const ang = (Math.PI * 2 * i) / 14;
           const spd = 2.2 + Math.random() * 4.2;
-          particles.push({
+          pushParticle({
             x,
             y,
             vx: Math.cos(ang) * spd,
@@ -690,9 +719,9 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'inferno') {
-        for (let i = 0; i < 22; i++) {
+        for (let i = 0; i < 16; i++) {
           const spread = (Math.random() - 0.5) * 6.5;
-          particles.push({
+          pushParticle({
             x: x + (Math.random() - 0.5) * 26,
             y,
             vx: spread,
@@ -706,6 +735,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'matrix') {
+        if (matrixScans.length >= 3) matrixScans.shift();
         matrixScans.push({ x, y, life: 1 });
         for (const d of ambient) {
           const colX = d.colIndex * 24 + 12;
@@ -715,10 +745,10 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           }
         }
         const burstChars = '01X9Fアイウカキ';
-        for (let i = 0; i < 18; i++) {
-          const ang = (Math.PI * 2 * i) / 18;
+        for (let i = 0; i < 14; i++) {
+          const ang = (Math.PI * 2 * i) / 14;
           const spd = 2.2 + Math.random() * 3.8;
-          particles.push({
+          pushParticle({
             x,
             y,
             vx: Math.cos(ang) * spd,
@@ -731,6 +761,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'aurora') {
+        if (auroraFlashes.length >= 3) auroraFlashes.shift();
         auroraFlashes.push({ x, spread: 12, maxSpread: 260, alpha: 0.95 });
       }
     };
@@ -748,6 +779,10 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     let nextAutoBoltTs = startTs + 1600;
 
     const render = (now) => {
+      if (document.hidden) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
       const time = (now - startTs) * 0.001;
       ctx.clearRect(0, 0, width, height);
 
@@ -809,8 +844,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalAlpha = p.alpha;
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rot);
-          ctx.shadowColor = 'rgba(244, 114, 182, 0.55)';
-          ctx.shadowBlur = 8;
           drawSakuraPetal(ctx, p.size, p.cA, p.cB, p.pitch);
           ctx.restore();
         }
@@ -898,10 +931,8 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             const px = a.x + (b.x - a.x) * pkt.t;
             const py = a.y + (b.y - a.y) * pkt.t;
             ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = '#38bdf8';
-            ctx.shadowBlur = 10;
             ctx.beginPath();
-            ctx.arc(px, py, 2, 0, Math.PI * 2);
+            ctx.arc(px, py, 2.2, 0, Math.PI * 2);
             ctx.fill();
           } else {
             pkt.a = Math.floor(Math.random() * ambient.length);
@@ -1014,8 +1045,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalAlpha = f.alpha * shimmer;
           ctx.translate(f.x, f.y);
           ctx.rotate(f.rot);
-          ctx.shadowColor = 'rgba(125, 211, 252, 0.55)';
-          ctx.shadowBlur = 10;
           drawIcePrism(ctx, f.size);
           ctx.restore();
         }
@@ -1027,11 +1056,9 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.lineCap = 'round';
           for (let i = iceCracks.length - 1; i >= 0; i--) {
             const ck = iceCracks[i];
-            ck.alpha -= 0.014;
+            ck.alpha -= 0.016;
             ctx.strokeStyle = `rgba(224, 242, 254, ${Math.max(0, ck.alpha)})`;
             ctx.lineWidth = 1.4;
-            ctx.shadowColor = '#7dd3fc';
-            ctx.shadowBlur = 8;
             ctx.beginPath();
             ctx.moveTo(ck.x1, ck.y1);
             ctx.lineTo(ck.x2, ck.y2);
@@ -1112,8 +1139,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalAlpha = glow;
           ctx.translate(s.x, s.y);
           ctx.rotate(s.rot);
-          ctx.shadowColor = s.color;
-          ctx.shadowBlur = 10;
           drawStarGlint(ctx, s.r, s.color);
           ctx.restore();
         }
@@ -1172,8 +1197,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.save();
           ctx.globalAlpha = f.alpha * (0.72 + 0.28 * Math.sin(time * 7 + f.phase));
           ctx.translate(f.x, f.y);
-          ctx.shadowColor = f.cOuter;
-          ctx.shadowBlur = 10;
           drawFlameTongue(ctx, f.size, sway * 0.22, f.cOuter, f.cInner);
           ctx.restore();
         }
@@ -1296,9 +1319,8 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           b.flashAlpha *= 0.72;
         }
         ctx.globalAlpha = Math.max(0, b.alpha);
-        ctx.shadowColor = '#a855f7';
-        ctx.shadowBlur = 22;
-        strokeSegments(ctx, b.mainSegs, '#facc15', 4.5);
+        strokeSegments(ctx, b.mainSegs, 'rgba(168, 85, 247, 0.45)', 8);
+        strokeSegments(ctx, b.mainSegs, '#facc15', 4.2);
         strokeSegments(ctx, b.mainSegs, '#ffffff', 1.8);
         for (const br of b.branches) {
           strokeSegments(ctx, br, '#c084fc', 1.5);
@@ -1354,8 +1376,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalAlpha = Math.max(0, p.alpha);
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rot);
-          ctx.shadowColor = '#bae6fd';
-          ctx.shadowBlur = 10;
           drawIceShard(ctx, p.size, p.color);
           ctx.restore();
         } else if (p.kind === 'crystal') {
@@ -1375,8 +1395,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalAlpha = Math.max(0, p.alpha);
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rot);
-          ctx.shadowColor = p.color;
-          ctx.shadowBlur = 10;
           drawStarGlint(ctx, p.size, p.color);
           ctx.restore();
         } else if (p.kind === 'flame') {
@@ -1386,8 +1404,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalCompositeOperation = 'lighter';
           ctx.globalAlpha = Math.max(0, p.alpha);
           ctx.translate(p.x, p.y);
-          ctx.shadowColor = p.cOuter;
-          ctx.shadowBlur = 10;
           drawFlameTongue(ctx, p.size, p.tilt || 0, p.cOuter, p.cInner);
           ctx.restore();
         } else if (p.kind === 'glyph') {
@@ -1405,8 +1421,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.globalCompositeOperation = 'lighter';
           ctx.globalAlpha = Math.max(0, p.alpha);
           ctx.fillStyle = p.color;
-          ctx.shadowColor = p.color;
-          ctx.shadowBlur = 10;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
           ctx.fill();
