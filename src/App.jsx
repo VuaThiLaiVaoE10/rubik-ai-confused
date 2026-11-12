@@ -44,6 +44,8 @@ import {
   HUD_THEMES
 } from './config/rubikConfig';
 import {
+  OPENCV_MAT,
+  OPENCV_TEN_MAU,
   rgbToHsv,
   rgbToOpenCvHsv,
   nhanDienMauOpenCv,
@@ -1067,19 +1069,21 @@ export default function App() {
 
     scannedFacesRef.current = convertedScannedFaces;
     setScannedFaces(convertedScannedFaces);
-    isCubeVerifiedFreshRef.current = true;
-    setIsCubeVerifiedFresh(true);
+    lastCubeVerifiedAtRef.current = performance.now();
+    startScrambledRef.current = true;
 
     // Mở khóa Bước 2 ngay lập tức
     setSolveStep('step2_ready_solve');
     solveStepRef.current = 'step2_ready_solve';
 
-    setPreCheckStatus({
+    const nextPreCheck = {
       verified: true,
       text: '🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TỪ MÁY QUÉT OPENCV — Đã sẵn sàng bấm giờ giải!',
       isScrambled: true,
       centerFace: 'U (Trên)'
-    });
+    };
+    preCheckRef.current = nextPreCheck;
+    setPreCheckStatus(nextPreCheck);
 
     setShowOpenCvScannerModal(false);
     playAppSound('ready');
@@ -4779,7 +4783,7 @@ export default function App() {
                         {timerState === 'running'
                           ? `Đang xoay (${cubeMovesSeenRef.current || trackedMoves.length} nhịp)`
                           : timerState === 'inspecting'
-                            ? `Quan sát (${inspectionTimeLeft}s)`
+                            ? `Quan sát (${inspectionSeconds}s)`
                             : timerState === 'ready'
                               ? 'Thả tay để bắt đầu giải!'
                               : isStep2Ready
