@@ -1806,24 +1806,14 @@ export default function App() {
   const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
-  // Chế độ tối ưu Camera cho máy đời cũ / cấu hình yếu (tự bật nếu CPU <= 4 luồng hoặc RAM <= 4GB)
-  const [isLowSpecCam, setIsLowSpecCam] = useState(() => {
-    const saved = localStorage.getItem('rubik_low_spec_cam');
-    if (saved === 'true' || saved === 'false') return saved === 'true';
+  // Tích hợp tự động tối ưu Camera cho máy đời cũ / cấu hình yếu (dò phần cứng <= 4 luồng CPU hoặc <= 4GB RAM + tự hạ tải khi frame chậm)
+  const isLowSpecCamRef = useRef((() => {
     const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
     const mem = typeof navigator !== 'undefined' ? (navigator.deviceMemory || 8) : 8;
     return cores <= 4 || mem <= 4;
-  });
-  const isLowSpecCamRef = useRef(isLowSpecCam);
+  })());
   const lastCvDurationRef = useRef(0);
-  const toggleLowSpecCam = () => {
-    setIsLowSpecCam((prev) => {
-      const next = !prev;
-      isLowSpecCamRef.current = next;
-      localStorage.setItem('rubik_low_spec_cam', String(next));
-      return next;
-    });
-  };
+  const slowFrameStreakRef = useRef(0);
   // Chế độ hiển thị 3D: mặc định 'always' để khi di chuyển khối trước Camera luôn phân tích trực tiếp lên mô hình 3D
   const [show3DMode, setShow3DMode] = useState(() => localStorage.getItem('rubik_3d_mode_v2') || 'always');
   const [linger3D, setLinger3D] = useState(false);
@@ -3319,7 +3309,16 @@ export default function App() {
         }
 
         prevColorsRef.current = currentNxNColors;
-        lastCvDurationRef.current = performance.now() - cvStartTs;
+        const cvDuration = performance.now() - cvStartTs;
+        lastCvDurationRef.current = cvDuration;
+        if (cvDuration > 16) {
+          slowFrameStreakRef.current += 1;
+          if (slowFrameStreakRef.current >= 3) {
+            isLowSpecCamRef.current = true;
+          }
+        } else if (slowFrameStreakRef.current > 0 && cvDuration < 10) {
+          slowFrameStreakRef.current -= 1;
+        }
       }
 
       animFrameRef.current = requestAnimationFrame(processFrame);
@@ -5273,24 +5272,6 @@ export default function App() {
                   >
                     <span>{currentHudTheme.shortName}</span>
                     <span style={{ fontSize: '0.6rem', opacity: 0.85 }}>↻</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={toggleLowSpecCam}
-                    title="Tối ưu Camera cho máy đời cũ/yếu: giảm độ phân giải quét AI & tự bù sáng webcam mờ tối"
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: '5px',
-                      border: isLowSpecCam ? '1px solid #f59e0b' : '1px solid #334155',
-                      background: isLowSpecCam ? 'rgba(245, 158, 11, 0.2)' : '#111c34',
-                      color: isLowSpecCam ? '#fbbf24' : '#cbd5e1',
-                      fontSize: '0.66rem',
-                      fontWeight: '700',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {isLowSpecCam ? '🔋 Cam Máy Yếu: Bật' : '🔋 Cam Máy Yếu: Tắt'}
                   </button>
 
                   <button
