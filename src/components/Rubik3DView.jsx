@@ -33,6 +33,16 @@ const DEFAULT_FACE_KEYS = {
 
 const CORE_HEX = 0x090d16;
 
+// Góc Euler chuẩn để xoay hướng từng mặt Rubik (U, D, F, B, L, R) trực diện ra trước camera
+const FACE_EULER_ANGLES = {
+  F: { x: 0, y: 0, z: 0 },
+  R: { x: 0, y: -Math.PI / 2, z: 0 },
+  B: { x: 0, y: Math.PI, z: 0 },
+  L: { x: 0, y: Math.PI / 2, z: 0 },
+  U: { x: Math.PI / 2, y: 0, z: 0 },
+  D: { x: -Math.PI / 2, y: 0, z: 0 }
+};
+
 // Xoay ma trận mặt N×N theo chiều kim đồng hồ (clockwise) hoặc ngược chiều (ccw)
 function rotateFaceMatrix(arr, dim, clockwise = true) {
   const next = new Array(dim * dim);
@@ -160,6 +170,7 @@ export default function Rubik3DView({
   trackingBox = null,
   modelVerification = null,
   surfaceProfile = 'auto',
+  activeFace = 'F',
   width = 240,
   height = 185,
   autoSpin360 = false,
@@ -176,6 +187,7 @@ export default function Rubik3DView({
   });
   const frontFrameMatRef = useRef(null);
   const trackingBoxRef = useRef(trackingBox);
+  const activeFaceRef = useRef(activeFace);
   const lastValidFrontRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -198,6 +210,10 @@ export default function Rubik3DView({
   useEffect(() => {
     trackingBoxRef.current = trackingBox;
   }, [trackingBox]);
+
+  useEffect(() => {
+    activeFaceRef.current = activeFace;
+  }, [activeFace]);
 
   // Reset camera to optimal front-top-right 3D angle for watching AI recognition
   const handleResetView = (e) => {
@@ -452,20 +468,29 @@ export default function Rubik3DView({
         if (spinModeRef.current) {
           cubeGroupRef.current.rotation.y += 0.008;
         } else {
+          const curFace = activeFaceRef.current || 'F';
+          const baseEuler = FACE_EULER_ANGLES[curFace] || FACE_EULER_ANGLES.F;
           const tb = trackingBoxRef.current;
+          let offsetX = 0;
+          let offsetY = 0;
           if (tb && tb.isLocked) {
-            const offsetX = ((tb.cxPct ?? 50) - 50) / 50;
-            const offsetY = ((tb.cyPct ?? 50) - 50) / 50;
-            const targetRotY = -offsetX * 0.48 + Math.sin(clock * 1.1) * 0.05;
-            const targetRotX = offsetY * 0.35 + Math.cos(clock * 0.9) * 0.04;
-            cubeGroupRef.current.rotation.y += (targetRotY - cubeGroupRef.current.rotation.y) * 0.18;
-            cubeGroupRef.current.rotation.x += (targetRotX - cubeGroupRef.current.rotation.x) * 0.18;
-          } else {
-            const targetRotY = Math.sin(clock * 0.8) * 0.12;
-            const targetRotX = Math.cos(clock * 0.6) * 0.05;
-            cubeGroupRef.current.rotation.y += (targetRotY - cubeGroupRef.current.rotation.y) * 0.1;
-            cubeGroupRef.current.rotation.x += (targetRotX - cubeGroupRef.current.rotation.x) * 0.1;
+            offsetX = ((tb.cxPct ?? 50) - 50) / 50;
+            offsetY = ((tb.cyPct ?? 50) - 50) / 50;
           }
+
+          // Xoay khối 3D tự động hướng mặt đang quét ra phía trước mắt + nghiêng bám đuổi theo vị trí tay di chuyển
+          const targetRotY = baseEuler.y - offsetX * 0.42 + Math.sin(clock * 0.9) * 0.03;
+          const targetRotX = baseEuler.x + offsetY * 0.32 + Math.cos(clock * 0.8) * 0.025;
+          const targetRotZ = baseEuler.z;
+
+          // Chuẩn hóa góc quay Y theo đường ngắn nhất (ngăn giật vòng 360 độ khi xoay giữa các mặt)
+          let diffY = targetRotY - cubeGroupRef.current.rotation.y;
+          while (diffY > Math.PI) diffY -= 2 * Math.PI;
+          while (diffY < -Math.PI) diffY += 2 * Math.PI;
+
+          cubeGroupRef.current.rotation.y += diffY * 0.14;
+          cubeGroupRef.current.rotation.x += (targetRotX - cubeGroupRef.current.rotation.x) * 0.14;
+          cubeGroupRef.current.rotation.z += (targetRotZ - cubeGroupRef.current.rotation.z) * 0.14;
         }
       }
 
@@ -485,7 +510,7 @@ export default function Rubik3DView({
     };
   }, [dim, width, height, surfaceProfile]);
 
-  // Real-time update of all 6 faces (hiển thị đầy đủ các mặt CHƯA GIẢI / ĐANG GIẢI / ĐÃ GIẢI)
+  // Real-time update of all 6 faces (cập nhật trực tiếp lên đúng mặt AI đang quét & xoay theo hướng)
   useEffect(() => {
     const mats = faceMaterialsRef.current;
     if (!mats || !mats.F) return;
@@ -493,38 +518,36 @@ export default function Rubik3DView({
     const activePalette = surfaceProfile === 'pastel' ? PASTEL_COLOR_MAP : COLOR_MAP;
     const baseFaces = scrambledBaselineRef.current;
     const validCount = detectedColors.filter((c) => c && c !== 'invalid').length;
+    const curActiveFace = activeFace || 'F';
 
-    // Ngay khi Camera bắt được từ 2 ô màu trở lên, cập nhật trực tiếp lên mặt trước (F) của Mô hình 3D
-    if (validCount >= 2) {
-      const merged = detectedColors.map((c, idx) => {
-        if (c && c !== 'invalid') return c;
-        return lastValidFrontRef.current?.[idx] || baseFaces?.F?.[idx] || 'invalid';
-      });
-      lastValidFrontRef.current = merged;
-      merged.forEach((colorKey, idx) => {
-        const mat = mats.F[idx];
-        if (mat) {
+    ['U', 'D', 'F', 'B', 'L', 'R'].forEach((faceCode) => {
+      const faceMats = mats[faceCode];
+      if (!faceMats) return;
+
+      if (faceCode === curActiveFace && validCount >= 2) {
+        // Mặt AI đang nhận diện trực tiếp: cập nhật các ô màu thời gian thực
+        detectedColors.forEach((colorKey, idx) => {
+          const mat = faceMats[idx];
+          if (!mat) return;
+          const finalColor = (colorKey && colorKey !== 'invalid')
+            ? colorKey
+            : (scannedFaces?.[faceCode]?.[idx] || baseFaces?.[faceCode]?.[idx] || DEFAULT_FACE_KEYS[faceCode]);
+          mat.color.setHex(activePalette[finalColor] || activePalette.invalid);
+        });
+      } else {
+        // Các mặt khác: hiển thị màu đã lưu từ trước trong scannedFaces hoặc xáo trộn từ Scramble
+        const scannedArr = scannedFaces?.[faceCode];
+        const fallbackArr = baseFaces?.[faceCode] || [];
+        faceMats.forEach((mat, idx) => {
+          if (!mat) return;
+          const scannedColor = scannedArr?.[idx];
+          const colorKey = (scannedColor && scannedColor !== 'invalid')
+            ? scannedColor
+            : (fallbackArr[idx] || DEFAULT_FACE_KEYS[faceCode]);
           mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
-        }
-      });
-    } else if (lastValidFrontRef.current && scannedFaces && Object.keys(scannedFaces).length > 0) {
-      // Giữ mặt vừa quét khi người chơi đang xoay sang mặt khác
-      lastValidFrontRef.current.forEach((colorKey, idx) => {
-        const mat = mats.F[idx];
-        if (mat) {
-          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
-        }
-      });
-    } else {
-      // Khi chưa quét Camera: hiển thị mặt F ở trạng thái ĐÃ XÁO TRỘN (chưa giải) theo Scramble hiện tại
-      const fallbackFront = baseFaces?.F || [];
-      mats.F.forEach((mat, idx) => {
-        if (mat) {
-          const cKey = fallbackFront[idx] || DEFAULT_FACE_KEYS.F;
-          mat.color.setHex(activePalette[cKey] || activePalette.invalid);
-        }
-      });
-    }
+        });
+      }
+    });
 
     if (frontFrameMatRef.current) {
       if (modelVerification?.verified) {
@@ -538,29 +561,7 @@ export default function Rubik3DView({
         frontFrameMatRef.current.opacity = 0.55;
       }
     }
-
-    // Cập nhật 5 mặt xung quanh (R, L, U, D, B):
-    // Nếu mặt nào đã được Camera quét -> hiển thị đúng màu thực tế đã quét (dù chưa giải hay đã giải)
-    // Nếu mặt nào chưa quét -> hiển thị trạng thái ĐÃ XÁO TRỘN (chưa giải) từ Scramble thay vì mặt đồng màu giả!
-    if (scannedFaces && Object.keys(scannedFaces).length === 0) {
-      lastValidFrontRef.current = null;
-    }
-
-    ['R', 'L', 'U', 'D', 'B'].forEach((faceCode) => {
-      const scannedArr = scannedFaces?.[faceCode];
-      const fallbackArr = baseFaces?.[faceCode] || [];
-      if (mats[faceCode]) {
-        mats[faceCode].forEach((mat, idx) => {
-          if (!mat) return;
-          const scannedColor = scannedArr?.[idx];
-          const colorKey = (scannedColor && scannedColor !== 'invalid')
-            ? scannedColor
-            : (fallbackArr[idx] || DEFAULT_FACE_KEYS[faceCode]);
-          mat.color.setHex(activePalette[colorKey] || activePalette.invalid);
-        });
-      }
-    });
-  }, [detectedColors, scannedFaces, scramble, scrambledBaseline, dim, modelVerification, trackingBox, surfaceProfile]);
+  }, [detectedColors, scannedFaces, scramble, scrambledBaseline, dim, modelVerification, trackingBox, surfaceProfile, activeFace]);
 
   const scannedKeys = scannedFaces ? Object.keys(scannedFaces) : [];
 

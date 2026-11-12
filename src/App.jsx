@@ -1179,6 +1179,13 @@ export default function App() {
     surfaceProfileRef.current = surfaceProfile;
   }, [surfaceProfile]);
 
+  // Mặt Rubik mà Camera AI đang nhận diện (để Khối 3D tự động xoay hướng theo mặt đó)
+  const [currentActiveFace, setCurrentActiveFace] = useState('F');
+  const currentActiveFaceRef = useRef('F');
+  useEffect(() => {
+    currentActiveFaceRef.current = currentActiveFace;
+  }, [currentActiveFace]);
+
   const handleSelectSurfaceProfile = (profileKey) => {
     if (!CUBE_SURFACE_PROFILES[profileKey]) return;
     setSurfaceProfile(profileKey);
@@ -2470,6 +2477,8 @@ export default function App() {
           scannedFacesRef.current = nextFaces;
           updatedFacesCount = Object.keys(nextFaces).length;
           setScannedFaces(nextFaces);
+          setCurrentActiveFace(mappedFace);
+          currentActiveFaceRef.current = mappedFace;
         }
 
         const all6FaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
@@ -3513,6 +3522,7 @@ export default function App() {
                     trackingBox={trackingBox}
                     modelVerification={model3DVerification}
                     surfaceProfile={surfaceProfile}
+                    activeFace={currentActiveFace}
                     width={upper3DExpanded ? (isMobile ? 280 : 310) : (isMobile ? 195 : 225)}
                     height={upper3DExpanded ? (isMobile ? 205 : 220) : (isMobile ? 150 : 165)}
                   />
@@ -4432,6 +4442,7 @@ export default function App() {
                 trackingBox={trackingBox}
                 modelVerification={model3DVerification}
                 surfaceProfile={surfaceProfile}
+                activeFace={currentActiveFace}
                 width={330}
                 height={240}
               />
@@ -5921,6 +5932,7 @@ export default function App() {
               trackingBox={trackingBox}
               modelVerification={model3DVerification}
               surfaceProfile={surfaceProfile}
+              activeFace={currentActiveFace}
               width={340}
               height={260}
             />
