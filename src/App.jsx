@@ -343,6 +343,117 @@ function getMedian(arr) {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// =========================================================================
+// HỆ THỐNG QUÉT RUBIK 6 MẶT CHUẨN OPENCV (TƯƠNG THÍCH 100% VỚI quet_rubik_6_mat.py)
+// Thứ tự 6 mặt: U (Trên), R (Phải), F (Trước), D (Dưới), L (Trái), B (Sau)
+// =========================================================================
+export const OPENCV_MAT = [
+  ['U', 'Trên'],
+  ['R', 'Phải'],
+  ['F', 'Trước'],
+  ['D', 'Dưới'],
+  ['L', 'Trái'],
+  ['B', 'Sau']
+];
+
+export const OPENCV_TEN_MAU = ['Đỏ', 'Cam', 'Vàng', 'Xanh lá', 'Xanh dương', 'Trắng'];
+
+// Nhận diện 6 màu Rubik bằng ngưỡng HSV trong OpenCV (chuẩn 100% từ quet_rubik_6_mat.py)
+export function nhanDienMauOpenCv(hsv) {
+  const h = Math.round(hsv.h);
+  const s = Math.round(hsv.s);
+  const v = Math.round(hsv.v);
+
+  if (v < 45) return '?';
+  if (s < 60 && v >= 140) return 'Trắng';
+  if (s < 60) return '?';
+  if (h <= 8 || h >= 170) return 'Đỏ';
+  if (h >= 9 && h <= 22) return 'Cam';
+  if (h >= 23 && h <= 35) return 'Vàng';
+  if (h >= 36 && h <= 85) return 'Xanh lá';
+  if (h >= 86 && h <= 130) return 'Xanh dương';
+  return '?';
+}
+
+// Lấy mẫu trung vị HSV từng ô theo chuẩn OpenCV/NumPy
+export function layMauTrungViOpenCv(frameImg, w, h, x1, y1, x2, y2) {
+  const hArr = [];
+  const sArr = [];
+  const vArr = [];
+  const startX = Math.max(0, Math.min(w - 1, x1));
+  const startY = Math.max(0, Math.min(h - 1, y1));
+  const endX = Math.max(0, Math.min(w, x2));
+  const endY = Math.max(0, Math.min(h, y2));
+  const step = 2;
+
+  for (let y = startY; y < endY; y += step) {
+    for (let x = startX; x < endX; x += step) {
+      const idx = (y * w + x) * 4;
+      const r = frameImg[idx];
+      const g = frameImg[idx + 1];
+      const b = frameImg[idx + 2];
+      const hsv = rgbToOpenCvHsv(r, g, b);
+      hArr.push(hsv.h);
+      sArr.push(hsv.s);
+      vArr.push(hsv.v);
+    }
+  }
+
+  if (hArr.length === 0) return { h: 0, s: 0, v: 0 };
+  return {
+    h: Math.round(getMedian(hArr)),
+    s: Math.round(getMedian(sArr)),
+    v: Math.round(getMedian(vArr))
+  };
+}
+
+// Đếm số lượng ô của từng màu trong 6 mặt Rubik
+export function demMauOpenCv(ketQua) {
+  const dem = { 'Đỏ': 0, 'Cam': 0, 'Vàng': 0, 'Xanh lá': 0, 'Xanh dương': 0, 'Trắng': 0 };
+  if (!ketQua) return dem;
+  for (const [maMat] of OPENCV_MAT) {
+    const maTran = ketQua[maMat];
+    if (!maTran) continue;
+    for (const dong of maTran) {
+      for (const tenMau of dong) {
+        if (dem[tenMau] !== undefined) dem[tenMau]++;
+      }
+    }
+  }
+  return dem;
+}
+
+// Kiểm tra tính hợp lệ: đủ 6 mặt và mỗi màu có đúng 9 ô
+export function kiemTraHopLeOpenCv(ketQua) {
+  if (!ketQua) return false;
+  const daDu6Mat = OPENCV_MAT.every(([maMat]) => Boolean(ketQua[maMat]));
+  const dem = demMauOpenCv(ketQua);
+  return daDu6Mat && OPENCV_TEN_MAU.every(tenMau => dem[tenMau] === 9);
+}
+
+// Tìm mặt tiếp theo chưa quét
+export function timMatTiepTheoOpenCv(ketQua, matHienTai) {
+  if (!ketQua) return matHienTai;
+  for (let buoc = 1; buoc <= 6; buoc++) {
+    const chiSo = (matHienTai + buoc) % 6;
+    if (!ketQua[OPENCV_MAT[chiSo][0]]) return chiSo;
+  }
+  return matHienTai;
+}
+
+// Lấy mã màu hiển thị trên canvas cho từng màu tiếng Việt
+export function getColorTextHex(tenMau) {
+  switch (tenMau) {
+    case 'Đỏ': return '#f87171';
+    case 'Cam': return '#fb923c';
+    case 'Vàng': return '#facc15';
+    case 'Xanh lá': return '#4ade80';
+    case 'Xanh dương': return '#60a5fa';
+    case 'Trắng': return '#ffffff';
+    default: return '#cbd5e1';
+  }
+}
+
 // Chuyển đổi sRGB sang không gian màu thị giác người CIE L*a*b* (Bất biến với độ bóng bề mặt & ánh sáng)
 function rgbToLab(r, g, b) {
   let rn = r / 255, gn = g / 255, bn = b / 255;
@@ -1762,6 +1873,216 @@ export default function App() {
   const captureCurrentFaceRef = useRef(captureCurrentFace);
   useEffect(() => { captureCurrentFaceRef.current = captureCurrentFace; }, [captureCurrentFace]);
 
+  // =========================================================================
+  // MÁY QUÉT 6 MẶT RUBIK CHUẨN OPENCV & KOCIEMBA (100% THEO quet_rubik_6_mat.py)
+  // Quét từng mặt U, R, F, D, L, B • Median HSV • Kiểm tra 9 ô/màu • Kociemba ≤ 20 bước
+  // =========================================================================
+  const [showOpenCvScannerModal, setShowOpenCvScannerModal] = useState(false);
+  const showOpenCvScannerModalRef = useRef(false);
+  useEffect(() => { showOpenCvScannerModalRef.current = showOpenCvScannerModal; }, [showOpenCvScannerModal]);
+
+  const [openCvFaceIdx, setOpenCvFaceIdx] = useState(0); // 0: U, 1: R, 2: F, 3: D, 4: L, 5: B
+  const openCvFaceIdxRef = useRef(0);
+  useEffect(() => { openCvFaceIdxRef.current = openCvFaceIdx; }, [openCvFaceIdx]);
+
+  const [openCvFaces, setOpenCvFaces] = useState({
+    U: null,
+    R: null,
+    F: null,
+    D: null,
+    L: null,
+    B: null
+  });
+  const openCvFacesRef = useRef(openCvFaces);
+  useEffect(() => { openCvFacesRef.current = openCvFaces; }, [openCvFaces]);
+
+  const [openCvShowHsv, setOpenCvShowHsv] = useState(false);
+  const openCvShowHsvRef = useRef(false);
+  useEffect(() => { openCvShowHsvRef.current = openCvShowHsv; }, [openCvShowHsv]);
+
+  const [openCvNotice, setOpenCvNotice] = useState(null);
+  const [openCvKociemba, setOpenCvKociemba] = useState(null);
+
+  const openCvLiveMatrixRef = useRef([
+    ['?', '?', '?'],
+    ['?', '?', '?'],
+    ['?', '?', '?']
+  ]);
+  const openCvLiveHsvRef = useRef([
+    [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+    [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+    [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+  ]);
+  const openCvCanvasRef = useRef(null);
+
+  // Lưu mặt hiện tại (Phím Space trong quet_rubik_6_mat.py)
+  const saveCurrentOpenCvFace = useCallback(() => {
+    const curMat = OPENCV_MAT[openCvFaceIdxRef.current] || OPENCV_MAT[0];
+    const currentKey = curMat[0];
+    const currentName = curMat[1];
+    const liveMat = openCvLiveMatrixRef.current;
+
+    if (!liveMat || liveMat.length !== 3) {
+      setOpenCvNotice({ type: 'warning', text: '⚠️ Chưa có tín hiệu hình ảnh từ Camera!' });
+      return;
+    }
+
+    const hasUnknown = liveMat.some(row => row.some(col => col === '?' || !col));
+    if (hasUnknown) {
+      playAppSound('wrong');
+      setOpenCvNotice({
+        type: 'warning',
+        text: `⚠️ Mặt ${currentKey} (${currentName}) còn ô chưa nhận diện rõ (kí hiệu '?'). Hãy căn chỉnh mặt Rubik ngay ngắn vào khung ngắm!`
+      });
+      return;
+    }
+
+    playAppSound('correct');
+    const updatedFaces = {
+      ...openCvFacesRef.current,
+      [currentKey]: liveMat.map(row => [...row])
+    };
+    openCvFacesRef.current = updatedFaces;
+    setOpenCvFaces(updatedFaces);
+
+    // Tìm mặt tiếp theo chưa quét (tim_mat_tiep_theo)
+    const nextIdx = timMatTiepTheoOpenCv(updatedFaces, openCvFaceIdxRef.current);
+    setOpenCvFaceIdx(nextIdx);
+    openCvFaceIdxRef.current = nextIdx;
+
+    const savedCount = Object.values(updatedFaces).filter(Boolean).length;
+    setOpenCvNotice({
+      type: 'success',
+      text: `✅ Đã lưu mặt ${currentKey} (${currentName})! (Đã lưu ${savedCount}/6 mặt)`
+    });
+
+    // Kiểm tra hợp lệ: Đủ 6 mặt và mỗi màu đúng 9 ô -> Tự động giải Kociemba!
+    if (kiemTraHopLeOpenCv(updatedFaces)) {
+      const kRes = solveScannedFacesWithKociemba(updatedFaces);
+      setOpenCvKociemba(kRes);
+      if (kRes && kRes.success) {
+        playAppSound('ready');
+        setOpenCvNotice({
+          type: 'success',
+          text: `🎉 ĐÃ QUÉT HỢP LỆ ĐỦ 6 MẶT (9 Ô MỖI MÀU)! Kociemba đã tìm ra chuỗi bước giải tối ưu (${kRes.moveCount} bước).`
+        });
+      } else {
+        setOpenCvNotice({
+          type: 'error',
+          text: `⚠️ ${kRes?.error || 'Trạng thái khối không giải được, hãy kiểm tra lại từng mặt'}`
+        });
+      }
+    }
+  }, [playAppSound]);
+  const saveCurrentOpenCvFaceRef = useRef(saveCurrentOpenCvFace);
+  useEffect(() => { saveCurrentOpenCvFaceRef.current = saveCurrentOpenCvFace; }, [saveCurrentOpenCvFace]);
+
+  // Tải file JSON trang_thai_rubik_6_mat.json (Phím S trong quet_rubik_6_mat.py)
+  const downloadOpenCvJson = useCallback(() => {
+    const data = {
+      thu_tu_mat: OPENCV_MAT.map(m => m[0]),
+      cac_mat: openCvFaces,
+      thong_ke_mau: demMauOpenCv(openCvFaces),
+      hop_le: kiemTraHopLeOpenCv(openCvFaces),
+      kociemba: openCvKociemba
+    };
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'trang_thai_rubik_6_mat.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setOpenCvNotice({
+      type: 'success',
+      text: '💾 Đã tải về file trang_thai_rubik_6_mat.json thành công!'
+    });
+  }, [openCvFaces, openCvKociemba]);
+  const downloadOpenCvJsonRef = useRef(downloadOpenCvJson);
+  useEffect(() => { downloadOpenCvJsonRef.current = downloadOpenCvJson; }, [downloadOpenCvJson]);
+
+  // Áp dụng dữ liệu 6 mặt vừa quét sang Đồng hồ giải (Bước 2)
+  const applyOpenCvToTimer = useCallback(() => {
+    const viToInternal = {
+      'Đỏ': 'red',
+      'Cam': 'orange',
+      'Vàng': 'yellow',
+      'Xanh lá': 'green',
+      'Xanh dương': 'blue',
+      'Trắng': 'white'
+    };
+
+    const convertedScannedFaces = {};
+    for (const [key] of OPENCV_MAT) {
+      const mat = openCvFaces[key];
+      if (mat && Array.isArray(mat)) {
+        convertedScannedFaces[key] = mat.flat().map(c => viToInternal[c] || c);
+      }
+    }
+
+    scannedFacesRef.current = convertedScannedFaces;
+    setScannedFaces(convertedScannedFaces);
+    isCubeVerifiedFreshRef.current = true;
+    setIsCubeVerifiedFresh(true);
+
+    // Mở khóa Bước 2 ngay lập tức
+    setSolveStep('step2_ready_solve');
+    solveStepRef.current = 'step2_ready_solve';
+
+    setPreCheckStatus({
+      verified: true,
+      text: '🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TỪ MÁY QUÉT OPENCV — Đã sẵn sàng bấm giờ giải!',
+      isScrambled: true,
+      centerFace: 'U (Trên)'
+    });
+
+    setShowOpenCvScannerModal(false);
+    playAppSound('ready');
+    setLastNotice({
+      type: 'success',
+      text: '🟢 ĐÃ NHẬP 6 MẶT TỪ OPENCV! Đã mở khóa Bước 2 — Sẵn sàng bấm giờ giải!'
+    });
+
+    // Cuộn ngay đến Đồng hồ giải
+    setTimeout(() => {
+      const timerEl = document.getElementById('rubik-main-timer-section');
+      if (timerEl) {
+        timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+  }, [openCvFaces, playAppSound]);
+
+  // Xóa và quét lại từ đầu
+  const resetOpenCvScanner = useCallback(() => {
+    setOpenCvFaces({
+      U: null,
+      R: null,
+      F: null,
+      D: null,
+      L: null,
+      B: null
+    });
+    openCvFacesRef.current = {
+      U: null,
+      R: null,
+      F: null,
+      D: null,
+      L: null,
+      B: null
+    };
+    setOpenCvFaceIdx(0);
+    openCvFaceIdxRef.current = 0;
+    setOpenCvKociemba(null);
+    setOpenCvNotice({
+      type: 'info',
+      text: '🔄 Đã làm mới trình quét. Bắt đầu từ mặt U (Trên)!'
+    });
+    playAppSound('click');
+  }, [playAppSound]);
+
   // History & Solves (Chỉ giữ các lượt giải đã bật Camera AI & xác minh hợp lệ)
   const [solves, setSolves] = useState(() => {
     try {
@@ -2857,6 +3178,40 @@ export default function App() {
       const currentMode = gameModeRef.current;
       if (currentMode === 'solo') return;
 
+      // XỬ LÝ PHÍM TẮT TRONG MODAL QUÉT 6 MẶT OPENCV (CHUẨN THEO quet_rubik_6_mat.py)
+      // Space: Lưu mặt | 1-6: Chọn mặt | H: Hiện/Ẩn HSV | S: Tải JSON | Esc/Q: Đóng
+      if (showOpenCvScannerModalRef.current) {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          saveCurrentOpenCvFaceRef.current();
+          return;
+        }
+        if (e.key >= '1' && e.key <= '6') {
+          e.preventDefault();
+          const targetIdx = parseInt(e.key, 10) - 1;
+          setOpenCvFaceIdx(targetIdx);
+          openCvFaceIdxRef.current = targetIdx;
+          playAppSound('click');
+          return;
+        }
+        if (e.key === 'h' || e.key === 'H') {
+          e.preventDefault();
+          setOpenCvShowHsv(prev => !prev);
+          playAppSound('click');
+          return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          downloadOpenCvJsonRef.current();
+          return;
+        }
+        if (e.key === 'Escape' || e.key === 'q' || e.key === 'Q') {
+          e.preventDefault();
+          setShowOpenCvScannerModal(false);
+          return;
+        }
+      }
+
       // Phím C: Chụp lưu mặt Rubik hiện tại trên camera (giống file quet_rubik_6_mat.py)
       if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C') && cameraActiveRef.current && currentState === 'idle') {
         e.preventDefault();
@@ -3033,6 +3388,116 @@ export default function App() {
 
         ctx.drawImage(video, 0, 0, w, h);
         const frameImg = ctx.getImageData(0, 0, w, h).data;
+
+        // =====================================================================
+        // XỬ LÝ VẼ MÀN HÌNH QUÉT 6 MẶT OPENCV (CHUẨN 100% THEO quet_rubik_6_mat.py)
+        // =====================================================================
+        if (showOpenCvScannerModalRef.current && openCvCanvasRef.current) {
+          const ocvCanvas = openCvCanvasRef.current;
+          if (ocvCanvas.width !== w || ocvCanvas.height !== h) {
+            ocvCanvas.width = w;
+            ocvCanvas.height = h;
+          }
+          const octx = ocvCanvas.getContext('2d');
+          octx.drawImage(video, 0, 0, w, h);
+
+          // Tính kích thước ô và vị trí lưới theo vi_tri_luoi()
+          const kichThuocO = Math.max(60, Math.min(105, Math.floor((h - 180) / 3), Math.floor((w - 30) / 3)));
+          const kichThuocLuoi = kichThuocO * 3;
+          const xBatDau = Math.floor((w - kichThuocLuoi) / 2);
+          const yBatDau = Math.floor((h - kichThuocLuoi) / 2) + 25;
+          const le = Math.max(15, Math.floor(kichThuocO * 0.34));
+
+          const curMat = OPENCV_MAT[openCvFaceIdxRef.current] || OPENCV_MAT[0];
+          const curKey = curMat[0];
+          const curName = curMat[1];
+          const savedCount = Object.values(openCvFacesRef.current).filter(Boolean).length;
+
+          const liveMat = [];
+          const liveHsvMat = [];
+
+          for (let hang = 0; hang < 3; hang++) {
+            const dongMau = [];
+            const dongHsv = [];
+            for (let cot = 0; cot < 3; cot++) {
+              const x1 = xBatDau + cot * kichThuocO;
+              const y1 = yBatDau + hang * kichThuocO;
+              const x2 = x1 + kichThuocO;
+              const y2 = y1 + kichThuocO;
+
+              // Vùng trung vị
+              const vx1 = x1 + le;
+              const vy1 = y1 + le;
+              const vx2 = x2 - le;
+              const vy2 = y2 - le;
+
+              const hsv = layMauTrungViOpenCv(frameImg, w, h, vx1, vy1, vx2, vy2);
+              const tenMau = nhanDienMauOpenCv(hsv);
+
+              dongMau.push(tenMau);
+              dongHsv.push([hsv.h, hsv.s, hsv.v]);
+
+              // 1. Viền ngoài màu trắng (độ dày 2)
+              octx.strokeStyle = '#ffffff';
+              octx.lineWidth = 2;
+              octx.strokeRect(x1, y1, kichThuocO, kichThuocO);
+
+              // 2. Viền trong màu cyan (vùng lấy mẫu trung vị le = 34%)
+              octx.strokeStyle = '#06b6d4';
+              octx.lineWidth = 1.2;
+              octx.strokeRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
+
+              // 3. Chữ tên màu góc trên trái với viền đen đổ bóng rõ nét
+              octx.font = 'bold 12px sans-serif';
+              octx.fillStyle = '#000000';
+              octx.fillText(tenMau, x1 + 5, y1 + 18);
+              octx.fillText(tenMau, x1 + 7, y1 + 18);
+              octx.fillText(tenMau, x1 + 6, y1 + 17);
+              octx.fillText(tenMau, x1 + 6, y1 + 19);
+              octx.fillStyle = getColorTextHex(tenMau);
+              octx.fillText(tenMau, x1 + 6, y1 + 18);
+
+              // 4. Nếu bật hiển thị HSV -> Hiện giá trị H, S, V góc dưới trái
+              if (openCvShowHsvRef.current) {
+                const textHsv = `H${hsv.h} S${hsv.s} V${hsv.v}`;
+                octx.font = 'bold 10px monospace';
+                octx.fillStyle = '#000000';
+                octx.fillText(textHsv, x1 + 4, y2 - 6);
+                octx.fillText(textHsv, x1 + 6, y2 - 6);
+                octx.fillStyle = '#fef08a';
+                octx.fillText(textHsv, x1 + 5, y2 - 6);
+              }
+            }
+            liveMat.push(dongMau);
+            liveHsvMat.push(dongHsv);
+          }
+
+          openCvLiveMatrixRef.current = liveMat;
+          openCvLiveHsvRef.current = liveHsvMat;
+
+          // OSD Header overlay (Dòng 1..3 giống quet_rubik_6_mat.py)
+          octx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          octx.fillRect(0, 0, w, 56);
+
+          octx.font = 'bold 13px sans-serif';
+          octx.fillStyle = '#38bdf8';
+          octx.fillText(`Đang quét: ${curKey} - ${curName} | Đã lưu: ${savedCount}/6 mặt`, 12, 19);
+
+          octx.font = '11px sans-serif';
+          octx.fillStyle = '#cbd5e1';
+          octx.fillText(`Space: lưu | 1-6: chọn mặt | H: xem HSV | S: tải JSON | Esc: đóng`, 12, 35);
+
+          let bX = 12;
+          octx.font = 'bold 11px monospace';
+          for (const [k] of OPENCV_MAT) {
+            const isSaved = Boolean(openCvFacesRef.current[k]);
+            const isCur = k === curKey;
+            const str = `[${isSaved ? '✓' : ' '}]${k}`;
+            octx.fillStyle = isCur ? '#facc15' : isSaved ? '#4ade80' : '#64748b';
+            octx.fillText(str, bX, 50);
+            bX += 48;
+          }
+        }
 
         let totalBrightness = 0;
         const pixelStep = 16;
@@ -3849,13 +4314,13 @@ export default function App() {
             type="button"
             onClick={() => setShowKociembaModal(true)}
             style={{
-              padding: '6px 13px',
+              padding: isMobile ? '5px 8px' : '6px 13px',
               borderRadius: '6px',
               border: '1px solid #16a34a66',
               background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.15))',
               color: '#4ade80',
               fontWeight: '700',
-              fontSize: '0.8rem',
+              fontSize: isMobile ? '0.74rem' : '0.8rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -3866,6 +4331,33 @@ export default function App() {
           >
             <span>⚡</span>
             <span>Kociemba</span>
+          </button>
+
+          {/* NÚT QUÉT 6 MẶT OPENCV & KOCIEMBA (THEO quet_rubik_6_mat.py) */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowOpenCvScannerModal(true);
+              if (!cameraActive) setCameraActive(true);
+            }}
+            style={{
+              padding: isMobile ? '5px 8px' : '6px 13px',
+              borderRadius: '6px',
+              border: '1.5px solid #06b6d4',
+              background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(14, 116, 144, 0.35))',
+              color: '#67e8f9',
+              fontWeight: '800',
+              fontSize: isMobile ? '0.74rem' : '0.8rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 0 14px rgba(6, 182, 212, 0.45)'
+            }}
+            title="Mở máy quét 6 mặt Rubik chuẩn OpenCV HSV & Giải Kociemba tối ưu (~20 bước)"
+          >
+            <span>📸</span>
+            <span>Quét 6 Mặt OpenCV</span>
           </button>
 
           {/* NÚT MỞ DASHBOARD */}
@@ -6097,6 +6589,30 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setShowOpenCvScannerModal(true);
+                    if (!cameraActive) setCameraActive(true);
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(14, 116, 144, 0.45))',
+                    border: '1.8px solid #06b6d4',
+                    color: '#67e8f9',
+                    fontSize: '0.84rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 18px rgba(6, 182, 212, 0.4)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Quét 6 mặt Rubik chuẩn OpenCV HSV & Tự động tìm chuỗi giải Kociemba tối ưu"
+                >
+                  <span>📸 Quét 6 Mặt OpenCV & Kociemba</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleToggleFaceVerificationMode(adminSettings.requiredPreCheckFaces === 6 ? 3 : 6)}
                   style={{
                     padding: '10px 14px',
@@ -6334,7 +6850,9 @@ export default function App() {
 
         {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
         {gameMode !== 'solo' && (!isMobile || mobileTab === 'leaderboard') && (
-        <div style={{
+        <div
+          id="rubik-leaderboard-section"
+          style={{
           backgroundColor: currentHudTheme.cardBg,
           width: isMobile ? '100%' : undefined,
           border: currentHudTheme.cardBorder,
@@ -6843,6 +7361,511 @@ export default function App() {
             <span style={{ fontSize: '1.1rem' }}>{isKhoaAdmin ? '👑' : '👤'}</span>
             <span>{currentUser.email === 'guest@cuber.vn' ? 'Đăng Nhập' : 'Tài Khoản'}</span>
           </button>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: MÁY QUÉT 6 MẶT RUBIK CHUẨN OPENCV & KOCIEMBA (quet_rubik_6_mat.py)
+      ========================================================================= */}
+      {showOpenCvScannerModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 8, 16, 0.94)',
+          backdropFilter: 'blur(12px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '12px'
+        }}>
+          <div style={{
+            width: '95%',
+            maxWidth: '920px',
+            backgroundColor: '#090f1d',
+            border: '2px solid #06b6d4',
+            borderRadius: '18px',
+            padding: isMobile ? '16px' : '22px 24px',
+            boxShadow: '0 0 35px rgba(6, 182, 212, 0.35), 0 10px 40px rgba(0,0,0,0.8)',
+            maxHeight: '94vh',
+            overflowY: 'auto',
+            position: 'relative'
+          }}>
+            {/* Nút đóng Modal (✕) */}
+            <button
+              type="button"
+              onClick={() => setShowOpenCvScannerModal(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid #475569',
+                color: '#94a3b8',
+                fontSize: '1.2rem',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: '700'
+              }}
+              title="Đóng (Esc / Q)"
+            >
+              ✕
+            </button>
+
+            {/* Header Modal */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', paddingRight: '45px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #0891b2, #0284c7)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '1.4rem',
+                boxShadow: '0 0 16px rgba(6, 182, 212, 0.5)'
+              }}>
+                📸
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: isMobile ? '1rem' : '1.2rem', color: '#f8fafc', fontWeight: '800' }}>
+                  Máy Quét 6 Mặt Rubik Chuẩn OpenCV & Kociemba
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                  Tích hợp 100% logic Python OpenCV • Nhận diện HSV Median 9 ô • Kiểm tra 9 ô/màu • Giải Two-Phase ≤ 20 bước
+                </p>
+              </div>
+            </div>
+
+            {/* Thông báo hướng dẫn nhanh / Cảnh báo */}
+            {openCvNotice && (
+              <div style={{
+                marginBottom: '12px',
+                padding: '8px 14px',
+                borderRadius: '10px',
+                background: openCvNotice.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : openCvNotice.type === 'warning'
+                    ? 'rgba(245, 158, 11, 0.15)'
+                    : 'rgba(34, 197, 94, 0.15)',
+                border: `1px solid ${openCvNotice.type === 'error' ? '#ef4444' : openCvNotice.type === 'warning' ? '#f59e0b' : '#22c55e'}`,
+                color: openCvNotice.type === 'error' ? '#fca5a5' : openCvNotice.type === 'warning' ? '#fcd34d' : '#86efac',
+                fontSize: '0.78rem',
+                fontWeight: '700',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span>{openCvNotice.text}</span>
+              </div>
+            )}
+
+            {/* Bố cục chính: Khung hình Camera OpenCV (Trái) & Bảng điều khiển 6 mặt (Phải) */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : '1.15fr 1fr',
+              gap: '16px',
+              alignItems: 'start'
+            }}>
+              {/* CỘT TRÁI: CAMERA CANVAS LIVE VỚI LƯỚI 3X3 & CROP 34% CYAN */}
+              <div>
+                <div style={{
+                  position: 'relative',
+                  borderRadius: '14px',
+                  overflow: 'hidden',
+                  background: '#020617',
+                  border: '1.5px solid rgba(6, 182, 212, 0.4)',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.6)'
+                }}>
+                  <canvas
+                    ref={openCvCanvasRef}
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      display: 'block',
+                      aspectRatio: '4 / 3',
+                      objectFit: 'contain'
+                    }}
+                  />
+                  {!cameraActive && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'rgba(2, 6, 23, 0.85)',
+                      color: '#94a3b8',
+                      gap: '8px'
+                    }}>
+                      <span style={{ fontSize: '2rem' }}>📷</span>
+                      <span style={{ fontSize: '0.82rem', fontWeight: '700' }}>Camera đang tắt</span>
+                      <button
+                        type="button"
+                        onClick={() => setCameraActive(true)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '8px',
+                          background: '#16a34a',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '0.78rem',
+                          fontWeight: '800',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Bật Camera ngay
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Hướng dẫn phím tắt dưới Camera */}
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  border: '1px solid rgba(51, 65, 85, 0.5)',
+                  fontSize: '0.72rem',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '6px'
+                }}>
+                  <span>⌨️ <strong>Space</strong>: Lưu mặt</span>
+                  <span><strong>1-6</strong>: Chọn mặt</span>
+                  <span><strong>H</strong>: Bật/Tắt HSV</span>
+                  <span><strong>S</strong>: Tải JSON</span>
+                  <span><strong>Esc</strong>: Đóng</span>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: BỘ CHỌN 6 MẶT, NÚT THAO TÁC, BẢNG ĐẾM MÀU & KOCIEMBA */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* 1. Mặt hiện tại & Nút chụp mặt */}
+                <div style={{
+                  padding: '12px',
+                  borderRadius: '12px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(6, 182, 212, 0.3)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.74rem', color: '#94a3b8', fontWeight: '700' }}>
+                      ĐANG QUÉT MẶT:
+                    </span>
+                    <span style={{
+                      fontSize: '0.76rem',
+                      fontWeight: '800',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: 'rgba(6, 182, 212, 0.2)',
+                      color: '#38bdf8'
+                    }}>
+                      {OPENCV_MAT[openCvFaceIdx][0]} - {OPENCV_MAT[openCvFaceIdx][1]}
+                    </span>
+                  </div>
+
+                  {/* Nút LƯU MẶT NÀY (Phím Space) */}
+                  <button
+                    type="button"
+                    onClick={saveCurrentOpenCvFace}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                      border: '2px solid #4ade80',
+                      color: '#ffffff',
+                      fontSize: '0.88rem',
+                      fontWeight: '900',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 20px rgba(34, 197, 94, 0.45)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <span>📸 LƯU MẶT NÀY (SPACE)</span>
+                  </button>
+
+                  {/* Tabs chọn nhanh 6 mặt U, R, F, D, L, B */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '4px', marginTop: '10px' }}>
+                    {OPENCV_MAT.map(([key, name], idx) => {
+                      const isSaved = Boolean(openCvFaces[key]);
+                      const isSelected = openCvFaceIdx === idx;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setOpenCvFaceIdx(idx);
+                            openCvFaceIdxRef.current = idx;
+                            playAppSound('click');
+                          }}
+                          style={{
+                            padding: '6px 2px',
+                            borderRadius: '6px',
+                            background: isSelected
+                              ? 'linear-gradient(135deg, #0891b2, #0284c7)'
+                              : isSaved
+                                ? 'rgba(34, 197, 94, 0.18)'
+                                : 'rgba(30, 41, 59, 0.6)',
+                            border: isSelected
+                              ? '1.5px solid #38bdf8'
+                              : isSaved
+                                ? '1px solid #22c55e'
+                                : '1px solid #334155',
+                            color: isSelected ? '#ffffff' : isSaved ? '#4ade80' : '#94a3b8',
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}
+                        >
+                          <span>{key}</span>
+                          <span style={{ fontSize: '0.58rem' }}>{isSaved ? '✓' : name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Nút công cụ phụ: Hiện HSV, Tải JSON, Làm mới */}
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenCvShowHsv(prev => !prev)}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: openCvShowHsv ? 'rgba(234, 179, 8, 0.2)' : 'rgba(30, 41, 59, 0.6)',
+                        border: openCvShowHsv ? '1px solid #eab308' : '1px solid #334155',
+                        color: openCvShowHsv ? '#fef08a' : '#cbd5e1',
+                        fontSize: '0.7rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {openCvShowHsv ? '👁️ Ẩn HSV' : '👁️ Xem HSV (H)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadOpenCvJson}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        background: 'rgba(30, 41, 59, 0.6)',
+                        border: '1px solid #334155',
+                        color: '#38bdf8',
+                        fontSize: '0.7rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      💾 Tải JSON (S)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetOpenCvScanner}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        background: 'rgba(30, 41, 59, 0.6)',
+                        border: '1px solid #334155',
+                        color: '#94a3b8',
+                        fontSize: '0.7rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                      title="Quét lại từ đầu"
+                    >
+                      🔄
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Thống kê số lượng ô từng màu (dem_mau trong python) */}
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '12px',
+                  background: 'rgba(15, 23, 42, 0.75)',
+                  border: '1px solid rgba(51, 65, 85, 0.6)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#cbd5e1' }}>
+                      📊 THỐNG KÊ MÀU (dem_mau):
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                      Chuẩn: đúng 9 ô mỗi màu
+                    </span>
+                  </div>
+
+                  {(() => {
+                    const counts = demMauOpenCv(openCvFaces);
+                    const colorBadgeMap = [
+                      { name: 'Đỏ', hex: '#ef4444', icon: '🔴' },
+                      { name: 'Cam', hex: '#f97316', icon: '🟠' },
+                      { name: 'Vàng', hex: '#eab308', icon: '🟡' },
+                      { name: 'Xanh lá', hex: '#22c55e', icon: '🟢' },
+                      { name: 'Xanh dương', hex: '#3b82f6', icon: '🔵' },
+                      { name: 'Trắng', hex: '#f8fafc', icon: '⚪' }
+                    ];
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                        {colorBadgeMap.map(c => {
+                          const val = counts[c.name] || 0;
+                          const isOk = val === 9;
+                          return (
+                            <div
+                              key={c.name}
+                              style={{
+                                padding: '5px 8px',
+                                borderRadius: '6px',
+                                background: isOk ? 'rgba(34, 197, 94, 0.15)' : 'rgba(15, 23, 42, 0.8)',
+                                border: isOk ? '1px solid #22c55e' : '1px solid #334155',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                fontSize: '0.7rem'
+                              }}
+                            >
+                              <span style={{ color: c.hex, fontWeight: '700' }}>
+                                {c.icon} {c.name}
+                              </span>
+                              <span style={{
+                                fontWeight: '800',
+                                color: isOk ? '#4ade80' : val > 9 ? '#f87171' : '#94a3b8'
+                              }}>
+                                {val}/9
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 3. Khối kết quả Kociemba Two-Phase Optimal Solver */}
+                {openCvKociemba && (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '12px',
+                    background: openCvKociemba.success
+                      ? 'linear-gradient(135deg, rgba(22, 163, 74, 0.2), rgba(6, 182, 212, 0.15))'
+                      : 'rgba(239, 68, 68, 0.15)',
+                    border: openCvKociemba.success ? '1.5px solid #22c55e' : '1px solid #ef4444'
+                  }}>
+                    {openCvKociemba.success ? (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#4ade80' }}>
+                            ⚡ KOCIEMBA TỐI ƯU ({openCvKociemba.moveCount} BƯỚC):
+                          </span>
+                          <span style={{ fontSize: '0.68rem', color: '#86efac' }}>
+                            God's Number ≤ 20
+                          </span>
+                        </div>
+
+                        {/* Chuỗi bước giải Kociemba */}
+                        <div style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.84rem',
+                          color: '#f8fafc',
+                          background: 'rgba(0, 0, 0, 0.5)',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(74, 222, 128, 0.3)',
+                          marginBottom: '10px',
+                          lineHeight: '1.4',
+                          wordBreak: 'break-all'
+                        }}>
+                          {openCvKociemba.solution}
+                        </div>
+
+                        {/* 2 Nút thao tác sau khi giải xong */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setKociembaSolverSource('camera');
+                              setKociembaCurrentStep(0);
+                              setKociembaIsPlaying(false);
+                              setShowOpenCvScannerModal(false);
+                              setShowKociembaModal(true);
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                              border: '1px solid #38bdf8',
+                              color: '#ffffff',
+                              fontSize: '0.74rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <span>▶️ Xem hướng dẫn từng bước</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={applyOpenCvToTimer}
+                            style={{
+                              flex: 1,
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #16a34a, #15803d)',
+                              border: '1px solid #4ade80',
+                              color: '#ffffff',
+                              fontSize: '0.74rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              boxShadow: '0 4px 14px rgba(34, 197, 94, 0.4)'
+                            }}
+                          >
+                            <span>✅ Áp dụng & Bắt đầu giải (B2)</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.74rem', color: '#fca5a5' }}>
+                        <strong>⚠️ Không thể giải:</strong> {openCvKociemba.error}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -8386,6 +9409,32 @@ export default function App() {
                         <span>🔒 <strong>Bắt buộc quét đủ cả 6 mặt (Bản gốc của Admin Khoa - Chuẩn WCA nghiêm ngặt)</strong> — Giữ riêng trong quản trị viên để Khoa kiểm định & cải thiện tiếp</span>
                       </label>
                     </div>
+
+                    <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(56, 189, 248, 0.3)' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAdminPanelModal(false);
+                          setShowOpenCvScannerModal(true);
+                          if (!cameraActive) setCameraActive(true);
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.3), rgba(14, 116, 144, 0.4))',
+                          border: '1.5px solid #06b6d4',
+                          color: '#67e8f9',
+                          fontSize: '0.74rem',
+                          fontWeight: '800',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <span>📸 Mở Trình Quét 6 Mặt OpenCV & Kociemba (Bản Nâng Cao Của Khoa)</span>
+                      </button>
+                    </div>
                   </div>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
@@ -8896,69 +9945,80 @@ export default function App() {
         zIndex: 9995,
         display: 'flex',
         flexDirection: 'column',
+        gap: '8px',
         alignItems: 'flex-end',
         pointerEvents: 'auto'
       }}>
-        {scrollY < 120 ? (
-          <button
-            type="button"
-            className="floating-scroll-btn"
-            onClick={() => {
-              const timerEl = document.getElementById('rubik-main-timer-section');
+        {/* NÚT LƯỚT LÊN TRÊN (ĐẦU TRANG) */}
+        <button
+          type="button"
+          className="floating-scroll-btn"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          title="Lướt lên đầu trang (Camera AI & Mô hình 3D)"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: isMobile ? '7px 12px' : '8px 16px',
+            borderRadius: '30px',
+            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+            border: `1.5px solid ${currentHudTheme.color}`,
+            boxShadow: `0 4px 18px ${currentHudTheme.glowColor}, 0 2px 10px rgba(0,0,0,0.6)`,
+            color: '#ffffff',
+            fontSize: isMobile ? '0.74rem' : '0.8rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            transition: 'all 0.25s ease',
+            backdropFilter: 'blur(10px)'
+          }}
+        >
+          <span style={{ fontSize: '0.95rem' }}>⬆️</span>
+          <span>Lên đầu</span>
+        </button>
+
+        {/* NÚT LƯỚT XUỐNG DƯỚI (ĐỒNG HỒ GIẢI / BẢNG KỶ LỤC) */}
+        <button
+          type="button"
+          className="floating-scroll-btn"
+          onClick={() => {
+            const timerEl = document.getElementById('rubik-main-timer-section');
+            const recordsEl = document.getElementById('rubik-leaderboard-section');
+            const currentPos = window.scrollY || document.documentElement.scrollTop || 0;
+            const timerTop = timerEl ? (timerEl.getBoundingClientRect().top + window.scrollY) : 550;
+
+            if (currentPos < timerTop - 80) {
               if (timerEl) {
                 timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
               } else {
                 window.scrollBy({ top: 520, behavior: 'smooth' });
               }
-            }}
-            title="Lướt xuống Đồng hồ bấm giờ & Thao tác giải"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              padding: isMobile ? '8px 14px' : '10px 18px',
-              borderRadius: '30px',
-              background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-              border: `1.5px solid ${currentHudTheme.color}`,
-              boxShadow: `0 4px 22px ${currentHudTheme.glowColor}, 0 2px 10px rgba(0,0,0,0.6)`,
-              color: '#ffffff',
-              fontSize: isMobile ? '0.78rem' : '0.84rem',
-              fontWeight: '800',
-              cursor: 'pointer',
-              transition: 'all 0.25s ease',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <span style={{ fontSize: '1.05rem' }}>⬇️</span>
-            <span>Lướt xuống dưới</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="floating-scroll-btn"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            title="Lướt lên đầu trang (Camera AI & Mô hình 3D)"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              padding: isMobile ? '8px 14px' : '10px 18px',
-              borderRadius: '30px',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              border: '1.5px solid #60a5fa',
-              boxShadow: '0 4px 22px rgba(37, 99, 235, 0.45), 0 2px 10px rgba(0,0,0,0.6)',
-              color: '#ffffff',
-              fontSize: isMobile ? '0.78rem' : '0.84rem',
-              fontWeight: '800',
-              cursor: 'pointer',
-              transition: 'all 0.25s ease',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <span style={{ fontSize: '1.05rem' }}>⬆️</span>
-            <span>Lướt lên trên</span>
-          </button>
-        )}
+            } else if (recordsEl) {
+              recordsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+            }
+          }}
+          title="Lướt xuống Đồng hồ bấm giờ & Thao tác giải / Bảng kỷ lục"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: isMobile ? '8px 14px' : '9px 18px',
+            borderRadius: '30px',
+            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+            border: '1.5px solid #60a5fa',
+            boxShadow: '0 4px 22px rgba(37, 99, 235, 0.45), 0 2px 10px rgba(0,0,0,0.6)',
+            color: '#ffffff',
+            fontSize: isMobile ? '0.76rem' : '0.82rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            transition: 'all 0.25s ease',
+            backdropFilter: 'blur(10px)'
+          }}
+        >
+          <span style={{ fontSize: '1rem' }}>⬇️</span>
+          <span>Xuống dưới</span>
+        </button>
       </div>
     </div>
   );

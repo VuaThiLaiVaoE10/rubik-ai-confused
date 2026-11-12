@@ -63,37 +63,51 @@ export function solveScannedFacesWithKociemba(scannedFaces) {
       return { success: false, error: 'Chưa có dữ liệu quét khối Rubik' };
     }
     const order = ['U', 'R', 'F', 'D', 'L', 'B'];
+
+    // Chuẩn hóa dữ liệu mặt (hỗ trợ cả mảng phẳng 9 ô và ma trận 3x3)
+    const flatFaces = {};
+    for (const f of order) {
+      const raw = scannedFaces[f];
+      if (!raw) continue;
+      if (Array.isArray(raw) && Array.isArray(raw[0])) {
+        // Ma trận 3x3 như trong quet_rubik_6_mat.py
+        flatFaces[f] = raw.flat();
+      } else if (Array.isArray(raw)) {
+        flatFaces[f] = raw;
+      }
+    }
+
     const missing = order.filter(
-      k => !scannedFaces[k] || scannedFaces[k].length !== 9 || scannedFaces[k].some(c => c === 'invalid' || !c)
+      k => !flatFaces[k] || flatFaces[k].length !== 9 || flatFaces[k].some(c => c === 'invalid' || c === '?' || !c)
     );
     if (missing.length > 0) {
       return {
         success: false,
-        error: `Chưa quét đủ 6 mặt hợp lệ (còn thiếu hoặc có ô mờ ở mặt: ${missing.join(', ')})`
+        error: `Chưa quét đủ 6 mặt hợp lệ (còn thiếu hoặc có ô chưa rõ '?' ở mặt: ${missing.join(', ')})`
       };
     }
 
-    // Xác định màu tâm để ánh xạ sang ký tự mặt: U, R, F, D, L, B
+    // Xác định màu tâm (ô thứ 4 - index 4) để ánh xạ sang ký tự mặt: U, R, F, D, L, B
     const colorToFace = {};
     for (const f of order) {
-      const centerCol = scannedFaces[f][4];
-      if (!centerCol || centerCol === 'invalid') {
+      const centerCol = flatFaces[f][4];
+      if (!centerCol || centerCol === 'invalid' || centerCol === '?') {
         return { success: false, error: `Mặt ${f} chưa nhận diện được màu tâm!` };
       }
       colorToFace[centerCol] = f;
     }
 
     if (Object.keys(colorToFace).length < 6) {
-      return { success: false, error: 'Các màu tâm bị trùng nhau, hãy quét lại rõ từng mặt' };
+      return { success: false, error: 'Các màu tâm bị trùng nhau, hãy hướng đúng từng mặt trước Camera' };
     }
 
     const cubeChars = [];
     for (const f of order) {
       for (let i = 0; i < 9; i++) {
-        const col = scannedFaces[f][i];
+        const col = flatFaces[f][i];
         const faceChar = colorToFace[col];
         if (!faceChar) {
-          return { success: false, error: `Màu ${col} ở ô ${i + 1} mặt ${f} không khớp với bất kỳ tâm nào!` };
+          return { success: false, error: `Màu "${col}" ở ô ${i + 1} mặt ${f} không khớp với bất kỳ tâm nào!` };
         }
         cubeChars.push(faceChar);
       }
