@@ -1236,11 +1236,11 @@ export default function App() {
     };
     try {
       const saved = localStorage.getItem('rubik_admin_settings');
-      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v8_force6');
+      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v10_force6_official');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (!migrated || parsed.requiredPreCheckFaces === 3) {
-          localStorage.setItem('rubik_faces_mode_migrated_v8_force6', '1');
+        if (!migrated || parsed.requiredPreCheckFaces !== 6) {
+          localStorage.setItem('rubik_faces_mode_migrated_v10_force6_official', '1');
           parsed.requiredPreCheckFaces = 6;
           parsed.requireAll6FacesPreCheck = true;
           try {
@@ -1371,7 +1371,7 @@ export default function App() {
     if (!cameraActiveRef.current) {
       setLastNotice({
         type: 'warning',
-        text: '🔍 BƯỚC 1 CHƯA XÁC NHẬN: Bấm nút "✅ Xác nhận đúng r bắt đầu giải" hoặc nhấn "📷 Bật Cam" để mở khóa giải!'
+        text: '🔍 BƯỚC 1 CHƯA XÁC NHẬN: Bấm nút "✅ Xác nhận đúng & Mở khóa giải" hoặc nhấn "📷 Bật Cam" để mở khóa giải!'
       });
       return true;
     }
@@ -1392,7 +1392,7 @@ export default function App() {
       if (!isCubeVerifiedFresh) {
         setLastNotice({
           type: 'warning',
-          text: `🔍 BƯỚC 1 CHƯA XÁC NHẬN: Hãy quét ${cfg.requiredPreCheckFaces === 6 ? 6 : 3} mặt trước Camera hoặc bấm "✅ Xác nhận đúng r bắt đầu giải" để mở khóa!`
+          text: `🔍 BƯỚC 1 CHƯA XÁC NHẬN: Hãy quét ${cfg.requiredPreCheckFaces === 6 ? 6 : 3} mặt trước Camera hoặc bấm "✅ Xác nhận đúng & Mở khóa giải" để mở khóa!`
         });
         return true;
       }
@@ -1720,8 +1720,8 @@ export default function App() {
 
   // =========================================================================
   // QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
-  // 1. 'step1_check_scb': Kiểm tra scb (quét 3 mặt mặc định hoặc 6 mặt)
-  // 2. 'step2_ready_solve': Xác nhận đúng r bắt đầu giải
+  // 1. 'step1_check_scb': Kiểm tra Scramble (quét 6 mặt mặc định hoặc 3 mặt)
+  // 2. 'step2_ready_solve': Xác nhận đúng & Mở khóa giải
   // 3. 'step3_completed': Hoàn thành
   // =========================================================================
   const [solveStep, setSolveStep] = useState('step1_check_scb');
@@ -1734,7 +1734,7 @@ export default function App() {
   const confirmScrambleAndReady = useCallback(() => {
     const verifiedStatus = {
       verified: true,
-      text: '🟢 ĐÃ XÁC NHẬN SCB ĐÚNG — Đã mở khóa đồng hồ! Sẵn sàng bấm giờ giải.',
+      text: '🟢 ĐÃ XÁC NHẬN SCRAMBLE ĐÚNG — Đã mở khóa đồng hồ! Sẵn sàng bấm giờ giải.',
       isScrambled: true,
       isMismatch: false,
       scrambleMatchRate: 100
@@ -1746,17 +1746,17 @@ export default function App() {
     setModel3DVerification({
       verified: true,
       badgeText: '🟢 ĐÃ XÁC NHẬN BƯỚC 2',
-      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCB — SẴN SÀNG GIẢI',
+      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCRAMBLE — SẴN SÀNG GIẢI',
       detailText: 'Mô hình 3D và Đồng hồ đã được mở khóa hoàn toàn. Giữ phím Space hoặc chạm màn hình để giải ngay!',
-      facesCount: 3,
+      facesCount: 6,
       validStickers: 9
     });
     model3DVerificationRef.current = {
       verified: true,
       badgeText: '🟢 ĐÃ XÁC NHẬN BƯỚC 2',
-      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCB — SẴN SÀNG GIẢI',
+      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCRAMBLE — SẴN SÀNG GIẢI',
       detailText: 'Mô hình 3D và Đồng hồ đã được mở khóa hoàn toàn. Giữ phím Space hoặc chạm màn hình để giải ngay!',
-      facesCount: 3,
+      facesCount: 6,
       validStickers: 9
     };
     lastCubeVerifiedAtRef.current = performance.now();
@@ -1789,7 +1789,7 @@ export default function App() {
     setSolveStep('step1_check_scb');
     setPreCheckStatus({
       verified: false,
-      text: `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[nextP]?.name} đã xáo trộn vào khung ngắm để kiểm tra SCB...`,
+      text: `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[nextP]?.name} đã xáo trộn vào khung ngắm để kiểm tra Scramble...`,
       isScrambled: false,
       centerFace: null
     });
@@ -1853,6 +1853,32 @@ export default function App() {
     });
   }, []);
 
+  // BẬT / TẮT HIỆU ỨNG ĐỒ HỌA TOÀN TRANG (FX ANIMATIONS TOGGLE)
+  const [isFxEnabled, setIsFxEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rubik_fx_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleFxEnabled = useCallback(() => {
+    setIsFxEnabled(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('rubik_fx_enabled', String(next));
+      } catch {}
+      setLastNotice({
+        type: 'info',
+        text: next
+          ? '✨ Đã BẬT toàn bộ hiệu ứng đồ họa (Hoa Anh Đào, Mạng Nhện, Sấm Sét, Băng Tuyết)!'
+          : '💤 Đã TẮT toàn bộ hiệu ứng đồ họa — Giao diện mượt mà và tập trung tối đa!'
+      });
+      return next;
+    });
+  }, []);
+
   // CHU TRÌNH 6 MÀU RUBIK & HÀM CLICK SỬA MÀU Ô TRỰC QUAN
   const RUBIK_COLOR_CYCLE = ['white', 'yellow', 'red', 'orange', 'green', 'blue'];
   const manualStickerOverridesRef = useRef({});
@@ -1896,7 +1922,7 @@ export default function App() {
     { key: 'F', name: 'Trước', colorKey: 'green', colorName: 'Xanh lá', bg: '#22c55e', textColor: '#ffffff', nextTip: '👉 Lật khối lên để quét mặt Vàng (D)' },
     { key: 'D', name: 'Dưới', colorKey: 'yellow', colorName: 'Vàng', bg: '#facc15', textColor: '#0f172a', nextTip: '👉 Xoay sang phải để quét mặt Cam (L)' },
     { key: 'L', name: 'Trái', colorKey: 'orange', colorName: 'Cam', bg: '#f97316', textColor: '#ffffff', nextTip: '👉 Xoay ra phía sau để quét mặt Xanh dương (B)' },
-    { key: 'B', name: 'Sau', colorKey: 'blue', colorName: 'Xanh dương', bg: '#3b82f6', textColor: '#ffffff', nextTip: '🎉 Đã quét đủ 6 mặt! Bấm "Xác nhận đúng r bắt đầu giải"' }
+    { key: 'B', name: 'Sau', colorKey: 'blue', colorName: 'Xanh dương', bg: '#3b82f6', textColor: '#ffffff', nextTip: '🎉 Đã quét đủ 6 mặt! Bấm "Xác nhận đúng & Mở khóa giải"' }
   ], []);
 
   // Giải trạng thái khối 6 mặt thực tế do Camera AI quét được bằng Kociemba
@@ -4082,7 +4108,7 @@ export default function App() {
               verified: true,
               badgeText: `🟢 ĐỦ ${targetFaceCount}/${targetFaceCount} MẶT`,
               statusTitle: `🟢 Đã quét đủ ${targetFaceCount} mặt lên Mô hình 3D — Sẵn sàng bấm giờ!`,
-              detailText: `AI đã phân tích ${targetFaceCount} mặt (${currentScannedKeys.join(', ')}). Bấm "Xác nhận đúng r bắt đầu giải" hoặc giữ Space để giải ngay!`,
+              detailText: `AI đã phân tích ${targetFaceCount} mặt (${currentScannedKeys.join(', ')}). Bấm "Xác nhận đúng & Mở khóa giải" hoặc giữ Space để giải ngay!`,
               facesCount: updatedFacesCount,
               validStickers: validColorsCount
             };
@@ -4387,7 +4413,7 @@ export default function App() {
       )}
 
       {/* Hiệu ứng cánh hoa anh đào bay lượn toàn màn hình Web khi bật theme Hoa Anh Đào */}
-      {hudThemeKey === 'sakura' && (
+      {isFxEnabled && hudThemeKey === 'sakura' && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
           {[
             { left: '6%', delay: '0s', dur: '8.5s', size: '1.2rem' },
@@ -4415,7 +4441,7 @@ export default function App() {
       )}
 
       {/* HIỆU ỨNG MẠNG NHỆN NEON CYBER TOÀN MÀN HÌNH (CYBER SPIDER FX) */}
-      {hudThemeKey === 'cyber' && (
+      {isFxEnabled && hudThemeKey === 'cyber' && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
           {/* Mạng nhện góc trên trái */}
           <svg className="cyber-web-corner" style={{ top: 0, left: 0, width: '130px', height: '130px' }} viewBox="0 0 100 100">
@@ -4451,7 +4477,7 @@ export default function App() {
       )}
 
       {/* HIỆU ỨNG LÔI THẦN SÉT ĐÁNH XUỐNG TOÀN MÀN HÌNH (THUNDER LIGHTNING FX) */}
-      {hudThemeKey === 'thunder' && (
+      {isFxEnabled && hudThemeKey === 'thunder' && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
           {/* Chớp sáng sấm sét ngẫu nhiên toàn màn hình */}
           <div className="thunder-screen-flash" />
@@ -4520,7 +4546,7 @@ export default function App() {
       )}
 
       {/* HIỆU ỨNG BĂNG TUYẾT CÓNG ĐI TOÀN MÀN HÌNH (FROST ICE FREEZING FX) */}
-      {hudThemeKey === 'frost' && (
+      {isFxEnabled && hudThemeKey === 'frost' && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
           {/* Lớp viền băng giá cóng mờ bao phủ 4 cạnh màn hình */}
           <div className="frost-vignette-overlay" />
@@ -4618,11 +4644,12 @@ export default function App() {
             touchAction: 'pan-x pan-y'
           }}
         >
-          {!isMobile && (
+          {/* NÚT WAF & ANTI-BOT: CHỈ HIỂN THỊ KHI ĐĂNG NHẬP ADMIN KHOA */}
+          {isKhoaAdmin && !isMobile && (
             <button
               type="button"
               onClick={() => setShowHumanCheck(true)}
-              title="Bấm để xem Khiên Bảo Vệ Smart Anti-Bot & Tường lửa WAF"
+              title="Bấm để xem Khiên Bảo Vệ Smart Anti-Bot & Tường lửa WAF (Độc quyền Admin Khoa)"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4676,6 +4703,30 @@ export default function App() {
           >
             <span>{currentHudTheme.shortName}</span>
             <span style={{ fontSize: '0.65rem' }}>↻</span>
+          </button>
+
+          {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) */}
+          <button
+            type="button"
+            onClick={toggleFxEnabled}
+            title={isFxEnabled ? 'Bấm để TẮT toàn bộ hiệu ứng hoa đào, mạng nhện, sấm sét, băng tuyết (giúp nhẹ máy)' : 'Bấm để BẬT lại các hiệu ứng đồ họa sống động'}
+            style={{
+              padding: isMobile ? '5px 8px' : '6px 12px',
+              borderRadius: '6px',
+              border: isFxEnabled ? `1.5px solid ${currentHudTheme.color}` : '1px solid #475569',
+              background: isFxEnabled ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.75)',
+              color: isFxEnabled ? currentHudTheme.color : '#94a3b8',
+              fontWeight: '800',
+              fontSize: isMobile ? '0.74rem' : '0.78rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              transition: 'all 0.2s ease',
+              boxShadow: isFxEnabled ? `0 0 10px ${currentHudTheme.glowColor}` : 'none'
+            }}
+          >
+            <span>{isFxEnabled ? '✨ FX: Bật' : '💤 FX: Tắt'}</span>
           </button>
 
           {/* NÚT BỘ GIẢI KOCIEMBA */}
@@ -4753,26 +4804,29 @@ export default function App() {
             <span>{isZenMode ? 'Thoát Zen' : 'Zen Mode'}</span>
           </button>
 
-          {/* NÚT MỞ DASHBOARD */}
-          <button
-            onClick={() => setShowDashboardModal(true)}
-            style={{
-              padding: '6px 13px',
-              borderRadius: '6px',
-              border: '1px solid #38bdf844',
-              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(37, 99, 235, 0.2))',
-              color: '#38bdf8',
-              fontWeight: '700',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <span>📊</span>
-            <span>Dashboard</span>
-          </button>
+          {/* NÚT MỞ DASHBOARD: CHỈ HIỂN THỊ KHI ĐĂNG NHẬP ADMIN KHOA */}
+          {isKhoaAdmin && (
+            <button
+              onClick={() => setShowDashboardModal(true)}
+              style={{
+                padding: '6px 13px',
+                borderRadius: '6px',
+                border: '1px solid #38bdf844',
+                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(37, 99, 235, 0.2))',
+                color: '#38bdf8',
+                fontWeight: '700',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              title="Mở Bảng Điều Khiển Dashboard (Độc quyền Admin Khoa)"
+            >
+              <span>📊</span>
+              <span>Dashboard</span>
+            </button>
+          )}
 
           {/* Camera Button */}
           <button
@@ -5352,8 +5406,8 @@ export default function App() {
 
             {/* =========================================================================
                 QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
-                1. Kiểm tra scb
-                2. Xác nhận đúng r bắt đầu giải
+                1. Kiểm tra Scramble
+                2. Xác nhận đúng & Mở khóa giải
                 3. Hoàn thành
             ========================================================================= */}
             {(() => {
@@ -5367,7 +5421,7 @@ export default function App() {
 
               const nextTargetFaceKey = FACE_SCAN_ORDER.find(f => !scannedFaces[f.key])?.key || null;
               const currentRotationTip = !nextTargetFaceKey
-                ? '🎉 ĐÃ QUÉT ĐỦ 6/6 MẶT! Bấm "Xác nhận đúng r bắt đầu giải" hoặc Space để giải.'
+                ? '🎉 ĐÃ QUÉT ĐỦ 6/6 MẶT! Bấm "Xác nhận đúng & Mở khóa giải" hoặc Space để giải.'
                 : nextTargetFaceKey === 'U'
                   ? '🎯 Bước 1: Đặt mặt Trắng (U) lên trên hướng vào Camera để quét'
                   : nextTargetFaceKey === 'R'
@@ -5414,7 +5468,7 @@ export default function App() {
                     gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
                     gap: isMobile ? '6px' : '8px'
                   }}>
-                    {/* BƯỚC 1: KIỂM TRA SCB */}
+                    {/* BƯỚC 1: KIỂM TRA SCRAMBLE */}
                     <div style={{
                       padding: '8px 10px',
                       borderRadius: '8px',
@@ -5437,7 +5491,7 @@ export default function App() {
                           fontWeight: '800',
                           color: isStep1Error ? '#f87171' : (solveStep === 'step1_check_scb' ? '#38bdf8' : '#4ade80')
                         }}>
-                          1. Kiểm tra scb
+                          1. Kiểm tra Scramble
                         </span>
                         <span style={{
                           fontSize: '0.62rem',
@@ -5516,46 +5570,49 @@ export default function App() {
                             onClick={confirmScrambleAndReady}
                             title="Xác nhận khối Rubik đã xáo đúng và chuyển sang bước 2 để giải"
                             style={{
-                              padding: '5px 10px',
+                              padding: '6px 12px',
                               borderRadius: '6px',
                               background: 'linear-gradient(135deg, #16a34a, #15803d)',
                               border: '1.5px solid #4ade80',
                               color: '#ffffff',
-                              fontSize: '0.68rem',
+                              fontSize: '0.72rem',
                               fontWeight: '800',
                               cursor: 'pointer',
                               flex: 1,
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              gap: '4px',
+                              gap: '5px',
                               boxShadow: '0 2px 8px rgba(34, 197, 94, 0.35)'
                             }}
                           >
-                            <span>✅ Xác nhận đúng r bắt đầu giải</span>
+                            <span>✅ Xác nhận đúng & Mở khóa giải</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
-                            title="Đổi chế độ quét 3 mặt (Nhanh) hoặc 6 mặt (Chuẩn WCA & Kociemba)"
+                            title={targetFaceCount === 6 ? 'Đang ở chế độ quét đủ 6 mặt chuẩn. Bấm để chuyển sang 3 mặt nhanh.' : 'Đang ở chế độ 3 mặt. Bấm để chuyển sang đủ 6/6 mặt chuẩn.'}
                             style={{
-                              padding: '5px 8px',
+                              padding: '5px 9px',
                               borderRadius: '6px',
-                              background: 'rgba(15, 23, 42, 0.7)',
-                              border: '1px solid #475569',
+                              background: 'rgba(15, 23, 42, 0.85)',
+                              border: targetFaceCount === 6 ? '1.5px solid #38bdf8' : '1px solid #475569',
                               color: targetFaceCount === 6 ? '#38bdf8' : '#94a3b8',
-                              fontSize: '0.62rem',
-                              fontWeight: '700',
-                              cursor: 'pointer'
+                              fontSize: '0.64rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px'
                             }}
                           >
-                            {targetFaceCount === 6 ? '🛡️ 6 Mặt' : '⚡ 3 Mặt'}
+                            {targetFaceCount === 6 ? '🛡️ 6/6 Mặt' : '⚡ 3 Mặt'}
                           </button>
                         </div>
                       )}
                     </div>
 
-                    {/* BƯỚC 2: XÁC NHẬN ĐÚNG R BẮT ĐẦU GIẢI */}
+                    {/* BƯỚC 2: XÁC NHẬN ĐÚNG & MỞ KHÓA GIẢI */}
                     <div style={{
                       padding: '8px 10px',
                       borderRadius: '8px',
@@ -5578,7 +5635,7 @@ export default function App() {
                           fontWeight: '800',
                           color: isStep2Active ? '#4ade80' : isStep2Ready ? '#38bdf8' : (isStep3Active ? '#94a3b8' : '#64748b')
                         }}>
-                          2. Xác nhận đúng r bắt đầu giải
+                          2. Xác nhận đúng & Mở khóa giải
                         </span>
                         <span style={{
                           fontSize: '0.62rem',
@@ -6288,43 +6345,40 @@ export default function App() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
 
-                      {/* CÁC HIỆU ỨNG TƯƠNG TÁC THEO THEO HUD TRÊN KHUNG CAMERA */}
-                      {hudThemeKey === 'sakura' && (
+                      {/* CÁC HIỆU ỨNG TƯƠNG TÁC THEO HUD TRÊN KHUNG CAMERA */}
+                      {isFxEnabled && hudThemeKey === 'sakura' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                          <span className="sakura-petal-1" style={{ top: '10%', left: '12%', fontSize: '0.95rem' }}>🌸</span>
-                          <span className="sakura-petal-2" style={{ top: '65%', left: '76%', fontSize: '0.85rem' }}>🌸</span>
-                          <span className="sakura-petal-3" style={{ top: '22%', right: '16%', fontSize: '0.75rem' }}>🌸</span>
-                          <span className="sakura-petal-1" style={{ bottom: '12%', left: '30%', fontSize: '0.8rem' }}>🌸</span>
+                          <span className="sakura-petal-1" style={{ position: 'absolute', top: '6px', left: '8px', fontSize: '0.85rem' }}>🌸</span>
+                          <span className="sakura-petal-2" style={{ position: 'absolute', top: '6px', right: '8px', fontSize: '0.8rem' }}>🌸</span>
+                          <span className="sakura-petal-3" style={{ position: 'absolute', bottom: '6px', left: '10px', fontSize: '0.75rem' }}>🌸</span>
+                          <span className="sakura-petal-1" style={{ position: 'absolute', bottom: '6px', right: '10px', fontSize: '0.8rem' }}>🌸</span>
                         </div>
                       )}
 
-                      {hudThemeKey === 'cyber' && (
+                      {isFxEnabled && hudThemeKey === 'cyber' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                          <span style={{ position: 'absolute', top: '8px', left: '10px', fontSize: '1rem', filter: 'drop-shadow(0 0 6px #38bdf8)' }}>🕸️</span>
-                          <span style={{ position: 'absolute', top: '8px', right: '10px', fontSize: '1rem', filter: 'drop-shadow(0 0 6px #22c55e)' }}>🕸️</span>
-                          <span style={{ position: 'absolute', bottom: '8px', left: '10px', fontSize: '0.9rem', filter: 'drop-shadow(0 0 6px #22c55e)' }}>🕸️</span>
+                          <span style={{ position: 'absolute', top: '6px', left: '8px', fontSize: '0.9rem', filter: 'drop-shadow(0 0 5px #38bdf8)' }}>🕸️</span>
+                          <span style={{ position: 'absolute', top: '6px', right: '8px', fontSize: '0.9rem', filter: 'drop-shadow(0 0 5px #22c55e)' }}>🕸️</span>
                         </div>
                       )}
 
-                      {hudThemeKey === 'thunder' && (
+                      {isFxEnabled && hudThemeKey === 'thunder' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                          <span style={{ position: 'absolute', top: '10px', left: '14px', fontSize: '1.1rem', filter: 'drop-shadow(0 0 8px #facc15)' }}>⚡</span>
-                          <span style={{ position: 'absolute', top: '16px', right: '18px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #c084fc)' }}>⚡</span>
-                          <span style={{ position: 'absolute', bottom: '14px', left: '22%', fontSize: '0.85rem', filter: 'drop-shadow(0 0 8px #facc15)' }}>⚡</span>
+                          <span style={{ position: 'absolute', top: '8px', left: '10px', fontSize: '1rem', filter: 'drop-shadow(0 0 8px #facc15)' }}>⚡</span>
+                          <span style={{ position: 'absolute', top: '8px', right: '12px', fontSize: '0.9rem', filter: 'drop-shadow(0 0 8px #c084fc)' }}>⚡</span>
                         </div>
                       )}
 
-                      {hudThemeKey === 'frost' && (
+                      {isFxEnabled && hudThemeKey === 'frost' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
                           {/* Nhũ băng rủ từ mép trên camera */}
                           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '14px', background: 'linear-gradient(to bottom, rgba(165, 243, 252, 0.4), transparent)', borderTop: '2px solid #a5f3fc' }} />
                           <span style={{ position: 'absolute', top: '6px', left: '10px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
                           <span style={{ position: 'absolute', top: '6px', right: '12px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
-                          <span style={{ position: 'absolute', bottom: '8px', left: '12px', fontSize: '0.85rem', filter: 'drop-shadow(0 0 8px #67e8f9)' }}>❅</span>
                         </div>
                       )}
 
-                      {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK (Spider-Web Ray Casting HUD) */}
+                      {/* LƯỚI QUÉT RADAR HUD THEO TỪNG THEME (Spider Cyber / Sakura Pulse / Thunder Bolt / Frost Hex) */}
                       <svg
                         viewBox="0 0 100 100"
                         preserveAspectRatio="none"
@@ -6338,61 +6392,95 @@ export default function App() {
                           zIndex: 1
                         }}
                       >
-                        {trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
-                          <>
-                            {/* 3 vòng tơ nhện đồng tâm (33%, 66%, 100%) */}
-                            {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
-                              const ringPoints = trackingBox.spiderRays.map(r => {
-                                const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
-                                const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                                return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
-                              }).join(' ');
-                              return (
-                                <polygon
-                                  key={rIdx}
-                                  points={ringPoints}
-                                  fill="none"
+                        {/* 1. THEME CYBER: LƯỚI MẠNG NHỆN SPIDER RAY-CASTING */}
+                        {hudThemeKey === 'cyber' && (
+                          trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
+                            <>
+                              {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
+                                const ringPoints = trackingBox.spiderRays.map(r => {
+                                  const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
+                                  const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
+                                  return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
+                                }).join(' ');
+                                return (
+                                  <polygon
+                                    key={rIdx}
+                                    points={ringPoints}
+                                    fill="none"
+                                    stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
+                                    strokeOpacity={0.4}
+                                    strokeWidth={rIdx === 2 ? '1.0' : '0.6'}
+                                    strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                                  />
+                                );
+                              })}
+                              {trackingBox.spiderRays.map((r, i) => (
+                                <line
+                                  key={i}
+                                  x1={trackingBox.cxPct}
+                                  y1={trackingBox.cyPct}
+                                  x2={r.xPct}
+                                  y2={r.yPct}
                                   stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                                  strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
-                                  strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                                  strokeOpacity={0.4}
+                                  strokeWidth="0.6"
                                 />
-                              );
-                            })}
-                            {/* 16 tia quét mạng nhện hướng tâm */}
-                            {trackingBox.spiderRays.map((r, i) => (
-                              <line
-                                key={i}
-                                x1={trackingBox.cxPct}
-                                y1={trackingBox.cyPct}
-                                x2={r.xPct}
-                                y2={r.yPct}
-                                stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                                strokeWidth="0.8"
-                              />
-                            ))}
-                          </>
-                        ) : (
-                          /* Lưới mạng nhện radar ở chế độ quét tìm */
-                          <g opacity="0.5">
-                            <circle cx="50" cy="50" r="20" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                            <circle cx="50" cy="50" r="38" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                            <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="22" y1="22" x2="78" y2="78" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
-                            <line x1="78" y1="22" x2="22" y2="78" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
+                              ))}
+                            </>
+                          ) : (
+                            <g opacity="0.45">
+                              <circle cx="50" cy="50" r="20" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                              <circle cx="50" cy="50" r="38" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                              <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                              <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                            </g>
+                          )
+                        )}
+
+                        {/* 2. THEME SAKURA: RADAR HOA ANH ĐÀO THANH KHIẾT (KHÔNG MẠNG NHỆN) */}
+                        {hudThemeKey === 'sakura' && (
+                          <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="16" fill="rgba(244, 114, 182, 0.05)" stroke="#f472b6" strokeWidth="0.9" strokeDasharray="3,3" />
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="30" fill="none" stroke="#fb7185" strokeWidth="0.75" strokeDasharray="4,3" />
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="42" fill="none" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,3" />
+                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="12" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="88" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
+                            <line x1="12" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="88" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
+                          </g>
+                        )}
+
+                        {/* 3. THEME THUNDER: RADAR LÔI THẦN ĐIỆN TỪ */}
+                        {hudThemeKey === 'thunder' && (
+                          <g opacity={trackingBox.isLocked ? '0.9' : '0.6'}>
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="20" fill="none" stroke="#facc15" strokeWidth="1" strokeDasharray="4,2" />
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="35" fill="none" stroke="#c084fc" strokeWidth="0.8" strokeDasharray="3,3" />
+                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="8" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="92" stroke="#facc15" strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="8" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="92" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#facc15" strokeWidth="0.6" strokeDasharray="2,2" />
+                          </g>
+                        )}
+
+                        {/* 4. THEME FROST: RADAR BĂNG GIÁ LỤC GIÁC */}
+                        {hudThemeKey === 'frost' && (
+                          <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="18" fill="none" stroke="#38bdf8" strokeWidth="0.9" strokeDasharray="3,3" />
+                            <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="32" fill="none" stroke="#a5f3fc" strokeWidth="0.8" strokeDasharray="4,2" />
+                            <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="12" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="88" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
+                            <line x1="12" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="88" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
                           </g>
                         )}
                       </svg>
 
-                      {/* KHUNG HITBOX RUBIK CHUẨN XÁC VỚI 4 GÓC TACTICAL BRACKETS */}
+                      {/* KHUNG HITBOX RUBIK CHUẨN XÁC 1:1 HÌNH VUÔNG VỚI 4 GÓC TACTICAL BRACKETS */}
                       {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
                       <div style={{
                         position: 'absolute',
                         top: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.topPct}%`,
                         left: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.leftPct}%`,
                         transform: solveStep === 'step1_check_scb' ? 'translate(-50%, -50%)' : 'none',
-                        width: `${trackingBox.widthPct}%`,
-                        height: `${trackingBox.heightPct}%`,
+                        width: solveStep === 'step1_check_scb' ? 'min(58%, 230px)' : `${Math.min(trackingBox.widthPct, 68)}%`,
+                        height: solveStep === 'step1_check_scb' ? 'min(58%, 230px)' : 'auto',
+                        aspectRatio: '1 / 1',
+                        maxWidth: '240px',
+                        maxHeight: '240px',
                         transition: solveStep === 'step1_check_scb' ? 'none' : 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                         display: 'grid',
                         gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
@@ -6708,36 +6796,35 @@ export default function App() {
                 <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
                 {/* CÁC HIỆU ỨNG TƯƠNG TÁC THEO HUD TRÊN CAM MOBILE */}
-                {hudThemeKey === 'sakura' && (
+                {isFxEnabled && hudThemeKey === 'sakura' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                    <span className="sakura-petal-1" style={{ top: '10%', left: '10%', fontSize: '0.8rem' }}>🌸</span>
-                    <span className="sakura-petal-2" style={{ top: '65%', left: '75%', fontSize: '0.75rem' }}>🌸</span>
-                    <span className="sakura-petal-3" style={{ bottom: '15%', left: '40%', fontSize: '0.7rem' }}>🌸</span>
+                    <span className="sakura-petal-1" style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.7rem' }}>🌸</span>
+                    <span className="sakura-petal-2" style={{ position: 'absolute', top: '4px', right: '6px', fontSize: '0.65rem' }}>🌸</span>
                   </div>
                 )}
 
-                {hudThemeKey === 'cyber' && (
+                {isFxEnabled && hudThemeKey === 'cyber' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
                     <span style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 5px #38bdf8)' }}>🕸️</span>
                     <span style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 5px #22c55e)' }}>🕸️</span>
                   </div>
                 )}
 
-                {hudThemeKey === 'thunder' && (
+                {isFxEnabled && hudThemeKey === 'thunder' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                    <span style={{ position: 'absolute', top: '6px', left: '8px', fontSize: '0.85rem', filter: 'drop-shadow(0 0 6px #facc15)' }}>⚡</span>
-                    <span style={{ position: 'absolute', bottom: '6px', right: '8px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #c084fc)' }}>⚡</span>
+                    <span style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #facc15)' }}>⚡</span>
+                    <span style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 6px #c084fc)' }}>⚡</span>
                   </div>
                 )}
 
-                {hudThemeKey === 'frost' && (
+                {isFxEnabled && hudThemeKey === 'frost' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                    <span style={{ position: 'absolute', top: '5px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #06b6d4)' }}>❄️</span>
-                    <span style={{ position: 'absolute', bottom: '5px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 6px #67e8f9)' }}>❅</span>
+                    <span style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #06b6d4)' }}>❄️</span>
+                    <span style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 6px #67e8f9)' }}>❅</span>
                   </div>
                 )}
 
-                {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK */}
+                {/* LƯỚI QUÉT RADAR HUD THEO THEME (MOBILE) */}
                 <svg
                   viewBox="0 0 100 100"
                   preserveAspectRatio="none"
@@ -6751,58 +6838,91 @@ export default function App() {
                     zIndex: 1
                   }}
                 >
-                  {trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
-                    <>
-                      {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
-                        const ringPoints = trackingBox.spiderRays.map(r => {
-                          const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
-                          const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                          return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
-                        }).join(' ');
-                        return (
-                          <polygon
-                            key={rIdx}
-                            points={ringPoints}
-                            fill="none"
+                  {hudThemeKey === 'cyber' && (
+                    trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
+                      <>
+                        {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
+                          const ringPoints = trackingBox.spiderRays.map(r => {
+                            const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
+                            const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
+                            return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
+                          }).join(' ');
+                          return (
+                            <polygon
+                              key={rIdx}
+                              points={ringPoints}
+                              fill="none"
+                              stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
+                              strokeOpacity={0.4}
+                              strokeWidth={rIdx === 2 ? '1.0' : '0.6'}
+                              strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                            />
+                          );
+                        })}
+                        {trackingBox.spiderRays.map((r, i) => (
+                          <line
+                            key={i}
+                            x1={trackingBox.cxPct}
+                            y1={trackingBox.cyPct}
+                            x2={r.xPct}
+                            y2={r.yPct}
                             stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                            strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
-                            strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                            strokeOpacity={0.4}
+                            strokeWidth="0.6"
                           />
-                        );
-                      })}
-                      {trackingBox.spiderRays.map((r, i) => (
-                        <line
-                          key={i}
-                          x1={trackingBox.cxPct}
-                          y1={trackingBox.cyPct}
-                          x2={r.xPct}
-                          y2={r.yPct}
-                          stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
-                          strokeWidth="0.8"
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    <g opacity="0.5">
-                      <circle cx="50" cy="50" r="22" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                      <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                      <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                        ))}
+                      </>
+                    ) : (
+                      <g opacity="0.45">
+                        <circle cx="50" cy="50" r="22" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                        <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                        <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                      </g>
+                    )
+                  )}
+
+                  {hudThemeKey === 'sakura' && (
+                    <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
+                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="16" fill="none" stroke="#f472b6" strokeWidth="0.8" strokeDasharray="3,3" />
+                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="30" fill="none" stroke="#fb7185" strokeWidth="0.7" strokeDasharray="3,3" />
+                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="10" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="90" stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
+                      <line x1="10" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="90" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#f472b6" strokeWidth="0.5" strokeDasharray="2,2" />
+                    </g>
+                  )}
+
+                  {hudThemeKey === 'thunder' && (
+                    <g opacity={trackingBox.isLocked ? '0.9' : '0.6'}>
+                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="20" fill="none" stroke="#facc15" strokeWidth="0.9" strokeDasharray="3,2" />
+                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="8" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="92" stroke="#facc15" strokeWidth="0.5" strokeDasharray="2,2" />
+                      <line x1="8" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="92" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#facc15" strokeWidth="0.5" strokeDasharray="2,2" />
+                    </g>
+                  )}
+
+                  {hudThemeKey === 'frost' && (
+                    <g opacity={trackingBox.isLocked ? '0.85' : '0.55'}>
+                      <circle cx={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} cy={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} r="18" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
+                      <line x1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y1="10" x2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cxPct} y2="90" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
+                      <line x1="10" y1={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} x2="90" y2={solveStep === 'step1_check_scb' ? 50 : trackingBox.cyPct} stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
                     </g>
                   )}
                 </svg>
 
-                {/* KHUNG HITBOX RUBIK */}
+                {/* KHUNG HITBOX RUBIK CHUẨN XÁC 1:1 HÌNH VUÔNG (MOBILE) */}
                 {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
                 <div style={{
                   position: 'absolute',
                   top: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.topPct}%`,
                   left: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.leftPct}%`,
                   transform: solveStep === 'step1_check_scb' ? 'translate(-50%, -50%)' : 'none',
-                  width: `${trackingBox.widthPct}%`,
-                  height: `${trackingBox.heightPct}%`,
+                  width: solveStep === 'step1_check_scb' ? 'min(68%, 62px)' : `${Math.min(trackingBox.widthPct, 72)}%`,
+                  height: solveStep === 'step1_check_scb' ? 'min(68%, 62px)' : 'auto',
+                  aspectRatio: '1 / 1',
+                  maxWidth: '68px',
+                  maxHeight: '68px',
                   transition: solveStep === 'step1_check_scb' ? 'none' : 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                   display: 'grid',
                   gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
+                  gridTemplateRows: `repeat(${currentDim}, 1fr)`,
                   gridTemplateRows: `repeat(${currentDim}, 1fr)`,
                   border: preCheckStatus.verified
                     ? '2px solid #22c55e'
@@ -7079,7 +7199,7 @@ export default function App() {
                   type="button"
                   onClick={confirmScrambleAndReady}
                   style={{
-                    padding: '6px 12px',
+                    padding: '6px 14px',
                     borderRadius: '6px',
                     background: 'linear-gradient(135deg, #16a34a, #15803d)',
                     border: '1.5px solid #4ade80',
@@ -7093,7 +7213,7 @@ export default function App() {
                     boxShadow: '0 4px 14px rgba(34, 197, 94, 0.35)'
                   }}
                 >
-                  <span>✅ Xác nhận đúng r bắt đầu giải</span>
+                  <span>✅ Xác nhận đúng & Mở khóa giải</span>
                 </button>
                 <button
                   type="button"
@@ -7222,12 +7342,12 @@ export default function App() {
                   `🎉 BƯỚC 3: HOÀN THÀNH — Lượt giải ${(timeMs / 1000).toFixed(2)}s! Bấm nút "Lượt mới" bên dưới (hoặc bấm Space) để sang lượt tiếp theo.`
                 ) : solveStep === 'step2_ready_solve' ? (
                   isMobile
-                    ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Chạm giữ bên dưới để vào vạch xuất phát!`
-                    : `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCB — Giữ phím SPACE để vào vạch xuất phát!`
+                    ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCRAMBLE — Chạm giữ bên dưới để vào vạch xuất phát!`
+                    : `🟢 BƯỚC 2: ĐÃ XÁC NHẬN ĐÚNG SCRAMBLE — Giữ phím SPACE để vào vạch xuất phát!`
                 ) : !cameraActive ? (
-                  '🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Bấm nút "✅ Xác nhận đúng r bắt đầu giải" bên dưới hoặc bật Cam để mở khóa giải!'
+                  '🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Bấm nút "✅ Xác nhận đúng & Mở khóa giải" bên dưới hoặc bật Cam để mở khóa giải!'
                 ) : !preCheckStatus.verified ? (
-                  `🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Quét ${Object.keys(scannedFaces).length}/${(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt hoặc bấm "Xác nhận đúng r bắt đầu giải" để mở khóa!`
+                  `🔍 BƯỚC 1: KIỂM TRA SCRAMBLE — Quét ${Object.keys(scannedFaces).length}/${(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt hoặc bấm "✅ Xác nhận đúng & Mở khóa giải" để mở khóa!`
                 ) : (
                   isMobile
                     ? `🟢 BƯỚC 2: ĐÃ XÁC NHẬN — Chạm giữ bên dưới để giải!`
@@ -7257,7 +7377,7 @@ export default function App() {
                     gap: '6px'
                   }}
                 >
-                  <span>✅ Xác nhận đúng r bắt đầu giải</span>
+                  <span>✅ Xác nhận đúng & Mở khóa giải</span>
                 </button>
                 <button
                   type="button"
