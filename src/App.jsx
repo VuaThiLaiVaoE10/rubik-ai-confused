@@ -628,6 +628,31 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   return 'invalid';
 }
 
+// TỰ ĐỘNG NHẬN DIỆN MÀU TÂM Ô SỐ 5 (HỖ TRỢ LÓA ĐÈN / ÁNH SÁNG YẾU):
+// Giúp AI luôn tự động đọc được tâm khối Rubik mà KHÔNG cần người dùng phải bấm nút chọn thủ công
+function classifyCenterStickerFallback(avgR, avgG, avgB) {
+  const hsv = rgbToOpenCvHsv(avgR, avgG, avgB);
+  const h = Math.round(hsv.h);
+  const s = Math.round(hsv.s);
+  const v = Math.round(hsv.v);
+
+  if (v < 35) return 'invalid';
+  if (s < 55 && v >= 115) return 'white';
+  if (h <= 9 || h >= 170) return 'red';
+  if (h >= 10 && h <= 22) return 'orange';
+  if (h >= 23 && h <= 35) return 'yellow';
+  if (h >= 36 && h <= 42 && avgR >= 105 && avgR > 0.55 * avgG) return 'yellow';
+  if (h >= 36 && h <= 88) return 'green';
+  if (h >= 89 && h <= 135) return 'blue';
+
+  if (v > 185 && s < 50) {
+    if (avgR > 200 && avgG > 200 && avgB > 200) return 'white';
+    if (avgR > avgG && avgR > avgB && avgB < 130) return avgG > 135 ? 'yellow' : 'orange';
+  }
+
+  return 'invalid';
+}
+
 // Lấy mẫu ô màu Rubik bằng kỹ thuật cắt vùng trung tâm & Trung vị HSV (Median OpenCV)
 // Tương đương lay_mau_trung_vi(vung_bgr) trong Python: loại bỏ 100% đốm lóa UV và viền đen
 function sampleCubieStickerCell(frameImg, w, h, cx, cy, cellSize, surfaceProfileKey) {
@@ -1914,37 +1939,6 @@ export default function App() {
     });
     playAppSound('click');
   }, [playAppSound]);
-
-  // GÁN TRỰC TIẾP MÀU TÂM CHO Ô SỐ 5 (KHI KHÔNG QUÉT ĐƯỢC HOẶC MUỐN ĐỊNH DANH MẶT NHANH)
-  const handleSetCenterColor = useCallback((targetColor) => {
-    const centerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
-    setDetectedColors(prev => {
-      const next = [...prev];
-      next[centerIdx] = targetColor;
-      manualStickerOverridesRef.current[centerIdx] = targetColor;
-
-      const faceCodeMap = { white: 'U', yellow: 'D', red: 'R', orange: 'L', green: 'F', blue: 'B' };
-      const currentFace = faceCodeMap[targetColor] || 'U';
-
-      const cleaned = next.map(c => (c !== 'invalid' ? c : targetColor));
-      const newFaces = {
-        ...(scannedFacesRef.current || {}),
-        [currentFace]: cleaned
-      };
-      scannedFacesRef.current = newFaces;
-      setScannedFaces(newFaces);
-      setCurrentActiveFace(currentFace);
-      currentActiveFaceRef.current = currentFace;
-
-      return next;
-    });
-    playAppSound('click');
-    const colorName = COLOR_DEFINITIONS[targetColor]?.name || targetColor;
-    setLastNotice({
-      type: 'success',
-      text: `🎯 Đã chỉ định Ô số 5 (tâm) là màu ${colorName} → Xác định Mặt ${targetColor.toUpperCase()} thành công!`
-    });
-  }, [currentDim, playAppSound]);
 
   // HƯỚNG DẪN TRỰC QUAN THỨ TỰ 6 MẶT (U -> R -> F -> D -> L -> B)
   const FACE_SCAN_ORDER = useMemo(() => [
@@ -4010,7 +4004,28 @@ export default function App() {
         }
 
         const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
-        const rawCenterColor = currentNxNColors[centerIdx];
+        let rawCenterColor = currentNxNColors[centerIdx];
+
+        // TỰ ĐỘNG KHÔI PHỤC MÀU Ô SỐ 5 (TÂM) NẾU BỊ LÓA SÁNG/CHÓI (AI TỰ NHẬN DIỆN 100%)
+        if (rawCenterColor === 'invalid' && bestRegion.cellStats && bestRegion.cellStats[centerIdx]) {
+          const centerStat = bestRegion.cellStats[centerIdx];
+          const autoFallback = classifyCenterStickerFallback(centerStat.avgR, centerStat.avgG, centerStat.avgB);
+          if (autoFallback !== 'invalid') {
+            rawCenterColor = autoFallback;
+            currentNxNColors[centerIdx] = autoFallback;
+          }
+        }
+        if (rawCenterColor === 'invalid' && temporalBufferRef.current.length > 0) {
+          for (let b = temporalBufferRef.current.length - 1; b >= 0; b--) {
+            const pastCol = temporalBufferRef.current[b]?.[centerIdx];
+            if (pastCol && pastCol !== 'invalid') {
+              rawCenterColor = pastCol;
+              currentNxNColors[centerIdx] = pastCol;
+              break;
+            }
+          }
+        }
+
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
         const manualCenter = manualStickerOverridesRef.current[centerIdx];
         const effectiveCenterColor = (manualCenter && RUBIK_COLOR_CYCLE.includes(manualCenter))
@@ -4139,16 +4154,16 @@ export default function App() {
         if (!mappedFace) {
           resolvedModel3D = {
             verified: false,
-            badgeText: '⚠️ Ô 5 CHƯA RÕ',
-            statusTitle: '⚠️ Chưa nhận diện được Ô số 5 (Tâm)',
-            detailText: 'Bấm vào ô số 5 trên khung ngắm hoặc chọn màu tâm bên dưới để xác định mặt này!',
+            badgeText: '🔍 ĐANG QUÉT TÂM',
+            statusTitle: '🔍 AI đang định vị Ô số 5 (Tâm)...',
+            detailText: 'Hướng mặt Rubik thẳng vào khung ngắm để AI tự động nhận diện màu tâm.',
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           };
           if (cameraActive && (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting')) {
             setPreCheckThrottled({
               verified: false,
-              text: '⚠️ Ô SỐ 5 CHƯA RÕ MÀU (DO LÓA SÁNG): Bấm vào ô số 5 trên khung ngắm hoặc chọn màu tâm bên dưới để AI nhận diện!',
+              text: '🎯 HƯỚNG MẶT VÀO KHUNG NGẮM: AI đang tự động nhận diện màu Ô số 5 (tâm)...',
               isScrambled: false,
               centerFace: null,
               scannedCount: currentScannedKeys.length,
@@ -5564,21 +5579,19 @@ export default function App() {
                       {/* DẢI 6 MẶT VÀ HƯỚNG DẪN XOAY KHỐI TRỰC QUAN */}
                       {solveStep === 'step1_check_scb' && (
                         <>
+                          {/* DẢI TIẾN ĐỘ 6 MẶT — AI TỰ ĐỘNG NHẬN DIỆN MẶT QUA Ô SỐ 5 (TÂM) */}
                           <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', margin: '4px 0 6px 0' }}>
                             {FACE_SCAN_ORDER.map(face => {
                               const isScanned = Boolean(scannedFaces[face.key]);
                               return (
-                                <button
+                                <div
                                   key={face.key}
-                                  type="button"
-                                  onClick={() => handleSetCenterColor(face.colorKey)}
-                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? '✓ Đã quét xong' : 'Bấm để gán tâm ô 5 màu này nếu Camera bị lóa đèn'}`}
+                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? '✓ Đã quét xong' : 'Đang chờ quét'}`}
                                   style={{
                                     fontSize: '0.58rem',
-                                    padding: '2px 4px',
+                                    padding: '2px 5px',
                                     borderRadius: '4px',
                                     fontWeight: '800',
-                                    cursor: 'pointer',
                                     background: isScanned
                                       ? '#15803d'
                                       : 'rgba(255, 255, 255, 0.05)',
@@ -5593,53 +5606,9 @@ export default function App() {
                                 >
                                   <span>{isScanned ? '✓' : '○'}</span>
                                   <span>{face.key} ({face.colorName})</span>
-                                </button>
+                                </div>
                               );
                             })}
-                          </div>
-
-                          {/* THANH CHỌN MÀU TÂM Ô SỐ 5 NHANH NẾU KHÔNG QUÉT ĐƯỢC */}
-                          <div style={{
-                            margin: '4px 0 6px 0',
-                            padding: '3px 6px',
-                            borderRadius: '6px',
-                            background: 'rgba(15, 23, 42, 0.75)',
-                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '4px'
-                          }}>
-                            <span style={{ fontSize: '0.58rem', color: '#38bdf8', fontWeight: '800', whiteSpace: 'nowrap' }}>
-                              🎯 Chọn Ô 5 (Tâm):
-                            </span>
-                            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                              {RUBIK_COLOR_CYCLE.map(cKey => {
-                                const def = COLOR_DEFINITIONS[cKey];
-                                const isSelected = detectedColors[4] === cKey;
-                                return (
-                                  <button
-                                    key={cKey}
-                                    type="button"
-                                    onClick={() => handleSetCenterColor(cKey)}
-                                    title={`Đặt Ô 5 là màu ${def?.name || cKey} (Xác định mặt ${cKey.toUpperCase()})`}
-                                    style={{
-                                      padding: '1px 5px',
-                                      borderRadius: '4px',
-                                      border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.25)',
-                                      background: def?.bg || '#334155',
-                                      color: cKey === 'white' || cKey === 'yellow' ? '#0f172a' : '#ffffff',
-                                      fontSize: '0.56rem',
-                                      fontWeight: '900',
-                                      cursor: 'pointer',
-                                      boxShadow: isSelected ? '0 0 6px #38bdf8' : 'none'
-                                    }}
-                                  >
-                                    {def?.name || cKey}
-                                  </button>
-                                );
-                              })}
-                            </div>
                           </div>
 
                           <div style={{
@@ -6601,21 +6570,19 @@ export default function App() {
                         {detectedColors.map((colorKey, idx) => {
                           const centerStickerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
                           const isCenter = idx === centerStickerIdx;
-                          const isInvalidCenter = isCenter && (colorKey === 'invalid');
                           return (
                             <div
                               key={idx}
-                              onClick={isCenter ? () => handleCycleStickerColor(idx) : undefined}
-                              title={isCenter ? `Ô số 5 (Tâm): ${colorKey !== 'invalid' ? COLOR_DEFINITIONS[colorKey]?.name : 'Chưa rõ'} — Bấm để đổi màu tâm!` : undefined}
+                              title={isCenter ? `Ô số 5 (Tâm): ${colorKey !== 'invalid' ? COLOR_DEFINITIONS[colorKey]?.name : 'AI đang tự động nhận diện'}` : undefined}
                               style={{
                                 border: isCenter ? '1.5px solid #38bdf8' : '0.5px solid rgba(255,255,255,0.22)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                cursor: isCenter ? 'pointer' : 'default',
-                                pointerEvents: isCenter ? 'auto' : 'none',
-                                background: isCenter ? 'rgba(56, 189, 248, 0.16)' : 'transparent',
-                                boxShadow: isCenter ? 'inset 0 0 6px rgba(56, 189, 248, 0.45)' : 'none'
+                                cursor: 'default',
+                                pointerEvents: 'none',
+                                background: isCenter ? 'rgba(56, 189, 248, 0.12)' : 'transparent',
+                                boxShadow: isCenter ? 'inset 0 0 6px rgba(56, 189, 248, 0.35)' : 'none'
                               }}
                             >
                               <span style={{
@@ -6623,16 +6590,11 @@ export default function App() {
                                 height: isCenter ? '10px' : '6px',
                                 borderRadius: '50%',
                                 backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent',
-                                border: colorKey !== 'invalid' ? '1px solid #000' : '1.5px dashed #f59e0b',
+                                border: colorKey !== 'invalid' ? '1px solid #000' : '1px dashed rgba(255,255,255,0.3)',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.5rem',
-                                color: '#f59e0b',
-                                fontWeight: '900'
-                              }}>
-                                {isInvalidCenter ? '?' : ''}
-                              </span>
+                                justifyContent: 'center'
+                              }} />
                             </div>
                           );
                         })}
@@ -7071,17 +7033,16 @@ export default function App() {
                     return (
                       <div
                         key={idx}
-                        onClick={isCenter ? () => handleCycleStickerColor(idx) : undefined}
-                        title={isCenter ? 'Ô số 5 (Tâm): Bấm để đổi màu tâm nếu Camera bị lóa đèn' : undefined}
+                        title={isCenter ? 'Ô số 5 (Tâm): AI đang tự động nhận diện màu' : undefined}
                         style={{
                           position: 'relative',
                           border: isCenter ? '1.5px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.35)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          backgroundColor: colorKey !== 'invalid' ? `${colorDef.bg}35` : (isCenter ? 'rgba(56, 189, 248, 0.2)' : 'transparent'),
-                          cursor: isCenter ? 'pointer' : 'default',
-                          pointerEvents: isCenter ? 'auto' : 'none'
+                          backgroundColor: colorKey !== 'invalid' ? `${colorDef.bg}35` : (isCenter ? 'rgba(56, 189, 248, 0.12)' : 'transparent'),
+                          cursor: 'default',
+                          pointerEvents: 'none'
                         }}
                       >
                         {/* Khung cắt trung tâm 36% */}
