@@ -1173,8 +1173,17 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(detectMobileDevice);
   const [mobileTab, setMobileTab] = useState('timer'); // 'timer' | 'stats' | 'leaderboard' | '3d'
   const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' | 'environment'
+  const [scrollY, setScrollY] = useState(0);
   const touchHoldTimerRef = useRef(null);
   const pointerStartPosRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrollY(window.scrollY || document.documentElement.scrollTop || 0);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -3464,13 +3473,13 @@ export default function App() {
     <div style={{
       width: '100%',
       minHeight: '100dvh',
-      height: isMobile ? 'auto' : '100vh',
+      height: 'auto',
       background: currentHudTheme.pageBg,
       color: '#e2e8f0',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       display: 'flex',
       flexDirection: 'column',
-      overflowY: isMobile ? 'visible' : 'hidden',
+      overflowY: 'auto',
       overflowX: 'hidden',
       userSelect: 'none',
       transition: 'background 0.3s ease'
@@ -3785,16 +3794,17 @@ export default function App() {
       )}
 
       {/* ==========================================
-          MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN ANDROID & iOS)
+          MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN DESKTOP & MOBILE)
       ========================================== */}
       <div style={{
         flex: 1,
         display: isMobile ? 'flex' : 'grid',
         flexDirection: isMobile ? 'column' : undefined,
         gridTemplateColumns: isMobile ? undefined : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px'),
-        padding: isMobile ? '8px 10px 88px 10px' : '12px 20px',
+        alignItems: isMobile ? undefined : 'start',
+        padding: isMobile ? '8px 10px 88px 10px' : '12px 20px 60px 20px',
         gap: '12px',
-        overflowY: isMobile ? 'visible' : 'hidden',
+        overflowY: 'visible',
         overflowX: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
@@ -5487,8 +5497,41 @@ export default function App() {
             </div>
           )}
 
+          {/* NÚT ĐIỀU HƯỚNG NHANH: LƯỚT XUỐNG ĐỒNG HỒ */}
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 8px 0', width: '100%' }}>
+            <button
+              type="button"
+              onClick={() => {
+                const timerEl = document.getElementById('rubik-main-timer-section');
+                if (timerEl) {
+                  timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }}
+              title="Bấm để lướt nhanh xuống vùng Đồng hồ bấm giờ & Bàn tay"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 14px',
+                borderRadius: '20px',
+                background: 'rgba(15, 23, 42, 0.85)',
+                border: `1.5px solid ${currentHudTheme.color}88`,
+                color: '#f8fafc',
+                fontSize: '0.74rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: `0 2px 10px ${currentHudTheme.glowColor}`,
+                transition: 'all 0.2s ease',
+                backdropFilter: 'blur(6px)'
+              }}
+            >
+              <span>⬇️ Lướt xuống Đồng hồ bấm giờ</span>
+            </button>
+          </div>
+
           {/* Center-Middle: GIANT TIMER & SPEEDCUBING TOUCHPAD */}
           <div
+            id="rubik-main-timer-section"
             onPointerDown={handleTimerPointerDown}
             onPointerMove={handleTimerPointerMove}
             onPointerUp={handleTimerPointerUp}
@@ -5700,6 +5743,33 @@ export default function App() {
           <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.78rem', lineHeight: 1.5 }}>
             <div>📱 <strong>Mobile:</strong> Chạm giữ màn hình chờ xanh lá → Thả tay để giải → Chạm để dừng</div>
             <div>💻 <strong>Desktop:</strong> Giữ phím Space chờ xanh lá → Thả tay để giải → Bấm phím bất kỳ để dừng</div>
+          </div>
+
+          {/* NÚT ĐIỀU HƯỚNG NHANH: LƯỚT LÊN CAMERA & 3D */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+            <button
+              type="button"
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              title="Bấm để lướt lên xem Camera & Mô hình 3D"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 14px',
+                borderRadius: '20px',
+                background: 'rgba(15, 23, 42, 0.85)',
+                border: `1.5px solid ${currentHudTheme.color}88`,
+                color: '#f8fafc',
+                fontSize: '0.74rem',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: `0 2px 10px ${currentHudTheme.glowColor}`,
+                transition: 'all 0.2s ease',
+                backdropFilter: 'blur(6px)'
+              }}
+            >
+              <span>⬆️ Lướt lên xem Camera & 3D</span>
+            </button>
           </div>
             </>
           )}
@@ -7903,6 +7973,81 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          NÚT NỔI THÔNG MINH LƯỚT XUỐNG DƯỚI / LƯỚT LÊN TRÊN (DESKTOP & MOBILE)
+      ========================================================================= */}
+      <div style={{
+        position: 'fixed',
+        bottom: isMobile ? '78px' : '26px',
+        right: isMobile ? '14px' : '26px',
+        zIndex: 9995,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        pointerEvents: 'auto'
+      }}>
+        {scrollY < 120 ? (
+          <button
+            type="button"
+            className="floating-scroll-btn"
+            onClick={() => {
+              const timerEl = document.getElementById('rubik-main-timer-section');
+              if (timerEl) {
+                timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              } else {
+                window.scrollBy({ top: 520, behavior: 'smooth' });
+              }
+            }}
+            title="Lướt xuống Đồng hồ bấm giờ & Thao tác giải"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              padding: isMobile ? '8px 14px' : '10px 18px',
+              borderRadius: '30px',
+              background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+              border: `1.5px solid ${currentHudTheme.color}`,
+              boxShadow: `0 4px 22px ${currentHudTheme.glowColor}, 0 2px 10px rgba(0,0,0,0.6)`,
+              color: '#ffffff',
+              fontSize: isMobile ? '0.78rem' : '0.84rem',
+              fontWeight: '800',
+              cursor: 'pointer',
+              transition: 'all 0.25s ease',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <span style={{ fontSize: '1.05rem' }}>⬇️</span>
+            <span>Lướt xuống dưới</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="floating-scroll-btn"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            title="Lướt lên đầu trang (Camera AI & Mô hình 3D)"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              padding: isMobile ? '8px 14px' : '10px 18px',
+              borderRadius: '30px',
+              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+              border: '1.5px solid #60a5fa',
+              boxShadow: '0 4px 22px rgba(37, 99, 235, 0.45), 0 2px 10px rgba(0,0,0,0.6)',
+              color: '#ffffff',
+              fontSize: isMobile ? '0.78rem' : '0.84rem',
+              fontWeight: '800',
+              cursor: 'pointer',
+              transition: 'all 0.25s ease',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <span style={{ fontSize: '1.05rem' }}>⬆️</span>
+            <span>Lướt lên trên</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

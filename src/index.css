@@ -117,4 +117,18 @@ input, textarea, select {
   filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.8));
 }
 
+@keyframes bounceSoft {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+.floating-scroll-btn {
+  animation: bounceSoft 2s ease-in-out infinite;
+}
+
+
 
