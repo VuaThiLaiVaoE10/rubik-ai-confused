@@ -1236,14 +1236,16 @@ export default function App() {
     };
     try {
       const saved = localStorage.getItem('rubik_admin_settings');
-      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v6');
+      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v8_force6');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (!migrated) {
-          localStorage.setItem('rubik_faces_mode_migrated_v6', '1');
+        if (!migrated || parsed.requiredPreCheckFaces === 3) {
+          localStorage.setItem('rubik_faces_mode_migrated_v8_force6', '1');
           parsed.requiredPreCheckFaces = 6;
           parsed.requireAll6FacesPreCheck = true;
-          localStorage.setItem('rubik_admin_settings', JSON.stringify(parsed));
+          try {
+            localStorage.setItem('rubik_admin_settings', JSON.stringify(parsed));
+          } catch {}
         }
         return { ...defaults, ...parsed };
       }
@@ -1822,9 +1824,75 @@ export default function App() {
   // =========================================================================
   // BỘ GIẢI KOCIEMBA NÂNG CAO (HỖ TRỢ GIẢI SCRAMBLE & GIẢI 6 MẶT QUÉT CAMERA)
   // =========================================================================
-  const [kociembaSolverSource, setKociembaSolverSource] = useState('scramble'); // 'scramble' | 'camera'
+  const [kociembaSolverSource, setKociembaSolverSource] = useState('camera'); // Ưu tiên 'camera' khi quét mặt
   const [kociembaCurrentStep, setKociembaCurrentStep] = useState(0);
   const [kociembaIsPlaying, setKociembaIsPlaying] = useState(false);
+
+  // CHẾ ĐỘ TẬP TRUNG / ZEN MODE (TỐI GIẢN TOÀN DIỆN CHO SPEEDCUBER)
+  const [isZenMode, setIsZenMode] = useState(() => {
+    try {
+      return localStorage.getItem('rubik_zen_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleZenMode = useCallback(() => {
+    setIsZenMode(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('rubik_zen_mode', String(next));
+      } catch {}
+      setLastNotice({
+        type: 'info',
+        text: next
+          ? '🧘 Đã bật Chế độ Tập Trung (Zen Mode) — Giao diện 1 màn hình chuẩn Speedcubing!'
+          : '🌐 Đã tắt Chế độ Tập Trung.'
+      });
+      return next;
+    });
+  }, []);
+
+  // CHU TRÌNH 6 MÀU RUBIK & HÀM CLICK SỬA MÀU Ô TRỰC QUAN
+  const RUBIK_COLOR_CYCLE = ['white', 'yellow', 'red', 'orange', 'green', 'blue'];
+
+  const handleCycleStickerColor = useCallback((stickerIndex) => {
+    setDetectedColors(prev => {
+      const next = [...prev];
+      const currentColor = next[stickerIndex] || 'white';
+      const currentIndex = RUBIK_COLOR_CYCLE.indexOf(currentColor);
+      const nextColor = RUBIK_COLOR_CYCLE[(currentIndex + 1) % RUBIK_COLOR_CYCLE.length];
+      next[stickerIndex] = nextColor;
+
+      // Đồng bộ ngay vào mặt hiện tại nếu đang quét
+      const centerColor = next[4];
+      const faceCodeMap = { white: 'U', yellow: 'D', red: 'R', orange: 'L', green: 'F', blue: 'B' };
+      const currentFace = faceCodeMap[centerColor] || currentActiveFaceRef.current || 'F';
+      if (scannedFacesRef.current && scannedFacesRef.current[currentFace]) {
+        const updatedFace = [...scannedFacesRef.current[currentFace]];
+        updatedFace[stickerIndex] = nextColor;
+        const newFaces = {
+          ...scannedFacesRef.current,
+          [currentFace]: updatedFace
+        };
+        scannedFacesRef.current = newFaces;
+        setScannedFaces(newFaces);
+      }
+
+      return next;
+    });
+    playAppSound('click');
+  }, [playAppSound]);
+
+  // HƯỚNG DẪN TRỰC QUAN THỨ TỰ 6 MẶT (U -> R -> F -> D -> L -> B)
+  const FACE_SCAN_ORDER = useMemo(() => [
+    { key: 'U', name: 'Trên', colorKey: 'white', colorName: 'Trắng', bg: '#f8fafc', textColor: '#0f172a', nextTip: '👉 Xoay sang phải 90° để quét mặt Đỏ (R)' },
+    { key: 'R', name: 'Phải', colorKey: 'red', colorName: 'Đỏ', bg: '#ef4444', textColor: '#ffffff', nextTip: '👉 Xoay sang trái 90° để quét mặt Xanh lá (F)' },
+    { key: 'F', name: 'Trước', colorKey: 'green', colorName: 'Xanh lá', bg: '#22c55e', textColor: '#ffffff', nextTip: '👉 Lật khối lên để quét mặt Vàng (D)' },
+    { key: 'D', name: 'Dưới', colorKey: 'yellow', colorName: 'Vàng', bg: '#facc15', textColor: '#0f172a', nextTip: '👉 Xoay sang phải để quét mặt Cam (L)' },
+    { key: 'L', name: 'Trái', colorKey: 'orange', colorName: 'Cam', bg: '#f97316', textColor: '#ffffff', nextTip: '👉 Xoay ra phía sau để quét mặt Xanh dương (B)' },
+    { key: 'B', name: 'Sau', colorKey: 'blue', colorName: 'Xanh dương', bg: '#3b82f6', textColor: '#ffffff', nextTip: '🎉 Đã quét đủ 6 mặt! Bấm "Xác nhận đúng r bắt đầu giải"' }
+  ], []);
 
   // Giải trạng thái khối 6 mặt thực tế do Camera AI quét được bằng Kociemba
   const kociembaFromCamera = useMemo(() => {
@@ -1907,9 +1975,11 @@ export default function App() {
       lastCubeVerifiedAtRef.current = performance.now();
       startScrambledRef.current = true;
       setSolveStep('step2_ready_solve');
+      setKociembaSolverSource('camera');
+      setKociembaCurrentStep(0);
       setLastNotice({
         type: 'success',
-        text: `🎉 ĐÃ CHỤP ĐỦ ${targetCount} MẶT! Chuyển sang Bước 2: Sẵn sàng bấm giờ giải (hoặc bấm xem Kociemba)!`
+        text: `🎉 ĐÃ QUÉT ĐỦ ${targetCount} MẶT! Chuyển sang Bước 2: Kociemba đã sẵn sàng, hãy bấm giờ để giải!`
       });
     } else {
       const nextFacePrompt = missing[0] || 'tiếp theo';
@@ -3248,6 +3318,10 @@ export default function App() {
         }
       }
 
+      if (e.key === 'Escape') {
+        setIsZenMode(false);
+      }
+
       // Phím C: Chụp lưu mặt Rubik hiện tại trên camera (giống file quet_rubik_6_mat.py)
       if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C') && cameraActiveRef.current && currentState === 'idle') {
         e.preventDefault();
@@ -4255,6 +4329,51 @@ export default function App() {
     }}>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+      {/* NÚT THOÁT ZEN MODE NỔI GÓC TRÊN KHI ĐANG BẬT CHẾ ĐỘ TẬP TRUNG */}
+      {isZenMode && (
+        <div style={{
+          position: 'fixed',
+          top: '12px',
+          right: '16px',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          background: 'rgba(9, 15, 29, 0.92)',
+          border: '1.5px solid #38bdf8',
+          borderRadius: '30px',
+          padding: '6px 14px',
+          boxShadow: '0 4px 20px rgba(56, 189, 248, 0.45)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>🧘</span>
+            <span>Chế độ Tập Trung</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsZenMode(false)}
+            title="Thoát Chế độ Tập Trung (Phím tắt: Esc)"
+            style={{
+              background: '#ef4444',
+              border: 'none',
+              borderRadius: '20px',
+              padding: '2px 8px',
+              color: '#ffffff',
+              fontWeight: '800',
+              fontSize: '0.68rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)'
+            }}
+          >
+            <span>✕ Thoát (Esc)</span>
+          </button>
+        </div>
+      )}
+
       {/* Hiệu ứng cánh hoa anh đào bay lượn toàn màn hình Web khi bật theme Hoa Anh Đào */}
       {currentHudTheme.hasPetals && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
@@ -4450,6 +4569,30 @@ export default function App() {
             <span>Quét 6 Mặt OpenCV</span>
           </button>
 
+          {/* NÚT CHẾ ĐỘ TẬP TRUNG / ZEN MODE */}
+          <button
+            type="button"
+            onClick={toggleZenMode}
+            style={{
+              padding: isMobile ? '5px 8px' : '6px 13px',
+              borderRadius: '6px',
+              border: isZenMode ? '1.5px solid #38bdf8' : '1px solid #475569',
+              background: isZenMode ? 'rgba(56, 189, 248, 0.25)' : currentHudTheme.innerCardBg,
+              color: isZenMode ? '#38bdf8' : '#cbd5e1',
+              fontWeight: '800',
+              fontSize: isMobile ? '0.74rem' : '0.8rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: isZenMode ? '0 0 14px rgba(56, 189, 248, 0.4)' : 'none'
+            }}
+            title={isZenMode ? 'Tắt Chế độ Tập Trung (Esc)' : 'Bật Chế độ Tập Trung (Zen Mode) — Tối giản toàn diện 1 màn hình'}
+          >
+            <span>🧘</span>
+            <span>{isZenMode ? 'Thoát Zen' : 'Zen Mode'}</span>
+          </button>
+
           {/* NÚT MỞ DASHBOARD */}
           <button
             onClick={() => setShowDashboardModal(true)}
@@ -4614,21 +4757,21 @@ export default function App() {
       )}
 
       {/* ==========================================
-          MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN DESKTOP & MOBILE)
+          MAIN 3-COLUMN WORKSPACE (HỖ TRỢ CUỘN TỰ NHIÊN TRÊN DESKTOP & MOBILE / 1 CỘT KHI BẬT ZEN MODE)
       ========================================== */}
       <div style={{
         flex: 1,
         display: isMobile ? 'flex' : 'grid',
         flexDirection: isMobile ? 'column' : undefined,
-        gridTemplateColumns: isMobile ? undefined : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px'),
+        gridTemplateColumns: isMobile ? undefined : (isZenMode ? '1fr' : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px')),
         alignItems: isMobile ? undefined : 'start',
-        padding: isMobile ? '8px 10px 88px 10px' : '12px 20px 60px 20px',
+        padding: isMobile ? '8px 10px 88px 10px' : (isZenMode ? '8px 16px 20px 16px' : '12px 20px 60px 20px'),
         gap: '12px',
         overflowY: 'visible',
         overflowX: 'hidden'
       }}>
-        {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ === */}
-        {(!isMobile || mobileTab === 'stats') && (
+        {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ (ẨN KHI BẬT ZEN MODE) === */}
+        {!isZenMode && (!isMobile || mobileTab === 'stats') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: isMobile ? 'visible' : 'hidden', width: isMobile ? '100%' : undefined }}>
           <div style={{
             backgroundColor: currentHudTheme.cardBg,
@@ -5062,6 +5205,21 @@ export default function App() {
               const isStep2Ready = solveStep === 'step2_ready_solve' && timerState === 'idle';
               const isStep3Active = solveStep === 'step3_completed';
 
+              const nextTargetFaceKey = FACE_SCAN_ORDER.find(f => !scannedFaces[f.key])?.key || null;
+              const currentRotationTip = !nextTargetFaceKey
+                ? '🎉 ĐÃ QUÉT ĐỦ 6/6 MẶT! Bấm "Xác nhận đúng r bắt đầu giải" hoặc Space để giải.'
+                : nextTargetFaceKey === 'U'
+                  ? '🎯 Bước 1: Đặt mặt Trắng (U) lên trên hướng vào Camera để quét'
+                  : nextTargetFaceKey === 'R'
+                    ? '👉 Bước 2: Xoay khối sang phải 90° để quét mặt Đỏ (R)'
+                    : nextTargetFaceKey === 'F'
+                      ? '👉 Bước 3: Xoay khối sang trái 90° để quét mặt Xanh lá (F)'
+                      : nextTargetFaceKey === 'D'
+                        ? '👉 Bước 4: Lật khối lên để quét mặt Vàng (D)'
+                        : nextTargetFaceKey === 'L'
+                          ? '👉 Bước 5: Xoay khối sang phải để quét mặt Cam (L)'
+                          : '👉 Bước 6: Xoay khối ra sau để quét mặt Xanh dương (B)';
+
               return (
                 <div style={{
                   width: '100%',
@@ -5139,6 +5297,58 @@ export default function App() {
                             ? `Quét ${scannedCount}/${targetFaceCount} mặt trước Camera`
                             : `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`)}
                       </div>
+
+                      {/* DẢI 6 MẶT VÀ HƯỚNG DẪN XOAY KHỐI TRỰC QUAN */}
+                      {solveStep === 'step1_check_scb' && (
+                        <>
+                          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', margin: '4px 0 6px 0' }}>
+                            {FACE_SCAN_ORDER.map(face => {
+                              const isScanned = Boolean(scannedFaces[face.key]);
+                              const isNext = !isScanned && face.key === nextTargetFaceKey;
+                              return (
+                                <span
+                                  key={face.key}
+                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? 'Đã lưu' : isNext ? 'Cần quét tiếp theo' : 'Chưa quét'}`}
+                                  style={{
+                                    fontSize: '0.58rem',
+                                    padding: '2px 4px',
+                                    borderRadius: '4px',
+                                    fontWeight: '800',
+                                    background: isScanned
+                                      ? '#15803d'
+                                      : isNext
+                                        ? 'rgba(56, 189, 248, 0.3)'
+                                        : 'rgba(255, 255, 255, 0.05)',
+                                    border: isScanned
+                                      ? '1px solid #4ade80'
+                                      : isNext
+                                        ? '1.5px solid #38bdf8'
+                                        : '1px solid rgba(255, 255, 255, 0.1)',
+                                    color: isScanned ? '#ffffff' : isNext ? '#38bdf8' : '#64748b',
+                                    boxShadow: isNext ? '0 0 8px rgba(56, 189, 248, 0.45)' : 'none'
+                                  }}
+                                >
+                                  {isScanned ? '✓' : isNext ? '👉' : '○'} {face.key} ({face.colorName})
+                                </span>
+                              );
+                            })}
+                          </div>
+                          <div style={{
+                            fontSize: '0.62rem',
+                            color: '#38bdf8',
+                            fontWeight: '700',
+                            background: 'rgba(56, 189, 248, 0.1)',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                            marginBottom: '6px',
+                            lineHeight: '1.3'
+                          }}>
+                            {currentRotationTip}
+                          </div>
+                        </>
+                      )}
+
                       {solveStep === 'step1_check_scb' && (
                         <div style={{ display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap' }}>
                           <button
@@ -5167,19 +5377,19 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
-                            title="Đổi chế độ quét 3 mặt hoặc 6 mặt"
+                            title="Đổi chế độ quét 3 mặt (Nhanh) hoặc 6 mặt (Chuẩn WCA & Kociemba)"
                             style={{
                               padding: '5px 8px',
                               borderRadius: '6px',
                               background: 'rgba(15, 23, 42, 0.7)',
                               border: '1px solid #475569',
-                              color: '#94a3b8',
+                              color: targetFaceCount === 6 ? '#38bdf8' : '#94a3b8',
                               fontSize: '0.62rem',
                               fontWeight: '700',
                               cursor: 'pointer'
                             }}
                           >
-                            {targetFaceCount === 6 ? '⚡ 6M' : '⚡ 3M'}
+                            {targetFaceCount === 6 ? '🛡️ 6 Mặt' : '⚡ 3 Mặt'}
                           </button>
                         </div>
                       )}
@@ -5244,7 +5454,54 @@ export default function App() {
                                   ? `Đã giải xong (${(timeMs / 1000).toFixed(2)}s)`
                                   : 'Cần xác nhận bước 1'}
                       </div>
-                      {isStep2Ready && (
+
+                      {/* BỘ ĐIỀU KHIỂN BƯỚC GIẢI KOCIEMBA TRỰC QUAN NGAY TẠI BƯỚC 2 */}
+                      {(isStep2Ready || isStep2Active) && activeKociembaResult?.success && activeMovesList.length > 0 && (
+                        <div style={{
+                          marginTop: '6px',
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          background: 'rgba(6, 26, 17, 0.9)',
+                          border: '1px solid rgba(34, 197, 94, 0.35)'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '0.64rem', fontWeight: '800', color: '#4ade80' }}>
+                              ⚡ Kociemba ({activeMovesList.length}b)
+                            </span>
+                            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>
+                              Bước {kociembaCurrentStep + 1}/{activeMovesList.length}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                            <span style={{
+                              fontSize: '1.15rem',
+                              fontWeight: '900',
+                              color: '#22c55e',
+                              fontFamily: 'monospace',
+                              padding: '1px 6px',
+                              background: 'rgba(34, 197, 94, 0.15)',
+                              borderRadius: '4px',
+                              border: '1px solid #22c55e'
+                            }}>
+                              {activeMovesList[kociembaCurrentStep] || '...'}
+                            </span>
+                            <span style={{ fontSize: '0.64rem', color: '#cbd5e1', lineHeight: '1.2' }}>
+                              {getMoveExplanationVi(activeMovesList[kociembaCurrentStep])}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                            <button type="button" onClick={() => setKociembaCurrentStep(0)} title="Về bước đầu" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>⏮</button>
+                            <button type="button" onClick={() => setKociembaCurrentStep(p => Math.max(0, p - 1))} title="Bước trước" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>◀</button>
+                            <button type="button" onClick={() => setKociembaIsPlaying(p => !p)} title="Tự động chạy từng bước" style={{ padding: '2px 7px', borderRadius: '4px', background: kociembaIsPlaying ? '#f59e0b' : '#16a34a', border: '1px solid #22c55e', color: '#fff', fontSize: '0.58rem', fontWeight: '800', cursor: 'pointer' }}>
+                              {kociembaIsPlaying ? '⏸ Dừng' : '▶️ Tự chạy'}
+                            </button>
+                            <button type="button" onClick={() => setKociembaCurrentStep(p => Math.min(activeMovesList.length - 1, p + 1))} title="Bước tiếp" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>▶</button>
+                            <button type="button" onClick={() => setKociembaCurrentStep(activeMovesList.length - 1)} title="Đến bước cuối" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>⏭</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isStep2Ready && (!activeKociembaResult?.success || activeMovesList.length === 0) && (
                         <div style={{ marginTop: '6px' }}>
                           <button
                             type="button"
@@ -6068,25 +6325,31 @@ export default function App() {
                   border: model3DVerification.verified ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid #16223b'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Lưới 2D đối chiếu nhanh */}
+                    {/* Lưới 2D đối chiếu nhanh - Cho phép click từng ô để sửa màu trực quan */}
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px')})`,
-                      gap: currentDim >= 6 ? '1.5px' : '2px',
+                      gridTemplateColumns: `repeat(${currentDim}, ${currentDim >= 6 ? '11px' : (currentDim >= 4 ? '14px' : '18px')})`,
+                      gap: currentDim >= 6 ? '2px' : '3px',
                       background: '#020617',
-                      padding: '4px',
-                      borderRadius: '6px',
-                      border: '1px solid #1e293b',
+                      padding: '5px',
+                      borderRadius: '8px',
+                      border: '1.5px solid #1e293b',
                       flexShrink: 0
                     }}>
                       {detectedColors.map((colorKey, i) => (
                         <div
                           key={i}
+                          onClick={() => handleCycleStickerColor(i)}
+                          title={`Ô ${i + 1}: ${COLOR_DEFINITIONS[colorKey]?.name || colorKey} (Click để đổi màu nếu camera nhận sai do lóa sáng)`}
                           style={{
-                            width: currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px'),
-                            height: currentDim >= 6 ? '9px' : (currentDim >= 4 ? '12px' : '15px'),
-                            borderRadius: '2px',
-                            backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#1e293b'
+                            width: currentDim >= 6 ? '11px' : (currentDim >= 4 ? '14px' : '18px'),
+                            height: currentDim >= 6 ? '11px' : (currentDim >= 4 ? '14px' : '18px'),
+                            borderRadius: '3px',
+                            backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || '#1e293b',
+                            cursor: 'pointer',
+                            border: '1px solid rgba(255, 255, 255, 0.35)',
+                            transition: 'all 0.15s ease',
+                            boxShadow: 'inset 0 0 2px rgba(0,0,0,0.5)'
                           }}
                         />
                       ))}
@@ -6098,6 +6361,9 @@ export default function App() {
                       </div>
                       <div style={{ color: '#94a3b8', fontSize: '0.64rem' }}>
                         {cameraActive ? model3DVerification.detailText : 'Bật Cam để AI bám theo khối Rubik & phân tích lên mô hình 3D.'}
+                      </div>
+                      <div style={{ color: '#38bdf8', fontSize: '0.58rem', marginTop: '2px', fontStyle: 'italic' }}>
+                        💡 Click trực tiếp vào ô để sửa màu nếu bị lóa đèn
                       </div>
                     </div>
                   </div>
@@ -7046,8 +7312,8 @@ export default function App() {
         </div>
         )}
 
-        {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
-        {gameMode !== 'solo' && (!isMobile || mobileTab === 'leaderboard') && (
+        {/* === CỘT PHẢI: BẢNG XẾP HẠNG (ẨN KHI BẬT ZEN MODE) === */}
+        {!isZenMode && gameMode !== 'solo' && (!isMobile || mobileTab === 'leaderboard') && (
         <div
           id="rubik-leaderboard-section"
           style={{
