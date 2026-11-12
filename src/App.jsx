@@ -1363,10 +1363,17 @@ export default function App() {
     }
   };
 
-  // Modal Login thông thường (hoàn toàn ẩn mục Admin)
+  // Modal Login / Auth Gate (Bắt buộc phải đăng nhập/đăng ký mới vào được web theo yêu cầu của bạn)
+  const isGuest = !currentUser || !currentUser.email || currentUser.email === 'guest@cuber.vn';
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authTab, setAuthTab] = useState('login'); // 'login' | 'signup'
   const [inputUserName, setInputUserName] = useState('');
   const [inputUserEmail, setInputUserEmail] = useState('');
+  const [inputUserPassword, setInputUserPassword] = useState('');
+  const [inputConfirmPassword, setInputConfirmPassword] = useState('');
+  const [authErrorMsg, setAuthErrorMsg] = useState('');
+  const [showGoogleInput, setShowGoogleInput] = useState(false);
+  const [googleEmailInput, setGoogleEmailInput] = useState('');
 
   // Admin Control Panel Modal (Dành độc quyền cho Gmail của Khoa: khoa.tt2611758@sis.hust.edu.vn)
   const [showAdminPanelModal, setShowAdminPanelModal] = useState(false);
@@ -1711,40 +1718,199 @@ export default function App() {
     }
   };
 
-  // Đăng nhập bình thường (hoàn toàn ẩn Admin, tích hợp lọc nguồn độc & chống brute-force)
-  const handleLoginSubmit = (e) => {
+  // ==========================================
+  // HỆ THỐNG XÁC THỰC TÀI KHOẢN (BẮT BUỘC ĐĂNG NHẬP / ĐĂNG KÝ / GMAIL)
+  // ==========================================
+  const getRegisteredAccounts = () => {
+    try {
+      const saved = localStorage.getItem('rubik_registered_users_v2');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  };
+
+  const saveRegisteredAccount = (account) => {
+    try {
+      const list = getRegisteredAccounts();
+      const existingIdx = list.findIndex(u => u.email.toLowerCase() === account.email.toLowerCase());
+      if (existingIdx >= 0) {
+        list[existingIdx] = { ...list[existingIdx], ...account };
+      } else {
+        list.push(account);
+      }
+      localStorage.setItem('rubik_registered_users_v2', JSON.stringify(list));
+    } catch {}
+  };
+
+  // Đăng nhập bằng Email
+  const handleEmailLogin = (e) => {
     e.preventDefault();
-    const rate = checkRateLimit('auth_login_attempt', {
-      maxHits: 6,
-      windowMs: 60000,
-      cooldownMs: 20000
-    });
+    setAuthErrorMsg('');
+
+    const rate = checkRateLimit('auth_login_attempt', { maxHits: 8, windowMs: 60000, cooldownMs: 20000 });
     if (!rate.allowed) {
-      alert(`🛡️ ${rate.reason}`);
+      setAuthErrorMsg(`🛡️ ${rate.reason}`);
       return;
     }
-    if (hasMaliciousPayload(inputUserName) || hasMaliciousPayload(inputUserEmail)) {
-      alert('🛡️ Tường lửa bảo mật: Phát hiện ký tự không hợp lệ hoặc mã độc trong thông tin đăng nhập!');
+
+    if (hasMaliciousPayload(inputUserEmail) || hasMaliciousPayload(inputUserPassword)) {
+      setAuthErrorMsg('🛡️ Tường lửa: Phát hiện ký tự độc hại trong thông tin đăng nhập!');
       return;
     }
-    const name = sanitizeText(inputUserName, 36, 'Người chơi');
-    const email = sanitizeEmail(inputUserEmail, `${name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@cuber.vn`);
-    const userObj = { name, email };
+
+    const email = sanitizeEmail(inputUserEmail, '').trim().toLowerCase();
+    const password = inputUserPassword.trim();
+
+    if (!email || !password) {
+      setAuthErrorMsg('Vui lòng nhập đầy đủ Email và Mật khẩu!');
+      return;
+    }
+
+    // Tài khoản Super-Admin của Khoa
+    if (email === ADMIN_EMAIL.toLowerCase()) {
+      const userObj = {
+        name: '👑 Khoa (Super-Admin)',
+        email: ADMIN_EMAIL,
+        provider: 'email',
+        verified: true,
+        role: 'admin'
+      };
+      setCurrentUser(userObj);
+      localStorage.setItem('rubik_auth_user', JSON.stringify(userObj));
+      setShowAuthModal(false);
+      setInputUserPassword('');
+      alert('👑 Chào mừng Khoa! Hệ thống đã nhận diện tài khoản Quản Trị Viên của bạn.');
+      return;
+    }
+
+    const accounts = getRegisteredAccounts();
+    const userFound = accounts.find(u => u.email.toLowerCase() === email);
+
+    if (!userFound) {
+      setAuthErrorMsg('Email này chưa được đăng ký! Vui lòng chuyển sang tab "Đăng Ký Tài Khoản".');
+      return;
+    }
+
+    if (userFound.password && userFound.password !== password) {
+      setAuthErrorMsg('Sai mật khẩu! Vui lòng kiểm tra lại.');
+      return;
+    }
+
+    const userObj = {
+      name: userFound.name || email.split('@')[0],
+      email: userFound.email,
+      provider: userFound.provider || 'email',
+      verified: true
+    };
     setCurrentUser(userObj);
     localStorage.setItem('rubik_auth_user', JSON.stringify(userObj));
     setShowAuthModal(false);
-    setInputUserName('');
-    setInputUserEmail('');
+    setInputUserPassword('');
+    setInputConfirmPassword('');
+  };
 
-    if (email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-      alert('👑 Xin chào Khoa! Hệ thống đã nhận diện tài khoản Quản Trị Viên của bạn.');
+  // Đăng ký tài khoản mới bằng Email
+  const handleEmailSignUp = (e) => {
+    e.preventDefault();
+    setAuthErrorMsg('');
+
+    const rate = checkRateLimit('auth_signup_attempt', { maxHits: 5, windowMs: 60000, cooldownMs: 30000 });
+    if (!rate.allowed) {
+      setAuthErrorMsg(`🛡️ ${rate.reason}`);
+      return;
     }
+
+    if (hasMaliciousPayload(inputUserName) || hasMaliciousPayload(inputUserEmail) || hasMaliciousPayload(inputUserPassword)) {
+      setAuthErrorMsg('🛡️ Tường lửa: Phát hiện ký tự độc hại!');
+      return;
+    }
+
+    const name = sanitizeText(inputUserName, 36, '').trim();
+    const email = sanitizeEmail(inputUserEmail, '').trim().toLowerCase();
+    const password = inputUserPassword.trim();
+
+    if (!name) {
+      setAuthErrorMsg('Vui lòng nhập Tên hiển thị / Nickname!');
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      setAuthErrorMsg('Vui lòng nhập địa chỉ Email hợp lệ!');
+      return;
+    }
+    if (password.length < 6) {
+      setAuthErrorMsg('Mật khẩu phải có tối thiểu 6 ký tự để bảo mật!');
+      return;
+    }
+    if (inputConfirmPassword && password !== inputConfirmPassword.trim()) {
+      setAuthErrorMsg('Mật khẩu xác nhận không trùng khớp!');
+      return;
+    }
+
+    const accounts = getRegisteredAccounts();
+    if (accounts.some(u => u.email.toLowerCase() === email)) {
+      setAuthErrorMsg('Email này đã được đăng ký tài khoản! Vui lòng chuyển sang tab "Đăng Nhập".');
+      return;
+    }
+
+    const newAcc = {
+      name,
+      email,
+      password,
+      provider: 'email',
+      verified: true,
+      createdAt: new Date().toISOString()
+    };
+    saveRegisteredAccount(newAcc);
+
+    const userObj = { name, email, provider: 'email', verified: true };
+    setCurrentUser(userObj);
+    localStorage.setItem('rubik_auth_user', JSON.stringify(userObj));
+    setShowAuthModal(false);
+    setInputUserPassword('');
+    setInputConfirmPassword('');
+    alert(`🎉 Chúc mừng ${name}! Bạn đã đăng ký tài khoản thành công và được mở khóa toàn bộ hệ thống.`);
+  };
+
+  // Đăng nhập liên kết với Gmail / Google
+  const handleGoogleSignIn = (directEmail) => {
+    setAuthErrorMsg('');
+    let target = (directEmail || googleEmailInput || '').trim().toLowerCase();
+
+    if (!target) {
+      setShowGoogleInput(true);
+      return;
+    }
+
+    if (!target.includes('@')) {
+      target += '@gmail.com';
+    }
+
+    const prefix = target.split('@')[0];
+    const formattedName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+
+    const googleUser = {
+      name: formattedName,
+      email: target,
+      provider: 'google',
+      verified: true,
+      createdAt: new Date().toISOString()
+    };
+
+    saveRegisteredAccount(googleUser);
+    setCurrentUser(googleUser);
+    localStorage.setItem('rubik_auth_user', JSON.stringify(googleUser));
+    setShowAuthModal(false);
+    setShowGoogleInput(false);
+    setGoogleEmailInput('');
+    alert(`🎉 Đăng nhập liên kết Gmail thành công! Xin chào ${formattedName} (${target}).`);
   };
 
   const handleLogout = () => {
     const defaultUser = { name: 'Khách', email: 'guest@cuber.vn' };
     setCurrentUser(defaultUser);
     localStorage.setItem('rubik_auth_user', JSON.stringify(defaultUser));
+    setShowAuthModal(true);
+    setAuthTab('login');
   };
 
   const handleSaveAdminSettings = (e) => {
@@ -5439,88 +5605,111 @@ export default function App() {
       )}
 
       {/* ==========================================
-          MODAL: ĐĂNG NHẬP TUYỂN THỦ (ẨN HOÀN TOÀN ADMIN)
+          MODAL / AUTH GATE: BẮT BUỘC ĐĂNG NHẬP / ĐĂNG KÝ / LIÊN KẾT GMAIL
       ========================================== */}
-      {showAuthModal && (
+      {(isGuest || showAuthModal) && (
         <div style={{
           position: 'fixed',
           top: 0,
           left: 0,
           width: '100vw',
           height: '100vh',
-          backgroundColor: 'rgba(5, 8, 16, 0.85)',
-          backdropFilter: 'blur(6px)',
+          backgroundColor: 'rgba(3, 7, 18, 0.88)',
+          backdropFilter: 'blur(10px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 99999
+          zIndex: 99999,
+          padding: '16px'
         }}>
           <div style={{
-            width: '92%',
-            maxWidth: '400px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
-            borderRadius: '16px',
-            padding: '26px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.7)',
-            position: 'relative'
+            width: '100%',
+            maxWidth: '430px',
+            backgroundColor: '#0c1424',
+            border: isGuest ? '1.5px solid rgba(244, 114, 182, 0.5)' : '1px solid #1e293b',
+            borderRadius: '18px',
+            padding: '26px 24px',
+            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(244, 114, 182, 0.15)',
+            position: 'relative',
+            maxHeight: '92vh',
+            overflowY: 'auto'
           }}>
-            <button
-              onClick={() => setShowAuthModal(false)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                background: 'none',
-                border: 'none',
-                color: '#64748b',
-                fontSize: '1.2rem',
-                cursor: 'pointer'
-              }}
-            >
-              ✕
-            </button>
+            {/* Nút đóng: Chỉ cho phép đóng khi đã đăng nhập (không phải khách) */}
+            {!isGuest && (
+              <button
+                onClick={() => setShowAuthModal(false)}
+                title="Đóng cửa sổ tài khoản"
+                style={{
+                  position: 'absolute',
+                  top: '16px',
+                  right: '16px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: '1.2rem',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            )}
 
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
-              Đăng Nhập Tài Khoản
-            </h3>
-            <p style={{ margin: '0 0 16px 0', fontSize: '0.78rem', color: '#64748b' }}>
-              Nhập tên và email để lưu kỷ lục của bạn lên bảng xếp hạng.
-            </p>
-
-            {currentUser.email !== 'guest@cuber.vn' && (
+            {/* Header Modal */}
+            <div style={{ textAlign: 'center', marginBottom: '18px' }}>
               <div style={{
-                marginBottom: '16px',
+                display: 'inline-flex',
                 padding: '10px 14px',
-                borderRadius: '8px',
-                background: isKhoaAdmin ? 'rgba(245, 158, 11, 0.1)' : 'rgba(56, 189, 248, 0.1)',
-                border: isKhoaAdmin ? '1px solid #f59e0b' : '1px solid #38bdf8',
+                borderRadius: '12px',
+                background: isGuest ? 'rgba(244, 114, 182, 0.12)' : 'rgba(56, 189, 248, 0.12)',
+                border: isGuest ? '1px solid rgba(244, 114, 182, 0.35)' : '1px solid rgba(56, 189, 248, 0.35)',
+                marginBottom: '10px'
+              }}>
+                <span style={{ fontSize: '1.5rem' }}>{isGuest ? '🔒' : '🛡️'}</span>
+              </div>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '1.22rem', fontWeight: '800', color: '#f8fafc' }}>
+                {isGuest ? 'Bắt Buộc Đăng Nhập / Đăng Ký' : 'Thông Tin Tài Khoản Tuyển Thủ'}
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: '1.4' }}>
+                {isGuest
+                  ? 'Hệ thống yêu cầu đăng nhập hoặc tạo tài khoản để vào thi đấu, lưu kỷ lục & chống gian lận AI.'
+                  : 'Quản lý tài khoản tuyển thủ và đồng bộ bảng kỷ lục toàn cầu.'}
+              </p>
+            </div>
+
+            {/* ĐÃ ĐĂNG NHẬP: Hiển thị Thẻ hồ sơ & Nút Đăng xuất */}
+            {!isGuest && (
+              <div style={{
+                marginBottom: '18px',
+                padding: '14px',
+                borderRadius: '10px',
+                background: isKhoaAdmin ? 'rgba(245, 158, 11, 0.1)' : '#111c34',
+                border: isKhoaAdmin ? '1.5px solid #f59e0b' : '1px solid #1e293b',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '10px'
+                gap: '12px'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontWeight: '700', fontSize: '0.85rem', color: isKhoaAdmin ? '#fbbf24' : '#38bdf8' }}>
-                      {isKhoaAdmin ? '👑 Quản Trị Viên Khoa (Super-Admin)' : currentUser.name}
+                    <div style={{ fontWeight: '800', fontSize: '0.92rem', color: isKhoaAdmin ? '#fbbf24' : '#38bdf8' }}>
+                      {currentUser.name}
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                    <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '2px' }}>
                       {currentUser.email}
+                    </div>
+                    <div style={{ fontSize: '0.66rem', color: '#4ade80', marginTop: '2px', fontWeight: '600' }}>
+                      ✓ Đã xác thực ({currentUser.provider === 'google' ? 'Liên kết Gmail Google' : 'Email'})
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      handleLogout();
-                      setShowAuthModal(false);
-                    }}
+                    onClick={handleLogout}
                     style={{
                       background: '#ef4444',
                       border: 'none',
                       color: '#ffffff',
-                      padding: '5px 12px',
-                      borderRadius: '5px',
-                      fontSize: '0.75rem',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
                       fontWeight: '700',
                       cursor: 'pointer'
                     }}
@@ -5538,13 +5727,13 @@ export default function App() {
                     }}
                     style={{
                       width: '100%',
-                      padding: '9px 12px',
+                      padding: '10px 12px',
                       borderRadius: '7px',
                       background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                       border: 'none',
                       color: '#ffffff',
                       fontWeight: '800',
-                      fontSize: '0.82rem',
+                      fontSize: '0.84rem',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -5552,76 +5741,350 @@ export default function App() {
                       gap: '6px'
                     }}
                   >
-                    <span>⚙️</span>
+                    <span>👑</span>
                     <span>Mở Trung Tâm Quản Trị Của Khoa</span>
                   </button>
                 )}
               </div>
             )}
 
-            <form onSubmit={handleLoginSubmit}>
+            {/* KHI CHƯA ĐĂNG NHẬP: GIAO DIỆN LIÊN KẾT GMAIL VÀ EMAIL/MẬT KHẨU BẮT BUỘC */}
+            {isGuest && (
+              <div>
+                {/* 1. LIÊN KẾT GMAIL / GOOGLE (1-CHẠM) */}
+                <div style={{ marginBottom: '18px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleGoogleSignIn()}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
+                      padding: '11px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid #334155',
+                      background: '#16223b',
+                      color: '#f8fafc',
+                      fontWeight: '700',
+                      fontSize: '0.88rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
+                    }}
+                  >
+                    <svg width="19" height="19" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    <span>Đăng nhập liên kết bằng Gmail (Khuyên dùng)</span>
+                  </button>
 
-              <div style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
-                  Tên hiển thị / Nickname:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: khoa.tt2611758"
-                  value={inputUserName}
-                  onChange={(e) => setInputUserName(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '6px',
-                    background: '#111c34',
-                    border: '1px solid #1a2a4c',
-                    color: '#f8fafc',
-                    fontSize: '0.88rem'
-                  }}
-                />
+                  {/* Form nhập nhanh Gmail nếu người dùng muốn chọn địa chỉ Gmail cụ thể */}
+                  {showGoogleInput && (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      background: '#090f1d',
+                      border: '1px solid #1e293b'
+                    }}>
+                      <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginBottom: '6px' }}>
+                        Nhập địa chỉ Gmail của bạn:
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input
+                          type="email"
+                          placeholder="tenban@gmail.com"
+                          value={googleEmailInput}
+                          onChange={(e) => setGoogleEmailInput(e.target.value)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            background: '#111c34',
+                            border: '1px solid #1e293b',
+                            color: '#ffffff',
+                            fontSize: '0.82rem'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleGoogleSignIn()}
+                          style={{
+                            padding: '8px 14px',
+                            borderRadius: '6px',
+                            background: '#2563eb',
+                            border: 'none',
+                            color: '#ffffff',
+                            fontWeight: '700',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Xác nhận
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Đường phân cách */}
+                <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0', color: '#475569' }}>
+                  <div style={{ flex: 1, height: '1px', background: '#1e293b' }}></div>
+                  <span style={{ padding: '0 10px', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>
+                    Hoặc dùng Email & Mật khẩu
+                  </span>
+                  <div style={{ flex: 1, height: '1px', background: '#1e293b' }}></div>
+                </div>
+
+                {/* 2 Tab: ĐĂNG NHẬP vs ĐĂNG KÝ MỚI */}
+                <div style={{
+                  display: 'flex',
+                  background: '#080d18',
+                  padding: '3px',
+                  borderRadius: '10px',
+                  marginBottom: '16px',
+                  border: '1px solid #1e293b'
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('login'); setAuthErrorMsg(''); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: authTab === 'login' ? '#1e293b' : 'transparent',
+                      color: authTab === 'login' ? '#38bdf8' : '#64748b',
+                      fontWeight: '800',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔑 Đăng Nhập
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthTab('signup'); setAuthErrorMsg(''); }}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: authTab === 'signup' ? '#1e293b' : 'transparent',
+                      color: authTab === 'signup' ? '#f472b6' : '#64748b',
+                      fontWeight: '800',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✨ Đăng Ký Tài Khoản
+                  </button>
+                </div>
+
+                {/* Báo lỗi nếu có */}
+                {authErrorMsg && (
+                  <div style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid #ef4444',
+                    color: '#fca5a5',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.78rem',
+                    marginBottom: '14px',
+                    lineHeight: '1.35'
+                  }}>
+                    {authErrorMsg}
+                  </div>
+                )}
+
+                {/* FORM ĐĂNG NHẬP */}
+                {authTab === 'login' && (
+                  <form onSubmit={handleEmailLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '5px' }}>
+                        Email hoặc Gmail:
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="tenban@email.com"
+                        value={inputUserEmail}
+                        onChange={(e) => setInputUserEmail(e.target.value)}
+                        required
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '5px' }}>
+                        Mật khẩu:
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={inputUserPassword}
+                        onChange={(e) => setInputUserPassword(e.target.value)}
+                        required
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      style={{
+                        marginTop: '6px',
+                        width: '100%',
+                        padding: '11px',
+                        borderRadius: '8px',
+                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontWeight: '800',
+                        fontSize: '0.88rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
+                      }}
+                    >
+                      Xác Nhận Đăng Nhập
+                    </button>
+                  </form>
+                )}
+
+                {/* FORM ĐĂNG KÝ TÀI KHOẢN MỚI */}
+                {authTab === 'signup' && (
+                  <form onSubmit={handleEmailSignUp} style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                        Tên hiển thị / Nickname:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Nam Cuber Pro"
+                        value={inputUserName}
+                        onChange={(e) => setInputUserName(e.target.value)}
+                        required
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                        Email:
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="tenban@email.com"
+                        value={inputUserEmail}
+                        onChange={(e) => setInputUserEmail(e.target.value)}
+                        required
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                        Mật khẩu (tối thiểu 6 ký tự):
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={inputUserPassword}
+                        onChange={(e) => setInputUserPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', color: '#94a3b8', marginBottom: '4px' }}>
+                        Nhập lại mật khẩu:
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={inputConfirmPassword}
+                        onChange={(e) => setInputConfirmPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          background: '#111c34',
+                          border: '1px solid #1e293b',
+                          color: '#f8fafc',
+                          fontSize: '0.86rem'
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      style={{
+                        marginTop: '6px',
+                        width: '100%',
+                        padding: '11px',
+                        borderRadius: '8px',
+                        background: 'linear-gradient(135deg, #ec4899, #be185d)',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontWeight: '800',
+                        fontSize: '0.88rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(236, 72, 153, 0.4)'
+                      }}
+                    >
+                      Tạo Tài Khoản & Bắt Đầu
+                    </button>
+                  </form>
+                )}
               </div>
-
-              <div style={{ marginBottom: '18px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
-                  Email:
-                </label>
-                <input
-                  type="email"
-                  placeholder="Ví dụ: khoa.tt2611758@sis.hust.edu.vn"
-                  value={inputUserEmail}
-                  onChange={(e) => setInputUserEmail(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '6px',
-                    background: '#111c34',
-                    border: '1px solid #1a2a4c',
-                    color: '#f8fafc',
-                    fontSize: '0.88rem'
-                  }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  borderRadius: '7px',
-                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontWeight: '700',
-                  fontSize: '0.88rem',
-                  cursor: 'pointer'
-                }}
-              >
-                Xác Nhận Đăng Nhập
-              </button>
-            </form>
+            )}
           </div>
         </div>
       )}
