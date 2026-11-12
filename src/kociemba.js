@@ -1,4 +1,4 @@
-import Cube from 'cubejs';
+import Cube from './kociemba-core.js';
 
 let isInitialized = false;
 

@@ -1669,14 +1669,23 @@ export default function App() {
 
   // Bộ giải Kociemba Two-Phase Algorithm (~20 bước tối ưu)
   const [showKociembaModal, setShowKociembaModal] = useState(false);
+  const [kociembaOptimal, setKociembaOptimal] = useState(null);
 
   useEffect(() => {
-    initKociembaSolver();
-  }, []);
-
-  const kociembaOptimal = useMemo(() => {
-    if (puzzleType !== '3x3' || !scramble) return null;
-    return solveWithKociemba(scramble);
+    if (puzzleType !== '3x3' || !scramble) {
+      setKociembaOptimal(null);
+      return;
+    }
+    // Trì hoãn tính toán để React hoàn thành mount DOM 60 FPS mà không bị khựng đơ main thread
+    const timer = setTimeout(() => {
+      try {
+        const res = solveWithKociemba(scramble);
+        setKociembaOptimal(res);
+      } catch (err) {
+        console.warn('Kociemba solver warning:', err);
+      }
+    }, 120);
+    return () => clearTimeout(timer);
   }, [scramble, puzzleType]);
 
   // Cho phép giải tự do (Freestyle) khi người dùng xáo khác công thức Scramble đề bài
