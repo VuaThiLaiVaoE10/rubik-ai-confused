@@ -1730,11 +1730,33 @@ export default function App() {
 
   // Xác nhận đúng SCB và chuyển sang Bước 2 (Mở khóa đồng hồ)
   const confirmScrambleAndReady = useCallback(() => {
-    setPreCheckStatus(prev => ({
-      ...prev,
+    const verifiedStatus = {
       verified: true,
-      text: '🟢 ĐÃ XÁC NHẬN SCB ĐÚNG — Đã mở khóa đồng hồ! Sẵn sàng bấm giờ giải.'
-    }));
+      text: '🟢 ĐÃ XÁC NHẬN SCB ĐÚNG — Đã mở khóa đồng hồ! Sẵn sàng bấm giờ giải.',
+      isScrambled: true,
+      isMismatch: false,
+      scrambleMatchRate: 100
+    };
+    setPreCheckStatus(prev => ({ ...prev, ...verifiedStatus }));
+    preCheckRef.current = { ...(preCheckRef.current || {}), ...verifiedStatus };
+    setScrambleAudit({ isMatch: true, isMismatch: false, matchRate: 100, isPending: false });
+    scrambleAuditRef.current = { isMatch: true, isMismatch: false, matchRate: 100, isPending: false };
+    setModel3DVerification({
+      verified: true,
+      badgeText: '🟢 ĐÃ XÁC NHẬN BƯỚC 2',
+      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCB — SẴN SÀNG GIẢI',
+      detailText: 'Mô hình 3D và Đồng hồ đã được mở khóa hoàn toàn. Giữ phím Space hoặc chạm màn hình để giải ngay!',
+      facesCount: 3,
+      validStickers: 9
+    });
+    model3DVerificationRef.current = {
+      verified: true,
+      badgeText: '🟢 ĐÃ XÁC NHẬN BƯỚC 2',
+      statusTitle: '🟢 ĐÃ XÁC NHẬN ĐÚNG SCB — SẴN SÀNG GIẢI',
+      detailText: 'Mô hình 3D và Đồng hồ đã được mở khóa hoàn toàn. Giữ phím Space hoặc chạm màn hình để giải ngay!',
+      facesCount: 3,
+      validStickers: 9
+    };
     lastCubeVerifiedAtRef.current = performance.now();
     startScrambledRef.current = true;
     setAllowFreestyleScramble(true);
@@ -2866,6 +2888,7 @@ export default function App() {
   }, []);
   const animFrameRef = useRef(null);
   const prevColorsRef = useRef(null);
+  const lastDetectedColorUpdateRef = useRef(0);
   const lastMoveTimeRef = useRef(0);
   const trackedMovesRef = useRef([]);
   const cameraActiveRef = useRef(false);
@@ -3690,9 +3713,11 @@ export default function App() {
         const sharpAdjacentEdges = bestRegion.sharpAdjacentEdges;
         const gridSeamContrast = bestRegion.gridSeamContrast;
 
-        // TỐI ƯU HÓA RENDER: Chỉ gọi setDetectedColors khi mảng màu thực sự có sự thay đổi
+        // TỐI ƯU HÓA RENDER: Điều tiết tần suất cập nhật màu nhận diện để triệt tiêu hiện tượng nháy giật
         const colorsChanged = !prevColorsRef.current || currentNxNColors.some((c, i) => c !== prevColorsRef.current[i]);
-        if (colorsChanged) {
+        const nowMs = performance.now();
+        if (colorsChanged && nowMs - (lastDetectedColorUpdateRef.current || 0) >= 120) {
+          lastDetectedColorUpdateRef.current = nowMs;
           setDetectedColors(currentNxNColors);
           prevColorsRef.current = [...currentNxNColors];
         }
@@ -3735,6 +3760,19 @@ export default function App() {
           // Người chơi đang ở Bước 3 (Hoàn thành) -> Giữ nguyên màn hình kết quả, không ghi đè trạng thái quét dở
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
+        }
+
+        // KHI NGƯỜI CHƠI ĐÃ Ở BƯỚC 2 ('step2_ready_solve'):
+        // Đã xác nhận Scramble đúng rồi -> KHÓA ỔN ĐỊNH TOÀN BỘ TRẠNG THÁI PRE-CHECK!
+        // Triệt tiêu 100% hiện tượng ghi đè verified: false gây nháy giật giao diện.
+        if (solveStepRef.current === 'step2_ready_solve') {
+          if (timerStateRef.current === 'running') {
+            // Đang giải: Tiếp tục theo dõi nhịp xoay & phát hiện hoàn thành tự động ở bên dưới
+          } else {
+            // Đang chờ bấm giờ: Giữ ổn định giao diện, không chạy lại PreCheck hay ghi đè trạng thái
+            animFrameRef.current = requestAnimationFrame(processFrame);
+            return;
+          }
         }
 
         if (!hasCubeSignal || validColorsCount < minStickersRequired) {
