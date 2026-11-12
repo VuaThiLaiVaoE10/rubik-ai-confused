@@ -5799,6 +5799,8 @@ export default function App() {
 
                       {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK (Spider-Web Ray Casting HUD) */}
                       <svg
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
                         style={{
                           position: 'absolute',
                           top: 0,
@@ -5816,7 +5818,7 @@ export default function App() {
                               const ringPoints = trackingBox.spiderRays.map(r => {
                                 const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
                                 const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                                return `${rx}%,${ry}%`;
+                                return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
                               }).join(' ');
                               return (
                                 <polygon
@@ -5833,10 +5835,10 @@ export default function App() {
                             {trackingBox.spiderRays.map((r, i) => (
                               <line
                                 key={i}
-                                x1={`${trackingBox.cxPct}%`}
-                                y1={`${trackingBox.cyPct}%`}
-                                x2={`${r.xPct}%`}
-                                y2={`${r.yPct}%`}
+                                x1={trackingBox.cxPct}
+                                y1={trackingBox.cyPct}
+                                x2={r.xPct}
+                                y2={r.yPct}
                                 stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                                 strokeWidth="0.8"
                               />
@@ -5845,12 +5847,12 @@ export default function App() {
                         ) : (
                           /* Lưới mạng nhện radar ở chế độ quét tìm */
                           <g opacity="0.5">
-                            <circle cx="50%" cy="50%" r="20%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                            <circle cx="50%" cy="50%" r="38%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                            <line x1="50%" y1="10%" x2="50%" y2="90%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="10%" y1="50%" x2="90%" y2="50%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                            <line x1="22%" y1="22%" x2="78%" y2="78%" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
-                            <line x1="78%" y1="22%" x2="22%" y2="78%" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
+                            <circle cx="50" cy="50" r="20" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                            <circle cx="50" cy="50" r="38" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                            <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="22" y1="22" x2="78" y2="78" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
+                            <line x1="78" y1="22" x2="22" y2="78" stroke={currentHudTheme.color} strokeWidth="0.5" strokeDasharray="2,2" />
                           </g>
                         )}
                       </svg>
@@ -6173,6 +6175,8 @@ export default function App() {
 
                 {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK */}
                 <svg
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -6189,7 +6193,7 @@ export default function App() {
                         const ringPoints = trackingBox.spiderRays.map(r => {
                           const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
                           const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
-                          return `${rx}%,${ry}%`;
+                          return `${Number(rx.toFixed(2))},${Number(ry.toFixed(2))}`;
                         }).join(' ');
                         return (
                           <polygon
@@ -6205,10 +6209,10 @@ export default function App() {
                       {trackingBox.spiderRays.map((r, i) => (
                         <line
                           key={i}
-                          x1={`${trackingBox.cxPct}%`}
-                          y1={`${trackingBox.cyPct}%`}
-                          x2={`${r.xPct}%`}
-                          y2={`${r.yPct}%`}
+                          x1={trackingBox.cxPct}
+                          y1={trackingBox.cyPct}
+                          x2={r.xPct}
+                          y2={r.yPct}
                           stroke={trackingBox.isLocked ? currentHudTheme.rayLockedColor : currentHudTheme.rayColor}
                           strokeWidth="0.8"
                         />
@@ -6216,9 +6220,9 @@ export default function App() {
                     </>
                   ) : (
                     <g opacity="0.5">
-                      <circle cx="50%" cy="50%" r="22%" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
-                      <line x1="50%" y1="10%" x2="50%" y2="90%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
-                      <line x1="10%" y1="50%" x2="90%" y2="50%" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                      <circle cx="50" cy="50" r="22" fill="none" stroke={currentHudTheme.color} strokeWidth="0.8" strokeDasharray="3,3" />
+                      <line x1="50" y1="10" x2="50" y2="90" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
+                      <line x1="10" y1="50" x2="90" y2="50" stroke={currentHudTheme.color} strokeWidth="0.6" strokeDasharray="2,2" />
                     </g>
                   )}
                 </svg>
