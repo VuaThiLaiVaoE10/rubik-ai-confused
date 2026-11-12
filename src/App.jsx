@@ -2007,6 +2007,9 @@ export default function App() {
     localStorage.setItem('rubik_hud_theme', nextKey);
   };
 
+  // Trạng thái hiển thị Scramble & Bước đi: Mặc định ẩn khi chưa giải theo yêu cầu của bạn, chỉ tự động hiện ra khi bắt đầu giải
+  const [showScrambleManual, setShowScrambleManual] = useState(false);
+
   // Trạng thái bám đuổi chuyển động (Dynamic Object Tracking Box) & Lưới Mạng Nhện Hitbox Rubik
   const [trackingBox, setTrackingBox] = useState({
     leftPct: 23,
@@ -3596,37 +3599,120 @@ export default function App() {
               </div>
             )}
 
-            {gameMode !== 'solo' && (
-            <div style={{ width: '100%', textAlign: 'center' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
-                  SCRAMBLE {PUZZLE_CONFIGS[puzzleType]?.name}
-                </span>
-                <button
-                  onClick={() => setScramble(generateScramble(puzzleType))}
-                  style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.78rem' }}
-                >
-                  🔄 Đổi
-                </button>
-              </div>
+            {gameMode !== 'solo' && (() => {
+              const isSolving = timerState === 'running' || timerState === 'inspecting' || timerState === 'ready' || timerState === 'holding' || linger3D;
+              const shouldShowScramble = isSolving || showScrambleManual;
 
-              <div style={{
-                fontSize: (puzzleType === '6x6' || puzzleType === '7x7') ? '0.82rem' : (puzzleType === '5x5' ? '0.9rem' : (puzzleType === '4x4' ? '1.02rem' : '1.15rem')),
-                fontWeight: '700',
-                lineHeight: 1.4,
-                color: '#cbd5e1',
-                fontFamily: 'monospace',
-                padding: '8px 12px',
-                background: '#090f1d',
-                borderRadius: '8px',
-                border: '1px solid #16223b',
-                maxHeight: '72px',
-                overflowY: 'auto'
-              }}>
-                {scramble}
-              </div>
-            </div>
-            )}
+              if (!shouldShowScramble) {
+                return (
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowScrambleManual(true)}
+                      title="Bấm để mở xem công thức Scramble hoặc đổi đề bài"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 14px',
+                        borderRadius: '20px',
+                        background: 'rgba(9, 15, 29, 0.85)',
+                        border: '1px dashed #334155',
+                        color: '#94a3b8',
+                        fontSize: '0.72rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        backdropFilter: 'blur(6px)',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <span>📜 Các bước & Scramble (Đang ẩn — Tự hiện khi bấm giờ giải)</span>
+                      <span style={{ color: currentHudTheme.color, fontWeight: '700' }}>[👁 Mở xem]</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ width: '100%', textAlign: 'center', marginBottom: '8px' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      color: isSolving ? currentHudTheme.color : '#64748b',
+                      fontWeight: '800',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <span>{isSolving ? '⚡' : '📜'}</span>
+                      <span>
+                        {timerState === 'running'
+                          ? `CÁC BƯỚC ĐÃ ĐI (${trackedMoves.length}) • ${PUZZLE_CONFIGS[puzzleType]?.name}`
+                          : `SCRAMBLE ${PUZZLE_CONFIGS[puzzleType]?.name}`}
+                      </span>
+                    </span>
+                    {!isSolving && (
+                      <button
+                        onClick={() => setScramble(generateScramble(puzzleType))}
+                        style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.78rem' }}
+                        title="Đổi công thức xáo trộn khác"
+                      >
+                        🔄 Đổi
+                      </button>
+                    )}
+                    {!isSolving && (
+                      <button
+                        type="button"
+                        onClick={() => setShowScrambleManual(false)}
+                        style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer', fontSize: '0.72rem', fontWeight: '700', marginLeft: '4px' }}
+                        title="Ẩn công thức đi"
+                      >
+                        🙈 Ẩn lại
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{
+                    fontSize: (puzzleType === '6x6' || puzzleType === '7x7') ? '0.82rem' : (puzzleType === '5x5' ? '0.9rem' : (puzzleType === '4x4' ? '1.02rem' : '1.15rem')),
+                    fontWeight: '700',
+                    lineHeight: 1.4,
+                    color: timerState === 'running' ? '#4ade80' : '#cbd5e1',
+                    fontFamily: 'monospace',
+                    padding: '8px 12px',
+                    background: timerState === 'running' ? 'rgba(6, 26, 17, 0.90)' : '#090f1d',
+                    borderRadius: '8px',
+                    border: timerState === 'running' ? '1.5px solid #22c55e' : `1px solid ${currentHudTheme.color}`,
+                    boxShadow: timerState === 'running' ? '0 0 16px rgba(34, 197, 94, 0.35)' : `0 0 10px ${currentHudTheme.glowColor}`,
+                    maxHeight: '74px',
+                    overflowY: 'auto'
+                  }}>
+                    {timerState === 'running' ? (
+                      trackedMoves.length > 0 ? (
+                        <div>
+                          <div style={{ color: '#4ade80', fontWeight: '800', letterSpacing: '1px' }}>
+                            {trackedMoves.join(' ')}
+                          </div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: '3px', fontWeight: '500' }}>
+                            Đề bài Scramble: {scramble}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ color: '#38bdf8', fontSize: '0.92rem' }}>
+                            ⚡ Đang theo dõi các bước xoay qua Camera AI...
+                          </div>
+                          <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: '3px', fontWeight: '500' }}>
+                            Đề bài Scramble: {scramble}
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      scramble
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {gameMode === 'solo' ? (
