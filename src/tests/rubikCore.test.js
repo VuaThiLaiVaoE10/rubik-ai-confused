@@ -26,6 +26,8 @@ import {
   getRankTier
 } from '../utils/cloudBackend';
 import { calculateAo } from '../utils/timerStats';
+import { isSoundMuted, setSoundMuted, playSoundEffect } from '../utils/soundEngine';
+import { buildScrambledFaces } from '../components/Rubik3DView';
 
 describe('WCA Scramble Generator & Config', () => {
   it('generates valid scrambles for 2x2 through 7x7 without consecutive same-face moves', () => {
@@ -183,5 +185,23 @@ describe('Security Shield & ELO Ranking', () => {
     const solves = [{ time: 8.0 }, { time: 10.0 }, { time: 11.0 }, { time: 12.0 }, { time: 20.0 }];
     expect(calculateAo(solves, 5)).toBe('11.00');
     expect(calculateAo(solves.slice(0, 3), 5)).toBe('--');
+  });
+
+  it('persists sound mute state and safely skips Web Audio when unavailable or muted', () => {
+    setSoundMuted(true);
+    expect(isSoundMuted()).toBe(true);
+    expect(playSoundEffect('click')).toBe(false);
+    setSoundMuted(false);
+    expect(isSoundMuted()).toBe(false);
+  });
+
+  it('conserves exact per-color sticker counts when building 3D scrambled cube faces', () => {
+    const faces = buildScrambledFaces(3, "R U R' U' F2 L D' B2");
+    const counts = { white: 0, yellow: 0, red: 0, orange: 0, green: 0, blue: 0 };
+    for (const f of ['U', 'D', 'F', 'B', 'L', 'R']) {
+      expect(faces[f].length).toBe(9);
+      for (const col of faces[f]) counts[col]++;
+    }
+    expect(counts).toEqual({ white: 9, yellow: 9, red: 9, orange: 9, green: 9, blue: 9 });
   });
 });

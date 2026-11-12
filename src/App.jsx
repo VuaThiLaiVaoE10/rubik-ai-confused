@@ -60,6 +60,7 @@ import {
   calibrateWebcamFrameBuffer
 } from './vision/rubikVision';
 import { calculateAo } from './utils/timerStats';
+import { playSoundEffect, isSoundMuted, setSoundMuted } from './utils/soundEngine';
 
 export default function App() {
   // ==========================================
@@ -157,37 +158,19 @@ export default function App() {
     };
   }, []);
 
-  // Web Audio sound synthesizer for responsive feedback
-  const playAppSound = useCallback((type) => {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+  // Shared singleton Web Audio sound synthesizer (zero AudioContext hardware leak + mute toggle)
+  const [soundMutedState, setSoundMutedState] = useState(() => isSoundMuted());
+  const toggleSoundMute = useCallback(() => {
+    setSoundMutedState((prev) => {
+      const next = !prev;
+      setSoundMuted(next);
+      if (!next) playSoundEffect('click');
+      return next;
+    });
+  }, []);
 
-      if (type === 'ready') {
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-        gain.gain.setValueAtTime(0.12, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.15);
-      } else if (type === 'start') {
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2);
-      } else if (type === 'stop') {
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.08);
-      }
-    } catch {}
+  const playAppSound = useCallback((type) => {
+    playSoundEffect(type);
   }, []);
 
   // Cổng chống bot thông minh (Zero-Friction cho người chơi thật, chặn tự động với Bot/Macro/Spam)
@@ -1898,6 +1881,28 @@ export default function App() {
 
   // ANTI-BOT & ANTI-FAKE OBJECT (STRICT 3-STAGE RUBIK CUBE VERIFICATION)
   const [showHumanCheck, setShowHumanCheck] = useState(false);
+  const isBlockingModalOpenRef = useRef(false);
+  useEffect(() => {
+    isBlockingModalOpenRef.current = Boolean(
+      showAuthModal ||
+      showAdminPanelModal ||
+      showDashboardModal ||
+      showKociembaModal ||
+      showNewBoardModal ||
+      show3DPreviewModal ||
+      showThemeMenu ||
+      showHumanCheck
+    );
+  }, [
+    showAuthModal,
+    showAdminPanelModal,
+    showDashboardModal,
+    showKociembaModal,
+    showNewBoardModal,
+    show3DPreviewModal,
+    showThemeMenu,
+    showHumanCheck
+  ]);
   const behaviorRef = useRef(createBehaviorTracker());
   const startScrambledRef = useRef(false);
   const holdStartTsRef = useRef(0);
@@ -2248,7 +2253,8 @@ export default function App() {
 
     const handleKeyDown = (e) => {
       if (!e.isTrusted) return; // chặn phím giả lập (dispatchEvent) từ bot
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT') return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
 
       const currentState = timerStateRef.current;
       const currentMode = gameModeRef.current;
@@ -2290,7 +2296,10 @@ export default function App() {
 
       if (e.key === 'Escape') {
         setIsZenMode(false);
+        setShowThemeMenu(false);
       }
+
+      if (isBlockingModalOpenRef.current) return;
 
       // Phím C: Chụp lưu mặt Rubik hiện tại trên camera (giống file quet_rubik_6_mat.py)
       if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C') && cameraActiveRef.current && currentState === 'idle') {
@@ -3798,7 +3807,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) */}
+          {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) + TẮT/BẬT ÂM THANH */}
           <button
             type="button"
             onClick={toggleFxEnabled}
@@ -3820,6 +3829,28 @@ export default function App() {
             }}
           >
             <span>{isFxEnabled ? '✨ FX: Bật' : '💤 FX: Tắt'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleSoundMute}
+            title={soundMutedState ? 'Bấm để BẬT lại âm thanh Timer & AI' : 'Bấm để TẮT âm thanh'}
+            style={{
+              padding: isMobile ? '5px 8px' : '6px 10px',
+              borderRadius: '6px',
+              border: soundMutedState ? '1px solid #475569' : '1px solid rgba(56, 189, 248, 0.45)',
+              background: soundMutedState ? 'rgba(15, 23, 42, 0.75)' : 'rgba(56, 189, 248, 0.12)',
+              color: soundMutedState ? '#94a3b8' : '#7dd3fc',
+              fontWeight: '800',
+              fontSize: isMobile ? '0.74rem' : '0.78rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <span>{soundMutedState ? '🔇' : '🔊'}</span>
           </button>
 
           {/* NÚT BỘ GIẢI KOCIEMBA */}

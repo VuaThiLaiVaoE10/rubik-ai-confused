@@ -194,6 +194,7 @@ export default function Rubik3DView({
   const cubeGroupRef = useRef(null);
   const controlsRef = useRef(null);
   const [spinMode, setSpinMode] = useState(autoSpin360);
+  const [webglFailed, setWebglFailed] = useState(false);
   const spinModeRef = useRef(autoSpin360);
 
   // Tính toán trạng thái 6 mặt đã xáo trộn (chưa giải) làm nền mặc định cho Mô hình 3D
@@ -231,7 +232,20 @@ export default function Rubik3DView({
     const container = mountRef.current;
     if (!container) return;
 
-    // 1. Scene, Camera, Renderer
+    const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
+    const mem = typeof navigator !== 'undefined' ? (navigator.deviceMemory || 8) : 8;
+    const isLowSpecGpu = cores <= 4 || mem <= 4;
+
+    // 1. Scene, Camera, Renderer (với tự hạ tải cho GPU/CPU yếu & bắt lỗi an toàn)
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: !isLowSpecGpu, alpha: true, powerPreference: 'default' });
+    } catch {
+      setWebglFailed(true);
+      return undefined;
+    }
+    setWebglFailed(false);
+
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
@@ -239,9 +253,8 @@ export default function Rubik3DView({
     camera.position.set(dim * 1.45, dim * 1.15, dim * 2.55);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isLowSpecGpu ? 1.2 : 1.75));
     renderer.domElement.style.touchAction = 'none';
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
@@ -452,21 +465,25 @@ export default function Rubik3DView({
 
     faceMaterialsRef.current = matsByFace;
 
-    // 6. Animation Loop: Real-time 3D Motion Tracking & Gentle Oscillation
+    // 6. Animation Loop: Real-time 3D Motion Tracking & Auto Low-Spec GPU Pacing
     let animId;
     let isDragging = false;
     let clock = 0;
+    let lastRenderTs = 0;
 
     controls.addEventListener('start', () => { isDragging = true; });
     controls.addEventListener('end', () => { isDragging = false; });
 
-    const animate = () => {
+    const animate = (now = 0) => {
       animId = requestAnimationFrame(animate);
-      clock += 0.02;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (isLowSpecGpu && !isDragging && now - lastRenderTs < 32) return;
+      lastRenderTs = now;
+      clock += isLowSpecGpu ? 0.036 : 0.02;
 
       if (!isDragging && cubeGroupRef.current) {
         if (spinModeRef.current) {
-          cubeGroupRef.current.rotation.y += 0.008;
+          cubeGroupRef.current.rotation.y += isLowSpecGpu ? 0.014 : 0.008;
         } else {
           const curFace = activeFaceRef.current || 'F';
           const baseEuler = FACE_EULER_ANGLES[curFace] || FACE_EULER_ANGLES.F;
@@ -497,15 +514,20 @@ export default function Rubik3DView({
       controls.update();
       renderer.render(scene, camera);
     };
-    animate();
+    animId = requestAnimationFrame(animate);
 
     return () => {
       cancelAnimationFrame(animId);
       controls.dispose();
-      renderer.dispose();
       coreGeom.dispose();
       stickerGeom.dispose();
       edgesGeom.dispose();
+      coreMat.dispose();
+      edgesMat.dispose();
+      Object.values(matsByFace).forEach((arr) => {
+        arr.forEach((m) => m && m.dispose());
+      });
+      renderer.dispose();
       if (container) container.innerHTML = '';
     };
   }, [dim, width, height, surfaceProfile]);
@@ -629,6 +651,23 @@ export default function Rubik3DView({
       }}
     >
       <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' }} />
+      {webglFailed && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '12px',
+          textAlign: 'center',
+          color: '#94a3b8',
+          fontSize: '0.72rem'
+        }}>
+          <div style={{ fontSize: '1.4rem', marginBottom: '4px' }}>🧊</div>
+          <div>Trình duyệt đang tắt WebGL — AI vẫn quét Camera và giải bình thường.</div>
+        </div>
+      )}
 
       {/* Top-Left Live Badge */}
       <div

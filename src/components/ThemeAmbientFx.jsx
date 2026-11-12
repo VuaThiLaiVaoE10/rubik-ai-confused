@@ -296,13 +296,20 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
 
+    const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
+    const mem = typeof navigator !== 'undefined' ? (navigator.deviceMemory || 8) : 8;
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isLowSpecFx = cores <= 4 || mem <= 4 || prefersReducedMotion;
+
     let animId = 0;
-    let dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    let lastRenderTs = 0;
+    const maxDpr = isLowSpecFx ? 1 : 1.5;
+    let dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     let width = window.innerWidth;
     let height = window.innerHeight;
 
     const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
       width = window.innerWidth;
       height = window.innerHeight;
       canvas.width = Math.floor(width * dpr);
@@ -311,11 +318,11 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     };
     resize();
 
-    const MAX_PARTICLES = 96;
-    const MAX_BOLTS = 4;
-    const MAX_METEORS = 5;
-    const MAX_SHOCKWAVES = 4;
-    const MAX_CRACKS = 48;
+    const MAX_PARTICLES = isLowSpecFx ? 48 : 96;
+    const MAX_BOLTS = isLowSpecFx ? 2 : 4;
+    const MAX_METEORS = isLowSpecFx ? 3 : 5;
+    const MAX_SHOCKWAVES = isLowSpecFx ? 2 : 4;
+    const MAX_CRACKS = isLowSpecFx ? 24 : 48;
     const CLICK_COOLDOWN_MS = 180;
     const MOVE_COOLDOWN_MS = 28;
     let lastClickBurstTs = 0;
@@ -783,6 +790,11 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         animId = requestAnimationFrame(render);
         return;
       }
+      if (isLowSpecFx && now - lastRenderTs < 32) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
+      lastRenderTs = now;
       const time = (now - startTs) * 0.001;
       ctx.clearRect(0, 0, width, height);
 
