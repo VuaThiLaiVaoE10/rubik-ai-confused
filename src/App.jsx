@@ -1469,7 +1469,16 @@ export default function App() {
     return localStorage.getItem('rubik_game_mode') || 'free';
   });
 
-  const [targetSeconds, setTargetSeconds] = useState(15);
+  const [targetSeconds, setTargetSeconds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rubik_target_sub_custom');
+      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+        return Number(saved);
+      }
+    } catch {}
+    return 15;
+  });
+  const [customSubInput, setCustomSubInput] = useState('');
   const [lastTargetResult, setLastTargetResult] = useState(null);
 
   const [inspectionSeconds, setInspectionSeconds] = useState(15);
@@ -3630,26 +3639,135 @@ export default function App() {
             </div>
 
             {gameMode === 'target' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#94a3b8' }}>
-                <span>Mục tiêu Sub:</span>
-                {[10, 15, 20, 30].map(sec => (
-                  <button
-                    key={sec}
-                    onClick={() => setTargetSeconds(sec)}
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      border: targetSeconds === sec ? '1px solid #38bdf8' : '1px solid #1e293b',
-                      background: targetSeconds === sec ? '#1e3a8a' : '#111c34',
-                      color: targetSeconds === sec ? '#ffffff' : '#94a3b8',
-                      fontSize: '0.72rem',
-                      cursor: 'pointer',
-                      fontWeight: '700'
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '6px',
+                background: '#0a101f',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                border: '1px solid #1a2a4c',
+                maxWidth: '100%'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.78rem',
+                  color: '#94a3b8',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center'
+                }}>
+                  <span style={{ fontWeight: '700', color: '#cbd5e1' }}>Mục tiêu Sub:</span>
+                  {[10, 15, 20, 30].map(sec => (
+                    <button
+                      key={sec}
+                      type="button"
+                      onClick={() => {
+                        setTargetSeconds(sec);
+                        localStorage.setItem('rubik_target_sub_custom', String(sec));
+                      }}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        border: targetSeconds === sec ? '1.5px solid #38bdf8' : '1px solid #1e293b',
+                        background: targetSeconds === sec ? '#1e3a8a' : '#111c34',
+                        color: targetSeconds === sec ? '#ffffff' : '#94a3b8',
+                        fontSize: '0.74rem',
+                        cursor: 'pointer',
+                        fontWeight: '700',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      Sub-{sec}s
+                    </button>
+                  ))}
+
+                  {/* Hiển thị mốc tự nhập nếu không phải 10, 15, 20, 30 */}
+                  {![10, 15, 20, 30].includes(targetSeconds) && (
+                    <span style={{
+                      padding: '3px 9px',
+                      borderRadius: '5px',
+                      border: '1.5px solid #f59e0b',
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      color: '#fbbf24',
+                      fontSize: '0.74rem',
+                      fontWeight: '800'
+                    }}>
+                      ⭐ Sub-{targetSeconds}s (Tự chọn)
+                    </span>
+                  )}
+
+                  {/* Ô NHẬP RIÊNG MỤC TIÊU SUB THEO Ý MUỐN ĐỂ MỌI NGƯỜI CÙNG BIẾT */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const num = parseFloat(customSubInput);
+                      if (!isNaN(num) && num > 0 && num < 3600) {
+                        setTargetSeconds(num);
+                        localStorage.setItem('rubik_target_sub_custom', String(num));
+                        setCustomSubInput('');
+                      } else {
+                        alert('Vui lòng nhập số giây hợp lệ (Ví dụ: 8, 12, 14.5, 25...)');
+                      }
                     }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}
                   >
-                    Sub-{sec}s
-                  </button>
-                ))}
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      max="3600"
+                      placeholder="Tự nhập giây"
+                      value={customSubInput}
+                      onChange={(e) => setCustomSubInput(e.target.value)}
+                      style={{
+                        width: '90px',
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: '#111c34',
+                        border: '1px solid #334155',
+                        color: '#f8fafc',
+                        fontSize: '0.74rem',
+                        outline: 'none',
+                        fontWeight: '600'
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontSize: '0.72rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Đặt
+                    </button>
+                  </form>
+                </div>
+
+                {/* DÒNG CÔNG KHAI MỤC TIÊU ĐỂ MỌI NGƯỜI BIẾT */}
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 10px',
+                  borderRadius: '6px',
+                  background: 'rgba(245, 158, 11, 0.10)',
+                  border: '1px solid rgba(245, 158, 11, 0.28)',
+                  color: '#fbbf24',
+                  fontSize: '0.72rem',
+                  fontWeight: '700'
+                }}>
+                  <span>🎯</span>
+                  <span>Mục tiêu của <strong>{currentUser.name}</strong>: Thách đấu phá mốc <strong>Sub-{targetSeconds}s</strong> ({PUZZLE_CONFIGS[puzzleType]?.name})</span>
+                </div>
               </div>
             )}
 
@@ -4879,7 +4997,9 @@ export default function App() {
                 background: lastTargetResult === 'win' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
                 color: lastTargetResult === 'win' ? '#4ade80' : '#ef4444'
               }}>
-                {lastTargetResult === 'win' ? `🎉 CHIẾN THẮNG! Đạt mục tiêu Sub-${targetSeconds}s!` : `Chưa đạt Sub-${targetSeconds}s, cố lên!`}
+                {lastTargetResult === 'win'
+                  ? `🎉 CHIẾN THẮNG! ${currentUser.name} đã xuất sắc đạt mục tiêu Sub-${targetSeconds}s!`
+                  : `⚡ Chưa đạt mốc Sub-${targetSeconds}s, tuyển thủ ${currentUser.name} hãy cố gắng thêm nhé!`}
               </div>
             )}
           </div>
