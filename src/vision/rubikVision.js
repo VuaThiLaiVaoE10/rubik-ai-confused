@@ -62,15 +62,58 @@ export const OPENCV_MAT = [
 
 export const OPENCV_TEN_MAU = ['Đỏ', 'Cam', 'Vàng', 'Xanh lá', 'Xanh dương', 'Trắng'];
 
-// Nhận diện 6 màu Rubik bằng ngưỡng HSV trong OpenCV (chuẩn 100% từ quet_rubik_6_mat.py)
-export function nhanDienMauOpenCv(hsv) {
+// Tạo chuỗi cấu hình Camera giảm dần (Progressive Fallback) để mọi webcam đời cũ,
+// laptop cũ hoặc trình duyệt không hỗ trợ facingMode/HD vẫn kết nối thành công 100%.
+export function buildCameraConstraintFallbacks(facingMode = 'user', lowSpecMode = false) {
+  const preferred = lowSpecMode
+    ? { width: { ideal: 480, max: 640 }, height: { ideal: 360, max: 480 }, frameRate: { ideal: 18, max: 24 } }
+    : { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } };
+
+  return [
+    { ...preferred, facingMode },
+    { width: { ideal: 480 }, height: { ideal: 360 }, facingMode },
+    { facingMode },
+    true
+  ];
+}
+
+// Khôi phục tương phản & bù sáng siêu tốc bằng bảng tra 256 mức (LUT) cho webcam cũ bị mờ, tối hoặc ám xám.
+export function enhanceLowLightRgbaBuffer(data, avgBrightness, contrast) {
+  if (!data || data.length === 0) return false;
+  if (avgBrightness >= 82 && contrast >= 62) return false;
+
+  const lut = new Uint8ClampedArray(256);
+  const darkFloor = avgBrightness < 55 ? 8 : 14;
+  const gamma = avgBrightness < 55 ? 0.68 : 0.78;
+  const span = Math.max(55, 255 - darkFloor * 2);
+
+  for (let i = 0; i < 256; i++) {
+    const norm = Math.max(0, Math.min(1, (i - darkFloor) / span));
+    lut[i] = Math.round(Math.pow(norm, gamma) * 255);
+  }
+
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = lut[data[i]];
+    data[i + 1] = lut[data[i + 1]];
+    data[i + 2] = lut[data[i + 2]];
+  }
+  return true;
+}
+
+// Nhận diện 6 màu Rubik bằng ngưỡng HSV trong OpenCV (có hỗ trợ bù sáng cho cam đời cũ)
+export function nhanDienMauOpenCv(hsv, lowLightMode = false) {
   const h = Math.round(hsv.h);
   const s = Math.round(hsv.s);
   const v = Math.round(hsv.v);
 
-  if (v < 45) return '?';
-  if (s < 60 && v >= 140) return 'Trắng';
-  if (s < 60) return '?';
+  const minV = lowLightMode ? 28 : 45;
+  const minColorS = lowLightMode ? 42 : 60;
+  const whiteMaxS = lowLightMode ? 68 : 60;
+  const whiteMinV = lowLightMode ? 104 : 140;
+
+  if (v < minV) return '?';
+  if (s < whiteMaxS && v >= whiteMinV) return 'Trắng';
+  if (s < minColorS) return '?';
   if (h <= 8 || h >= 170) return 'Đỏ';
   if (h >= 9 && h <= 22) return 'Cam';
   if (h >= 23 && h <= 35) return 'Vàng';
@@ -274,7 +317,7 @@ export function removeUvSpecularGlare(r, g, b, surfaceProfileKey = 'auto') {
 // HỆ MÀU HSV CHUẨN OPENCV (HUE: 0..179, SATURATION: 0..255, VALUE: 0..255)
 // KHỚP 100% VỚI THUẬT TOÁN PYTHON OPENCV (nhan_dien_mau & lay_mau_trung_vi)
 // ==========================================
-export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0, surfaceProfileKey = 'auto', precomputedHsv = null) {
+export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0, surfaceProfileKey = 'auto', precomputedHsv = null, lowLightMode = false) {
   const maxAllowedStd = 65 + motionTolerance;
   if (cellStdDev > maxAllowedStd) return 'invalid';
 
@@ -284,18 +327,23 @@ export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTol
   const s = Math.round(hsv.s);
   const v = Math.round(hsv.v);
 
+  const minV = lowLightMode ? 28 : 45;
+  const minColorS = lowLightMode ? 42 : 60;
+  const whiteMaxS = lowLightMode ? 68 : 60;
+  const whiteMinV = lowLightMode ? 104 : 140;
+
   // 1. Quá tối (bóng tối, rãnh khối, viền đen) -> '?'
-  if (v < 45) {
+  if (v < minV) {
     return 'invalid';
   }
 
-  // 2. MÀU TRẮNG (Trang): s < 60 và v >= 140
-  if (s < 60 && v >= 140) {
+  // 2. MÀU TRẮNG (Trang): s < whiteMaxS và v >= whiteMinV
+  if (s < whiteMaxS && v >= whiteMinV) {
     return 'white';
   }
 
   // 3. Độ bão hòa quá thấp (tường mờ, xám, ánh đèn nhạt) -> '?'
-  if (s < 60) {
+  if (s < minColorS) {
     return 'invalid';
   }
 

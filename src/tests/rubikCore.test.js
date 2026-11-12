@@ -8,7 +8,10 @@ import {
 import {
   classifyRubikStickerCell,
   classifyCenterStickerFallback,
-  rgbToOpenCvHsv
+  rgbToOpenCvHsv,
+  nhanDienMauOpenCv,
+  buildCameraConstraintFallbacks,
+  enhanceLowLightRgbaBuffer
 } from '../vision/rubikVision';
 import {
   sanitizeText,
@@ -90,6 +93,36 @@ describe('Computer Vision HSV Color Classifier', () => {
     expect(classifyCenterStickerFallback(40, 190, 70)).toBe('green');
     const hsv = rgbToOpenCvHsv(0, 0, 255);
     expect(Math.round(hsv.h)).toBe(120);
+  });
+
+  it('provides progressive camera constraint fallbacks including low-spec presets', () => {
+    const stdList = buildCameraConstraintFallbacks('environment', false);
+    const lowList = buildCameraConstraintFallbacks('user', true);
+    expect(stdList.length).toBeGreaterThanOrEqual(4);
+    expect(lowList.length).toBeGreaterThanOrEqual(4);
+    expect(stdList[stdList.length - 1]).toBe(true);
+    expect(lowList[lowList.length - 1]).toBe(true);
+    expect(lowList[0].width.ideal).toBeLessThanOrEqual(480);
+    expect(lowList[0].frameRate.max).toBeLessThanOrEqual(24);
+  });
+
+  it('enhances dim/low-contrast buffers via LUT while leaving bright frames untouched', () => {
+    const bright = new Uint8ClampedArray([200, 180, 160, 255, 60, 120, 220, 255]);
+    expect(enhanceLowLightRgbaBuffer(bright, 140, 120)).toBe(false);
+    expect(bright[0]).toBe(200);
+
+    const dim = new Uint8ClampedArray([20, 60, 25, 255, 45, 30, 20, 255]);
+    const beforeGreen = dim[1];
+    expect(enhanceLowLightRgbaBuffer(dim, 42, 30)).toBe(true);
+    expect(dim[1]).toBeGreaterThan(beforeGreen);
+    expect(dim[3]).toBe(255);
+  });
+
+  it('recovers dim OpenCV and sticker cell colors only when lowLightMode is enabled', () => {
+    expect(nhanDienMauOpenCv({ h: 60, s: 75, v: 36 }, false)).toBe('?');
+    expect(nhanDienMauOpenCv({ h: 60, s: 75, v: 36 }, true)).toBe('Xanh lá');
+    expect(classifyRubikStickerCell(28, 75, 32, 6, 0, 'auto', null, true)).toBe('green');
+    expect(classifyRubikStickerCell(15, 15, 15, 6, 0, 'auto', null, true)).toBe('invalid');
   });
 });
 

@@ -55,7 +55,9 @@ import {
   classifyRubikStickerCell,
   classifyCenterStickerFallback,
   evaluateRubikGridCandidate,
-  locateDynamicRubikBox
+  locateDynamicRubikBox,
+  buildCameraConstraintFallbacks,
+  enhanceLowLightRgbaBuffer
 } from './vision/rubikVision';
 import { calculateAo } from './utils/timerStats';
 
@@ -379,6 +381,46 @@ export default function App() {
     }
   }, [playAppSound]);
 
+  // Mở Camera an toàn với Progressive Fallback (hỗ trợ webcam đời cũ, USB cam, máy cấu hình yếu)
+  const openCameraStreamWithFallback = async (facingMode, lowSpecMode) => {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error('Trình duyệt chưa hỗ trợ WebRTC Camera hoặc trang không chạy HTTPS/localhost.');
+    }
+    const candidates = buildCameraConstraintFallbacks(facingMode, lowSpecMode);
+    let lastError = null;
+    for (const videoConstraint of candidates) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+      } catch (err) {
+        lastError = err;
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          throw err;
+        }
+      }
+    }
+    // Dự phòng cuối: dò danh sách thiết bị vật lý qua enumerateDevices (chữa lỗi driver cam cũ)
+    if (navigator.mediaDevices.enumerateDevices) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+        for (const dev of videoDevices) {
+          if (!dev.deviceId) continue;
+          try {
+            return await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: dev.deviceId } },
+              audio: false
+            });
+          } catch (err) {
+            lastError = err;
+          }
+        }
+      } catch {
+        // bỏ qua nếu enumerateDevices bị chặn
+      }
+    }
+    throw lastError || new Error('Không tìm thấy thiết bị Camera khả dụng.');
+  };
+
   // Flip Camera between Front (user) and Back (environment)
   const flipCamera = async () => {
     const nextMode = cameraFacingMode === 'user' ? 'environment' : 'user';
@@ -389,11 +431,12 @@ export default function App() {
       }
       try {
         setPreCheckStatus(prev => ({ ...prev, text: 'Đang chuyển camera...' }));
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: nextMode }
-        });
+        const stream = await openCameraStreamWithFallback(nextMode, isLowSpecCamRef.current);
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
         setPreCheckStatus(prev => ({ ...prev, text: 'Đã đổi camera thành công!' }));
       } catch (err) {
         console.error('Lỗi đổi camera:', err);
@@ -1763,6 +1806,24 @@ export default function App() {
   const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
+  // Chế độ tối ưu Camera cho máy đời cũ / cấu hình yếu (tự bật nếu CPU <= 4 luồng hoặc RAM <= 4GB)
+  const [isLowSpecCam, setIsLowSpecCam] = useState(() => {
+    const saved = localStorage.getItem('rubik_low_spec_cam');
+    if (saved === 'true' || saved === 'false') return saved === 'true';
+    const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 8) : 8;
+    const mem = typeof navigator !== 'undefined' ? (navigator.deviceMemory || 8) : 8;
+    return cores <= 4 || mem <= 4;
+  });
+  const isLowSpecCamRef = useRef(isLowSpecCam);
+  const lastCvDurationRef = useRef(0);
+  const toggleLowSpecCam = () => {
+    setIsLowSpecCam((prev) => {
+      const next = !prev;
+      isLowSpecCamRef.current = next;
+      localStorage.setItem('rubik_low_spec_cam', String(next));
+      return next;
+    });
+  };
   // Chế độ hiển thị 3D: mặc định 'always' để khi di chuyển khối trước Camera luôn phân tích trực tiếp lên mô hình 3D
   const [show3DMode, setShow3DMode] = useState(() => localStorage.getItem('rubik_3d_mode_v2') || 'always');
   const [linger3D, setLinger3D] = useState(false);
@@ -2364,20 +2425,29 @@ export default function App() {
       setLastMoveDetected('');
     } else {
       try {
-        setPreCheckStatus(prev => ({ ...prev, text: 'Đang kết nối camera...' }));
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: cameraFacingMode }
-        });
+        setPreCheckStatus(prev => ({ ...prev, text: 'Đang kết nối camera (tự tối ưu độ phân giải)...' }));
+        const stream = await openCameraStreamWithFallback(cameraFacingMode, isLowSpecCamRef.current);
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
         setCameraActive(true);
       } catch (err) {
         setCameraActive(false);
         cameraHealthRef.current = false;
-        setCameraHealth({ isHealthy: false, reason: 'Không thể mở camera: ' + err.message, brightness: 0, contrast: 0 });
+        let friendlyErr = 'Không tìm thấy camera hoặc lỗi phần cứng';
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          friendlyErr = 'Chưa được cấp quyền Camera (hãy bấm Cho phép trên trình duyệt)';
+        } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+          friendlyErr = 'Camera đang bận ở ứng dụng khác (Zoom/Meet/tab khác)';
+        } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+          friendlyErr = 'Không tìm thấy thiết bị Camera trên máy';
+        }
+        setCameraHealth({ isHealthy: false, reason: `${friendlyErr}: ${err?.message || ''}`.trim(), brightness: 0, contrast: 0 });
         setPreCheckStatus({
           verified: false,
-          text: 'Lỗi: Không tìm thấy camera hoặc bị lỗi phần cứng',
+          text: `Lỗi: ${friendlyErr}`,
           isScrambled: false,
           centerFace: null
         });
@@ -2393,23 +2463,38 @@ export default function App() {
     const processFrame = () => {
       if (!isRunningLoop) return;
 
+      if (typeof document !== 'undefined' && document.hidden) {
+        animFrameRef.current = requestAnimationFrame(processFrame);
+        return;
+      }
+
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (video && canvas && video.readyState === 4 && video.videoWidth > 0) {
+      if (video && canvas && video.readyState >= 2 && video.videoWidth > 0) {
         const now = performance.now();
-        // KHẮC PHỤC TRIỆT ĐỂ "WEB BỊ GIẬT / LAG":
-        // Điều tiết tần số xử lý Computer Vision (CV Inference Throttling) ở ~18 FPS (mỗi 52ms)
-        // Main thread và Three.js render mượt mà 60 FPS không bị khựng đơ!
-        if (now - lastCvTimeRef.current < 52) {
+        // KHẮC PHỤC TRIỆT ĐỂ "WEB BỊ GIẬT / LAG" & TỐI ƯU MÁY ĐỜI CŨ:
+        // Tự động điều chỉnh nhịp quét (54ms ~18 FPS mặc định, 105-115ms ~9 FPS cho máy yếu hoặc khi frame trước xử lý lâu >16ms)
+        const targetInterval = isLowSpecCamRef.current
+          ? 105
+          : lastCvDurationRef.current > 16
+            ? 115
+            : 54;
+        if (now - lastCvTimeRef.current < targetInterval) {
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
         }
         lastCvTimeRef.current = now;
+        const cvStartTs = performance.now();
+
+        const rawW = video.videoWidth;
+        const rawH = video.videoHeight;
+        // Giảm độ phân giải bộ đệm phân tích CV (240px máy yếu / 320px chuẩn) giúp giảm 4-8x tải CPU & RAM trên máy cũ
+        const maxAnalysisW = isLowSpecCamRef.current ? 240 : 320;
+        const w = Math.max(120, Math.min(rawW, maxAnalysisW));
+        const h = Math.max(90, Math.round((rawH * w) / Math.max(1, rawW)));
 
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const w = video.videoWidth;
-        const h = video.videoHeight;
         if (canvas.width !== w || canvas.height !== h) {
           canvas.width = w;
           canvas.height = h;
@@ -2418,24 +2503,106 @@ export default function App() {
         ctx.drawImage(video, 0, 0, w, h);
         const frameImg = ctx.getImageData(0, 0, w, h).data;
 
+        let totalBrightness = 0;
+        const pixelStep = 16;
+        let sampledCount = 0;
+        let minVal = 255;
+        let maxVal = 0;
+
+        for (let i = 0; i < frameImg.length; i += pixelStep * 4) {
+          const lum = 0.299 * frameImg[i] + 0.587 * frameImg[i + 1] + 0.114 * frameImg[i + 2];
+          totalBrightness += lum;
+          if (lum < minVal) minVal = lum;
+          if (lum > maxVal) maxVal = lum;
+          sampledCount++;
+        }
+
+        const avgBrightness = totalBrightness / Math.max(1, sampledCount);
+        const contrast = maxVal - minVal;
+
+        let isHealthy = true;
+        let healthReason = 'Hoạt động tốt';
+
+        // Nới ngưỡng cho webcam cũ/thiếu sáng: chỉ khóa khi thực sự tối đen (<12) hoặc đơ hoàn toàn (<8)
+        if (avgBrightness < 12) {
+          isHealthy = false;
+          healthReason = 'Camera bị hỏng / tối đen';
+        } else if (contrast < 8) {
+          isHealthy = false;
+          healthReason = 'Camera bị mờ đơ / không tương phản';
+        }
+
+        const isLowLight = isHealthy && (avgBrightness < 82 || contrast < 62);
+        if (isLowLight) {
+          enhanceLowLightRgbaBuffer(frameImg, avgBrightness, contrast);
+          healthReason = 'Hoạt động tốt (💡 Tự bù sáng Cam cũ)';
+        }
+
+        cameraHealthRef.current = isHealthy;
+        const prevH = prevCameraHealthRef.current;
+        if (
+          !prevH ||
+          prevH.isHealthy !== isHealthy ||
+          prevH.reason !== healthReason ||
+          Math.abs(prevH.brightness - avgBrightness) > 8 ||
+          Math.abs(prevH.contrast - contrast) > 10
+        ) {
+          const newH = {
+            isHealthy,
+            reason: healthReason,
+            brightness: Math.round(avgBrightness),
+            contrast: Math.round(contrast)
+          };
+          prevCameraHealthRef.current = newH;
+          setCameraHealth(newH);
+        }
+
+        if (!isHealthy) {
+          const curPre = preCheckRef.current;
+          if (!curPre || curPre.verified !== false || curPre.text !== `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`) {
+            setPreCheckStatus({
+              verified: false,
+              text: `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`,
+              isScrambled: false,
+              centerFace: null
+            });
+          }
+          if (prevColorsRef.current !== null) {
+            const hasOverrides = Object.keys(manualStickerOverridesRef.current).length > 0;
+            if (hasOverrides) {
+              setDetectedColors(prev => prev.map((c, i) => manualStickerOverridesRef.current[i] || 'invalid'));
+            } else {
+              setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+            }
+            prevColorsRef.current = null;
+          }
+          lastCvDurationRef.current = performance.now() - cvStartTs;
+          animFrameRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+
         // =====================================================================
         // XỬ LÝ VẼ MÀN HÌNH QUÉT 6 MẶT OPENCV (CHUẨN 100% THEO quet_rubik_6_mat.py)
         // =====================================================================
         if (showOpenCvScannerModalRef.current && openCvCanvasRef.current) {
           const ocvCanvas = openCvCanvasRef.current;
-          if (ocvCanvas.width !== w || ocvCanvas.height !== h) {
-            ocvCanvas.width = w;
-            ocvCanvas.height = h;
+          const dispW = Math.max(320, Math.min(rawW, 640));
+          const dispH = Math.max(240, Math.round((rawH * dispW) / Math.max(1, rawW)));
+          if (ocvCanvas.width !== dispW || ocvCanvas.height !== dispH) {
+            ocvCanvas.width = dispW;
+            ocvCanvas.height = dispH;
           }
           const octx = ocvCanvas.getContext('2d');
-          octx.drawImage(video, 0, 0, w, h);
+          octx.drawImage(video, 0, 0, dispW, dispH);
 
-          // Tính kích thước ô và vị trí lưới theo vi_tri_luoi()
-          const kichThuocO = Math.max(60, Math.min(105, Math.floor((h - 180) / 3), Math.floor((w - 30) / 3)));
+          // Tính kích thước ô và vị trí lưới theo vi_tri_luoi() trên khung hiển thị nét
+          const kichThuocO = Math.max(60, Math.min(105, Math.floor((dispH - 180) / 3), Math.floor((dispW - 30) / 3)));
           const kichThuocLuoi = kichThuocO * 3;
-          const xBatDau = Math.floor((w - kichThuocLuoi) / 2);
-          const yBatDau = Math.floor((h - kichThuocLuoi) / 2) + 25;
+          const xBatDau = Math.floor((dispW - kichThuocLuoi) / 2);
+          const yBatDau = Math.floor((dispH - kichThuocLuoi) / 2) + 25;
           const le = Math.max(15, Math.floor(kichThuocO * 0.34));
+          const scaleX = w / dispW;
+          const scaleY = h / dispH;
 
           const curMat = OPENCV_MAT[openCvFaceIdxRef.current] || OPENCV_MAT[0];
           const curKey = curMat[0];
@@ -2454,14 +2621,19 @@ export default function App() {
               const x2 = x1 + kichThuocO;
               const y2 = y1 + kichThuocO;
 
-              // Vùng trung vị
+              // Vùng trung vị trên UI + ánh xạ sang bộ đệm CV (w x h)
               const vx1 = x1 + le;
               const vy1 = y1 + le;
               const vx2 = x2 - le;
               const vy2 = y2 - le;
 
-              const hsv = layMauTrungViOpenCv(frameImg, w, h, vx1, vy1, vx2, vy2);
-              const tenMau = nhanDienMauOpenCv(hsv);
+              const svx1 = Math.max(0, Math.floor(vx1 * scaleX));
+              const svy1 = Math.max(0, Math.floor(vy1 * scaleY));
+              const svx2 = Math.min(w, Math.max(svx1 + 2, Math.ceil(vx2 * scaleX)));
+              const svy2 = Math.min(h, Math.max(svy1 + 2, Math.ceil(vy2 * scaleY)));
+
+              const hsv = layMauTrungViOpenCv(frameImg, w, h, svx1, svy1, svx2, svy2);
+              const tenMau = nhanDienMauOpenCv(hsv, isLowLight);
 
               dongMau.push(tenMau);
               dongHsv.push([hsv.h, hsv.s, hsv.v]);
@@ -2506,7 +2678,7 @@ export default function App() {
 
           // OSD Header overlay (Dòng 1..3 giống quet_rubik_6_mat.py)
           octx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          octx.fillRect(0, 0, w, 56);
+          octx.fillRect(0, 0, dispW, 56);
 
           octx.font = 'bold 13px sans-serif';
           octx.fillStyle = '#38bdf8';
@@ -2528,75 +2700,6 @@ export default function App() {
           }
         }
 
-        let totalBrightness = 0;
-        const pixelStep = 16;
-        let sampledCount = 0;
-        let minVal = 255;
-        let maxVal = 0;
-
-        for (let i = 0; i < frameImg.length; i += pixelStep * 4) {
-          const lum = 0.299 * frameImg[i] + 0.587 * frameImg[i + 1] + 0.114 * frameImg[i + 2];
-          totalBrightness += lum;
-          if (lum < minVal) minVal = lum;
-          if (lum > maxVal) maxVal = lum;
-          sampledCount++;
-        }
-
-        const avgBrightness = totalBrightness / sampledCount;
-        const contrast = maxVal - minVal;
-
-        let isHealthy = true;
-        let healthReason = 'Hoạt động tốt';
-
-        if (avgBrightness < 30) {
-          isHealthy = false;
-          healthReason = 'Camera bị hỏng / tối đen';
-        } else if (contrast < 20) {
-          isHealthy = false;
-          healthReason = 'Camera bị mờ đơ / không tương phản';
-        }
-
-        cameraHealthRef.current = isHealthy;
-        const prevH = prevCameraHealthRef.current;
-        if (
-          !prevH ||
-          prevH.isHealthy !== isHealthy ||
-          Math.abs(prevH.brightness - avgBrightness) > 8 ||
-          Math.abs(prevH.contrast - contrast) > 10
-        ) {
-          const newH = {
-            isHealthy,
-            reason: healthReason,
-            brightness: Math.round(avgBrightness),
-            contrast: Math.round(contrast)
-          };
-          prevCameraHealthRef.current = newH;
-          setCameraHealth(newH);
-        }
-
-        if (!isHealthy) {
-          const curPre = preCheckRef.current;
-          if (!curPre || curPre.verified !== false || curPre.text !== `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`) {
-            setPreCheckStatus({
-              verified: false,
-              text: `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`,
-              isScrambled: false,
-              centerFace: null
-            });
-          }
-          if (prevColorsRef.current !== null) {
-            const hasOverrides = Object.keys(manualStickerOverridesRef.current).length > 0;
-            if (hasOverrides) {
-              setDetectedColors(prev => prev.map((c, i) => manualStickerOverridesRef.current[i] || 'invalid'));
-            } else {
-              setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
-            }
-            prevColorsRef.current = null;
-          }
-          animFrameRef.current = requestAnimationFrame(processFrame);
-          return;
-        }
-
         const dim = currentDim;
         const isStep1Check = solveStepRef.current === 'step1_check_scb';
 
@@ -2611,7 +2714,7 @@ export default function App() {
           // Giúp người dùng đưa từng mặt vào ngắm quét chính xác, không bị trôi lệch!
           // =========================================================================
           const minSide = Math.min(w, h);
-          smoothSize = Math.max(160, Math.min(minSide * 0.54, 280));
+          smoothSize = Math.max(Math.round(minSide * 0.44), Math.min(Math.round(minSide * 0.54), 280));
           smoothCx = w / 2;
           smoothCy = h / 2;
           const startX = Math.round(smoothCx - smoothSize / 2);
@@ -3216,6 +3319,7 @@ export default function App() {
         }
 
         prevColorsRef.current = currentNxNColors;
+        lastCvDurationRef.current = performance.now() - cvStartTs;
       }
 
       animFrameRef.current = requestAnimationFrame(processFrame);
@@ -5169,6 +5273,24 @@ export default function App() {
                   >
                     <span>{currentHudTheme.shortName}</span>
                     <span style={{ fontSize: '0.6rem', opacity: 0.85 }}>↻</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={toggleLowSpecCam}
+                    title="Tối ưu Camera cho máy đời cũ/yếu: giảm độ phân giải quét AI & tự bù sáng webcam mờ tối"
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      border: isLowSpecCam ? '1px solid #f59e0b' : '1px solid #334155',
+                      background: isLowSpecCam ? 'rgba(245, 158, 11, 0.2)' : '#111c34',
+                      color: isLowSpecCam ? '#fbbf24' : '#cbd5e1',
+                      fontSize: '0.66rem',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {isLowSpecCam ? '🔋 Cam Máy Yếu: Bật' : '🔋 Cam Máy Yếu: Tắt'}
                   </button>
 
                   <button
