@@ -175,6 +175,107 @@ function drawFlameTongue(ctx, size, tilt, colorOuter, colorInner) {
   ctx.restore();
 }
 
+/**
+ * Vẽ lăng kính pha lê lục giác 3D phản chiếu ánh sáng (Băng Giá Pha Lê)
+ */
+function drawIcePrism(ctx, size) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    const r = i % 2 === 0 ? size : size * 0.72;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(-size, -size, size, size);
+  grad.addColorStop(0, 'rgba(224, 242, 254, 0.55)');
+  grad.addColorStop(0.5, 'rgba(125, 211, 252, 0.25)');
+  grad.addColorStop(1, 'rgba(56, 189, 248, 0.12)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(224, 242, 254, 0.72)';
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // Đường chéo giác cắt kim cương bên trong
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.72);
+  ctx.lineTo(size * 0.5, size * 0.5);
+  ctx.moveTo(-size * 0.75, 0);
+  ctx.lineTo(size * 0.75, 0);
+  ctx.stroke();
+}
+
+/**
+ * Vẽ mảnh pha lê băng sắc nhọn bay vỡ (click vỡ băng)
+ */
+function drawIceShard(ctx, size, color) {
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 1.4);
+  ctx.lineTo(size * 0.55, 0);
+  ctx.lineTo(0, size * 1.0);
+  ctx.lineTo(-size * 0.45, size * 0.15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+/**
+ * Vẽ vân rạn tinh thể băng thanh mảnh ở 4 góc màn hình (không che header)
+ */
+function drawCornerFrost(ctx, w, h, time) {
+  const pulse = 0.2 + 0.08 * Math.sin(time * 1.4);
+  const corners = [
+    { x: 0, y: 0, sx: 1, sy: 1 },
+    { x: w, y: 0, sx: -1, sy: 1 },
+    { x: 0, y: h, sx: 1, sy: -1 },
+    { x: w, y: h, sx: -1, sy: -1 }
+  ];
+  ctx.save();
+  ctx.strokeStyle = `rgba(186, 230, 253, ${pulse})`;
+  ctx.lineCap = 'round';
+  for (const c of corners) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(c.sx, c.sy);
+    const rays = [
+      { ang: 0.24, len: 88 },
+      { ang: 0.62, len: 112 },
+      { ang: 1.05, len: 82 }
+    ];
+    for (const r of rays) {
+      const ex = Math.cos(r.ang) * r.len;
+      const ey = Math.sin(r.ang) * r.len;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      for (const frac of [0.4, 0.72]) {
+        const bx = ex * frac;
+        const by = ey * frac;
+        const sub = r.len * 0.24 * (1.2 - frac);
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + Math.cos(r.ang + 0.52) * sub, by + Math.sin(r.ang + 0.52) * sub);
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + Math.cos(r.ang - 0.52) * sub, by + Math.sin(r.ang - 0.52) * sub);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 function strokeSegments(ctx, segments, color, width) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -275,18 +376,18 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         });
       }
     } else if (hudThemeKey === 'frost') {
-      for (let i = 0; i < 32; i++) {
+      // Lăng kính kim cương lơ lửng chậm rãi trong không trung (không rơi dọc như hoa đào)
+      for (let i = 0; i < 24; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: 0.45 + Math.random() * 0.95,
-          size: 4.5 + Math.random() * 8.5,
+          vx: (Math.random() - 0.5) * 0.35,
+          vy: (Math.random() - 0.5) * 0.35,
+          size: 7 + Math.random() * 11,
           rot: Math.random() * Math.PI * 2,
-          rotSpeed: (Math.random() - 0.5) * 0.025,
-          swayPhase: Math.random() * Math.PI * 2,
-          alpha: 0.35 + Math.random() * 0.55,
-          color: i % 2 === 0 ? '#a5f3fc' : '#e0f2fe'
+          rotSpeed: (Math.random() - 0.5) * 0.015,
+          phase: Math.random() * Math.PI * 2,
+          alpha: 0.36 + Math.random() * 0.38
         });
       }
     } else if (hudThemeKey === 'galaxy') {
@@ -351,6 +452,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     const meteors = [];
     const auroraFlashes = [];
     const matrixScans = [];
+    const iceCracks = [];
 
     const spawnStormBolt = (targetX, targetY, isBig = false) => {
       const startX = targetX + (Math.random() - 0.5) * (isBig ? 180 : 240);
@@ -433,18 +535,16 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
               kind: 'petal'
             });
           } else if (hudThemeKey === 'frost') {
-            particles.push({
-              x: x + (Math.random() - 0.5) * 10,
-              y: y + (Math.random() - 0.5) * 10,
-              vx: (Math.random() - 0.5) * 0.9,
-              vy: 0.35 + Math.random() * 0.8,
-              size: 4 + Math.random() * 5.5,
-              rot: Math.random() * Math.PI,
-              rotSpeed: (Math.random() - 0.5) * 0.05,
-              alpha: 0.92,
-              color: Math.random() > 0.4 ? '#67e8f9' : '#ffffff',
-              kind: 'crystal'
+            const ang = Math.atan2(pointer.vy, pointer.vx) + (Math.random() - 0.5) * 1.4;
+            const len = 14 + Math.random() * 24;
+            iceCracks.push({
+              x1: x,
+              y1: y,
+              x2: x + Math.cos(ang) * len,
+              y2: y + Math.sin(ang) * len,
+              alpha: 0.85
             });
+            if (iceCracks.length > 90) iceCracks.shift();
           } else if (hudThemeKey === 'thunder') {
             particles.push({
               x,
@@ -509,7 +609,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       pointer.down = true;
 
       if (hudThemeKey === 'sakura') {
-        shockwaves.push({ x, y, r: 6, maxR: 110, alpha: 0.9, color: '#f472b6', color2: '#fbcfe8' });
         for (let i = 0; i < 24; i++) {
           const ang = (Math.PI * 2 * i) / 24 + (Math.random() - 0.5) * 0.25;
           const spd = 2.2 + Math.random() * 4.8;
@@ -544,22 +643,31 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       } else if (hudThemeKey === 'thunder') {
         spawnStormBolt(x, y, true);
       } else if (hudThemeKey === 'frost') {
-        frostFractals.push({ x, y, radius: 4, maxRadius: 72, alpha: 1, rot: Math.random() * Math.PI });
-        shockwaves.push({ x, y, r: 5, maxR: 120, alpha: 0.95, color: '#67e8f9', color2: '#e0f2fe' });
-        for (let i = 0; i < 20; i++) {
-          const ang = (Math.PI * 2 * i) / 20;
-          const spd = 1.8 + Math.random() * 4.2;
+        // Vỡ mảnh băng pha lê 3D + rạn kính phân nhánh (không dùng sóng tròn hay bông tuyết)
+        for (let branch = 0; branch < 6; branch++) {
+          const ang = (Math.PI * 2 * branch) / 6 + (Math.random() - 0.5) * 0.45;
+          const len1 = 26 + Math.random() * 28;
+          const mx = x + Math.cos(ang) * len1;
+          const my = y + Math.sin(ang) * len1;
+          iceCracks.push({ x1: x, y1: y, x2: mx, y2: my, alpha: 1 });
+          const ang2 = ang + (Math.random() > 0.5 ? 0.5 : -0.5);
+          const len2 = 16 + Math.random() * 20;
+          iceCracks.push({ x1: mx, y1: my, x2: mx + Math.cos(ang2) * len2, y2: my + Math.sin(ang2) * len2, alpha: 0.92 });
+        }
+        for (let i = 0; i < 18; i++) {
+          const ang = (Math.PI * 2 * i) / 18 + (Math.random() - 0.5) * 0.25;
+          const spd = 2.6 + Math.random() * 4.8;
           particles.push({
             x,
             y,
             vx: Math.cos(ang) * spd,
             vy: Math.sin(ang) * spd,
-            size: 4 + Math.random() * 5,
+            size: 5 + Math.random() * 6.5,
             rot: ang,
-            rotSpeed: (Math.random() - 0.5) * 0.09,
+            rotSpeed: (Math.random() - 0.5) * 0.16,
             alpha: 1,
-            color: i % 2 === 0 ? '#67e8f9' : '#ffffff',
-            kind: 'crystal'
+            color: i % 2 === 0 ? 'rgba(186, 230, 253, 0.85)' : 'rgba(255, 255, 255, 0.78)',
+            kind: 'iceShard'
           });
         }
       } else if (hudThemeKey === 'galaxy') {
@@ -865,13 +973,14 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
 
       // ---------------------------------------------------------
-      // THEME 4: FROST (Tinh thể tuyết lục giác + Rạn băng pha lê)
+      // THEME 4: FROST (Lăng kính pha lê 3D + Vân rạn 4 góc + Vết nứt theo chuột)
       // ---------------------------------------------------------
       if (hudThemeKey === 'frost') {
-        // Bông tuyết tinh thể quay 6 cánh
+        drawCornerFrost(ctx, width, height, time);
+
+        // Lăng kính lục giác pha lê lơ lửng bắt sáng, dạt nhẹ khi trỏ chuột đi qua
         for (const f of ambient) {
-          const drift = Math.sin(time * 0.85 + f.swayPhase) * 0.42;
-          f.x += f.vx + drift;
+          f.x += f.vx;
           f.y += f.vy;
           f.rot += f.rotSpeed;
 
@@ -879,48 +988,57 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             const dx = f.x - pointer.x;
             const dy = f.y - pointer.y;
             const d = Math.hypot(dx, dy);
-            if (d > 1 && d < 130) {
-              const force = ((130 - d) / 130) * 0.7;
+            if (d > 1 && d < 140) {
+              const force = ((140 - d) / 140) * 0.45;
               f.vx += (dx / d) * force;
               f.vy += (dy / d) * force;
+              f.rotSpeed += 0.004;
             }
           }
 
-          f.vx *= 0.97;
-          f.vy = f.vy * 0.98 + 0.018;
-
-          if (f.x > width + 20) f.x = -20;
-          if (f.x < -20) f.x = width + 20;
-          if (f.y > height + 20) {
-            f.y = -20;
-            f.x = Math.random() * width;
+          f.vx *= 0.985;
+          f.vy *= 0.985;
+          if (Math.hypot(f.vx, f.vy) < 0.14) {
+            f.vx += (Math.random() - 0.5) * 0.04;
+            f.vy += (Math.random() - 0.5) * 0.04;
           }
+          f.rotSpeed *= 0.99;
 
+          if (f.x > width + 25) f.x = -25;
+          if (f.x < -25) f.x = width + 25;
+          if (f.y > height + 25) f.y = -25;
+          if (f.y < -25) f.y = height + 25;
+
+          const shimmer = 0.72 + 0.28 * Math.sin(time * 2 + f.phase);
           ctx.save();
-          ctx.globalAlpha = f.alpha;
+          ctx.globalAlpha = f.alpha * shimmer;
           ctx.translate(f.x, f.y);
           ctx.rotate(f.rot);
-          ctx.shadowColor = 'rgba(103, 232, 249, 0.75)';
-          ctx.shadowBlur = 8;
-          drawCrystalSnowflake(ctx, f.size, f.color);
+          ctx.shadowColor = 'rgba(125, 211, 252, 0.55)';
+          ctx.shadowBlur = 10;
+          drawIcePrism(ctx, f.size);
           ctx.restore();
         }
 
-        // Hoa văn rạn băng pha lê mọc ra tại vị trí click
-        for (let i = frostFractals.length - 1; i >= 0; i--) {
-          const fr = frostFractals[i];
-          fr.radius += (fr.maxRadius - fr.radius) * 0.16;
-          fr.alpha -= 0.015;
+        // Vết nứt pha lê đóng băng theo chuột & khi click
+        if (iceCracks.length > 0) {
           ctx.save();
           ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = Math.max(0, fr.alpha);
-          ctx.translate(fr.x, fr.y);
-          ctx.rotate(fr.rot);
-          ctx.shadowColor = '#67e8f9';
-          ctx.shadowBlur = 14;
-          drawCrystalSnowflake(ctx, fr.radius, '#e0f2fe');
+          ctx.lineCap = 'round';
+          for (let i = iceCracks.length - 1; i >= 0; i--) {
+            const ck = iceCracks[i];
+            ck.alpha -= 0.014;
+            ctx.strokeStyle = `rgba(224, 242, 254, ${Math.max(0, ck.alpha)})`;
+            ctx.lineWidth = 1.4;
+            ctx.shadowColor = '#7dd3fc';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.moveTo(ck.x1, ck.y1);
+            ctx.lineTo(ck.x2, ck.y2);
+            ctx.stroke();
+            if (ck.alpha <= 0) iceCracks.splice(i, 1);
+          }
           ctx.restore();
-          if (fr.alpha <= 0) frostFractals.splice(i, 1);
         }
       }
 
@@ -941,6 +1059,25 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         }
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
+        // Hành tinh có vành đai xoay chậm trôi ở góc nền vũ trụ
+        const px = width * 0.84 + Math.sin(time * 0.18) * 18;
+        const py = height * 0.24 + Math.cos(time * 0.14) * 12;
+        ctx.save();
+        ctx.translate(px, py);
+        const pGrad = ctx.createRadialGradient(-8, -8, 2, 0, 0, 22);
+        pGrad.addColorStop(0, 'rgba(192, 132, 252, 0.45)');
+        pGrad.addColorStop(1, 'rgba(56, 189, 248, 0.08)');
+        ctx.fillStyle = pGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.rotate(-0.32 + Math.sin(time * 0.3) * 0.05);
+        ctx.strokeStyle = 'rgba(165, 180, 252, 0.38)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 38, 9, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
         // Vòng xoáy hố đen hấp dẫn quanh con trỏ
         if (pointer.active) {
           for (let ring = 0; ring < 3; ring++) {
@@ -1208,6 +1345,19 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.rotate(p.rot);
           drawSakuraPetal(ctx, p.size, p.cA, p.cB, p.pitch);
           ctx.restore();
+        } else if (p.kind === 'iceShard') {
+          p.rot += p.rotSpeed;
+          p.vx *= 0.97;
+          p.vy *= 0.97;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.shadowColor = '#bae6fd';
+          ctx.shadowBlur = 10;
+          drawIceShard(ctx, p.size, p.color);
+          ctx.restore();
         } else if (p.kind === 'crystal') {
           p.rot += p.rotSpeed;
           p.vy += 0.015;
@@ -1325,32 +1475,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
               <path d="M 0,100 Q 50,75 100,0" fill="none" stroke="#38bdf8" strokeWidth="1.3" />
             </svg>
           ))}
-        </>
-      )}
-
-      {hudThemeKey === 'frost' && (
-        <>
-          <div className="frost-vignette-overlay" />
-          <svg
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '58px',
-              zIndex: 9991,
-              animation: 'icicleDripShine 4.5s ease-in-out infinite'
-            }}
-            viewBox="0 0 1000 60"
-            preserveAspectRatio="none"
-          >
-            <path
-              d="M 0,0 L 0,25 L 30,8 L 60,35 L 90,12 L 130,45 L 160,15 L 210,38 L 260,10 L 310,50 L 350,14 L 400,32 L 450,10 L 510,55 L 560,12 L 620,40 L 670,16 L 730,48 L 780,12 L 840,36 L 890,10 L 940,46 L 980,18 L 1000,28 L 1000,0 Z"
-              fill="rgba(6, 182, 212, 0.24)"
-              stroke="rgba(165, 243, 252, 0.72)"
-              strokeWidth="1.5"
-            />
-          </svg>
         </>
       )}
     </div>

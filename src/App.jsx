@@ -3464,7 +3464,7 @@ export default function App() {
                   sakura: 'Cánh hoa rơi 3D & dải lụa gió',
                   cyber: 'Lưới nhện neon & xung đẩy cơ khí',
                   thunder: 'Sét fractal giật theo vị trí click',
-                  frost: 'Bông tuyết rơi & rạn băng pha lê',
+                  frost: 'Lăng kính pha lê 3D, rạn băng & vỡ mảnh',
                   galaxy: 'Sao 4 cánh, sao băng & xoáy hố đen',
                   inferno: 'Ngọn lửa Phượng Hoàng & dung nham',
                   matrix: 'Mưa mã hacker & tia quét chữ thập',
@@ -5327,10 +5327,7 @@ export default function App() {
 
                       {isFxEnabled && hudThemeKey === 'frost' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                          {/* Nhũ băng rủ từ mép trên camera */}
-                          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '14px', background: 'linear-gradient(to bottom, rgba(165, 243, 252, 0.4), transparent)', borderTop: '2px solid #a5f3fc' }} />
-                          <span style={{ position: 'absolute', top: '6px', left: '10px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
-                          <span style={{ position: 'absolute', top: '6px', right: '12px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
+                          <div style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 22px rgba(186, 230, 253, 0.25)', borderRadius: 'inherit' }} />
                         </div>
                       )}
 
@@ -5704,8 +5701,7 @@ export default function App() {
 
                 {isFxEnabled && hudThemeKey === 'frost' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
-                    <span style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #06b6d4)' }}>❄️</span>
-                    <span style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 6px #67e8f9)' }}>❅</span>
+                    <div style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 18px rgba(186, 230, 253, 0.24)', borderRadius: 'inherit' }} />
                   </div>
                 )}
 
