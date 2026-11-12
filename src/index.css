@@ -130,5 +130,222 @@ input, textarea, select {
   animation: bounceSoft 2s ease-in-out infinite;
 }
 
+/* =========================================================================
+   1. HIỆU ỨNG MẠNG NHỆN NEON CYBER (CYBER SPIDER FX)
+   ========================================================================= */
+@keyframes cyberWebGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.65)) drop-shadow(0 0 12px rgba(34, 197, 94, 0.45));
+    opacity: 0.85;
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.95)) drop-shadow(0 0 22px rgba(34, 197, 94, 0.75));
+    opacity: 1;
+  }
+}
+
+@keyframes spiderDropSwing {
+  0% {
+    transform: translateY(-80px) rotate(0deg);
+  }
+  20% {
+    transform: translateY(120px) rotate(6deg);
+  }
+  40% {
+    transform: translateY(90px) rotate(-8deg);
+  }
+  60% {
+    transform: translateY(140px) rotate(4deg);
+  }
+  80% {
+    transform: translateY(70px) rotate(-3deg);
+  }
+  100% {
+    transform: translateY(-80px) rotate(0deg);
+  }
+}
+
+@keyframes spiderLegTwitch {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08) rotate(3deg); }
+}
+
+.cyber-web-corner {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9995;
+  animation: cyberWebGlow 3.5s ease-in-out infinite;
+}
+
+.cyber-hanging-spider {
+  position: fixed;
+  top: 0;
+  pointer-events: none;
+  z-index: 9996;
+  animation: spiderDropSwing 14s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+/* =========================================================================
+   2. HIỆU ỨNG LÔI THẦN SÉT ĐÁNH XUỐNG (THUNDER LIGHTNING STRIKE FX)
+   ========================================================================= */
+@keyframes lightningFlashLoop {
+  0%, 91%, 95%, 100% {
+    opacity: 0;
+  }
+  92% {
+    opacity: 0.28;
+    background: radial-gradient(circle at 50% 20%, rgba(216, 180, 254, 0.55) 0%, rgba(168, 85, 247, 0.25) 50%, transparent 80%);
+  }
+  93% {
+    opacity: 0.08;
+  }
+  94% {
+    opacity: 0.42;
+    background: radial-gradient(circle at 60% 10%, rgba(254, 240, 138, 0.6) 0%, rgba(168, 85, 247, 0.3) 55%, transparent 85%);
+  }
+}
+
+@keyframes lightningBoltStrike1 {
+  0%, 88%, 95%, 100% {
+    opacity: 0;
+    transform: scaleY(0.2) translateY(-40px);
+  }
+  89% {
+    opacity: 1;
+    transform: scaleY(1.02) translateY(0);
+    filter: drop-shadow(0 0 16px #facc15) drop-shadow(0 0 32px #c084fc);
+  }
+  90% {
+    opacity: 0.2;
+    transform: scaleY(0.95);
+  }
+  91% {
+    opacity: 0.95;
+    transform: scaleY(1);
+    filter: drop-shadow(0 0 20px #ffffff) drop-shadow(0 0 40px #a855f7);
+  }
+  93% {
+    opacity: 0.4;
+  }
+  94% {
+    opacity: 0;
+  }
+}
+
+@keyframes lightningBoltStrike2 {
+  0%, 92%, 98%, 100% {
+    opacity: 0;
+    transform: scaleY(0.2) translateY(-50px);
+  }
+  93% {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+    filter: drop-shadow(0 0 14px #e879f9) drop-shadow(0 0 30px #facc15);
+  }
+  94% {
+    opacity: 0.3;
+  }
+  95% {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 18px #ffffff) drop-shadow(0 0 36px #c084fc);
+  }
+  96% {
+    opacity: 0;
+  }
+}
+
+@keyframes electricSparkJitter {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  25% { transform: translate(-3px, 4px) scale(1.15); opacity: 1; }
+  50% { transform: translate(4px, -2px) scale(0.9); opacity: 0.6; }
+  75% { transform: translate(-2px, -3px) scale(1.2); opacity: 0.95; }
+}
+
+.thunder-screen-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9993;
+  animation: lightningFlashLoop 6.5s ease-out infinite;
+}
+
+.lightning-bolt-1 {
+  position: fixed;
+  top: 0;
+  pointer-events: none;
+  z-index: 9994;
+  transform-origin: top center;
+  animation: lightningBoltStrike1 6.5s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+}
+
+.lightning-bolt-2 {
+  position: fixed;
+  top: 0;
+  pointer-events: none;
+  z-index: 9994;
+  transform-origin: top center;
+  animation: lightningBoltStrike2 8.2s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+}
+
+/* =========================================================================
+   3. HIỆU ỨNG BĂNG TUYẾT CÓNG ĐI (FROST ICE FREEZING FX)
+   ========================================================================= */
+@keyframes frostVignettePulse {
+  0%, 100% {
+    opacity: 0.78;
+    filter: blur(1px) drop-shadow(0 0 12px rgba(6, 182, 212, 0.45));
+  }
+  50% {
+    opacity: 0.98;
+    filter: blur(0px) drop-shadow(0 0 24px rgba(103, 232, 249, 0.75)) drop-shadow(0 0 45px rgba(6, 182, 212, 0.55));
+  }
+}
+
+@keyframes frostSnowfall {
+  0% {
+    transform: translateY(-20px) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(105vh) translateX(-45px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes icicleDripShine {
+  0%, 100% {
+    filter: drop-shadow(0 4px 8px rgba(6, 182, 212, 0.5)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 6px 16px rgba(165, 243, 252, 0.9)) brightness(1.35);
+  }
+}
+
+.frost-vignette-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9990;
+  animation: frostVignettePulse 5s ease-in-out infinite;
+  box-shadow: inset 0 0 70px rgba(6, 182, 212, 0.35), inset 0 0 140px rgba(2, 44, 67, 0.65), inset 0 0 25px rgba(255, 255, 255, 0.25);
+}
+
+.frost-screen-snowflake {
+  position: fixed;
+  top: -30px;
+  pointer-events: none;
+  z-index: 9992;
+  user-select: none;
+  animation: frostSnowfall linear infinite;
+  filter: drop-shadow(0 0 8px rgba(103, 232, 249, 0.95)) drop-shadow(0 0 14px rgba(6, 182, 212, 0.6));
+  color: #e0f2fe;
+}
+
 
 

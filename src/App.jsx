@@ -4387,7 +4387,7 @@ export default function App() {
       )}
 
       {/* Hiệu ứng cánh hoa anh đào bay lượn toàn màn hình Web khi bật theme Hoa Anh Đào */}
-      {currentHudTheme.hasPetals && (
+      {hudThemeKey === 'sakura' && (
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
           {[
             { left: '6%', delay: '0s', dur: '8.5s', size: '1.2rem' },
@@ -4409,6 +4409,154 @@ export default function App() {
               }}
             >
               🌸
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* HIỆU ỨNG MẠNG NHỆN NEON CYBER TOÀN MÀN HÌNH (CYBER SPIDER FX) */}
+      {hudThemeKey === 'cyber' && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
+          {/* Mạng nhện góc trên trái */}
+          <svg className="cyber-web-corner" style={{ top: 0, left: 0, width: '130px', height: '130px' }} viewBox="0 0 100 100">
+            <line x1="0" y1="0" x2="100" y2="0" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="0" y1="0" x2="0" y2="100" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="0" y1="0" x2="100" y2="100" stroke="#38bdf8" strokeWidth="1.2" />
+            <line x1="0" y1="0" x2="90" y2="45" stroke="#38bdf8" strokeWidth="0.9" />
+            <line x1="0" y1="0" x2="45" y2="90" stroke="#38bdf8" strokeWidth="0.9" />
+            <path d="M 0,25 Q 12,18 25,0" fill="none" stroke="#22c55e" strokeWidth="1" />
+            <path d="M 0,50 Q 25,35 50,0" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+            <path d="M 0,75 Q 38,55 75,0" fill="none" stroke="#22c55e" strokeWidth="1" />
+            <path d="M 0,100 Q 50,75 100,0" fill="none" stroke="#38bdf8" strokeWidth="1.4" />
+          </svg>
+
+          {/* Mạng nhện góc trên phải */}
+          <svg className="cyber-web-corner" style={{ top: 0, right: 0, width: '130px', height: '130px', transform: 'scaleX(-1)' }} viewBox="0 0 100 100">
+            <line x1="0" y1="0" x2="100" y2="0" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="0" y1="0" x2="0" y2="100" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="0" y1="0" x2="100" y2="100" stroke="#38bdf8" strokeWidth="1.2" />
+            <path d="M 0,35 Q 18,25 35,0" fill="none" stroke="#22c55e" strokeWidth="1" />
+            <path d="M 0,70 Q 35,50 70,0" fill="none" stroke="#38bdf8" strokeWidth="1.2" />
+            <path d="M 0,100 Q 50,75 100,0" fill="none" stroke="#22c55e" strokeWidth="1.4" />
+          </svg>
+
+          {/* Chú nhện neon thả tơ đu đưa từ trên xuống */}
+          <div className="cyber-hanging-spider" style={{ right: '14%' }}>
+            <div style={{ width: '1.5px', height: '120px', background: 'linear-gradient(to bottom, rgba(56, 189, 248, 0.2), #38bdf8)', margin: '0 auto', boxShadow: '0 0 6px #38bdf8' }} />
+            <div style={{ fontSize: '1.35rem', textAlign: 'center', filter: 'drop-shadow(0 0 10px #38bdf8) drop-shadow(0 0 18px #22c55e)' }}>
+              🕷️
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HIỆU ỨNG LÔI THẦN SÉT ĐÁNH XUỐNG TOÀN MÀN HÌNH (THUNDER LIGHTNING FX) */}
+      {hudThemeKey === 'thunder' && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
+          {/* Chớp sáng sấm sét ngẫu nhiên toàn màn hình */}
+          <div className="thunder-screen-flash" />
+
+          {/* Tia sét chính 1 đánh từ trên đỉnh góc trái giáng xuống */}
+          <svg className="lightning-bolt-1" style={{ left: '22%', width: '180px', height: '85vh' }} viewBox="0 0 100 400" preserveAspectRatio="none">
+            <polyline
+              points="50,0 45,60 62,65 38,150 56,155 30,260 48,265 20,400"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <polyline
+              points="50,0 45,60 62,65 38,150 56,155 30,260 48,265 20,400"
+              fill="none"
+              stroke="#facc15"
+              strokeWidth="6"
+              strokeOpacity="0.8"
+              strokeLinecap="round"
+            />
+            {/* Nhánh phụ của tia sét 1 */}
+            <polyline
+              points="38,150 15,190 28,195 5,250"
+              fill="none"
+              stroke="#c084fc"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+            <polyline
+              points="30,260 55,305 45,310 65,360"
+              fill="none"
+              stroke="#e879f9"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+
+          {/* Tia sét phụ 2 đánh từ trên đỉnh góc phải giáng xuống */}
+          <svg className="lightning-bolt-2" style={{ right: '24%', width: '160px', height: '78vh' }} viewBox="0 0 100 400" preserveAspectRatio="none">
+            <polyline
+              points="50,0 55,70 38,75 60,165 42,170 65,280 48,285 70,400"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <polyline
+              points="50,0 55,70 38,75 60,165 42,170 65,280 48,285 70,400"
+              fill="none"
+              stroke="#c084fc"
+              strokeWidth="5.5"
+              strokeOpacity="0.85"
+            />
+            <polyline
+              points="60,165 85,210 72,215 90,270"
+              fill="none"
+              stroke="#facc15"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
+
+      {/* HIỆU ỨNG BĂNG TUYẾT CÓNG ĐI TOÀN MÀN HÌNH (FROST ICE FREEZING FX) */}
+      {hudThemeKey === 'frost' && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
+          {/* Lớp viền băng giá cóng mờ bao phủ 4 cạnh màn hình */}
+          <div className="frost-vignette-overlay" />
+
+          {/* Dải nhũ băng tuyết (Icicles) rủ từ mép trên đỉnh màn hình xuống */}
+          <svg style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '55px', zIndex: 9991 }} viewBox="0 0 1000 60" preserveAspectRatio="none">
+            <path
+              d="M 0,0 L 0,25 L 30,8 L 60,35 L 90,12 L 130,45 L 160,15 L 210,38 L 260,10 L 310,50 L 350,14 L 400,32 L 450,10 L 510,55 L 560,12 L 620,40 L 670,16 L 730,48 L 780,12 L 840,36 L 890,10 L 940,46 L 980,18 L 1000,28 L 1000,0 Z"
+              fill="rgba(6, 182, 212, 0.22)"
+              stroke="rgba(165, 243, 252, 0.65)"
+              strokeWidth="1.5"
+              filter="drop-shadow(0 4px 10px rgba(6, 182, 212, 0.6))"
+            />
+          </svg>
+
+          {/* Các bông tuyết & tinh thể tuyết pha lê rơi lả tả */}
+          {[
+            { left: '8%', delay: '0s', dur: '7.5s', size: '1.4rem', icon: '❄' },
+            { left: '20%', delay: '2.2s', dur: '9.5s', size: '1.0rem', icon: '❅' },
+            { left: '35%', delay: '1s', dur: '8.2s', size: '1.25rem', icon: '❆' },
+            { left: '50%', delay: '3.5s', dur: '10.5s', size: '1.1rem', icon: '❄' },
+            { left: '68%', delay: '1.7s', dur: '8.8s', size: '1.35rem', icon: '❅' },
+            { left: '82%', delay: '3s', dur: '9.2s', size: '0.95rem', icon: '❆' },
+            { left: '94%', delay: '0.5s', dur: '11s', size: '1.2rem', icon: '❄' }
+          ].map((s, idx) => (
+            <span
+              key={idx}
+              className="frost-screen-snowflake"
+              style={{
+                left: s.left,
+                animationDelay: s.delay,
+                animationDuration: s.dur,
+                fontSize: s.size
+              }}
+            >
+              {s.icon}
             </span>
           ))}
         </div>
@@ -6140,13 +6288,39 @@ export default function App() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
 
-                      {/* Hiệu ứng cánh hoa anh đào Sakura bay lượn trên Cam khi bật theme Hoa Anh Đào */}
-                      {currentHudTheme.hasPetals && (
+                      {/* CÁC HIỆU ỨNG TƯƠNG TÁC THEO THEO HUD TRÊN KHUNG CAMERA */}
+                      {hudThemeKey === 'sakura' && (
                         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
                           <span className="sakura-petal-1" style={{ top: '10%', left: '12%', fontSize: '0.95rem' }}>🌸</span>
                           <span className="sakura-petal-2" style={{ top: '65%', left: '76%', fontSize: '0.85rem' }}>🌸</span>
                           <span className="sakura-petal-3" style={{ top: '22%', right: '16%', fontSize: '0.75rem' }}>🌸</span>
                           <span className="sakura-petal-1" style={{ bottom: '12%', left: '30%', fontSize: '0.8rem' }}>🌸</span>
+                        </div>
+                      )}
+
+                      {hudThemeKey === 'cyber' && (
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                          <span style={{ position: 'absolute', top: '8px', left: '10px', fontSize: '1rem', filter: 'drop-shadow(0 0 6px #38bdf8)' }}>🕸️</span>
+                          <span style={{ position: 'absolute', top: '8px', right: '10px', fontSize: '1rem', filter: 'drop-shadow(0 0 6px #22c55e)' }}>🕸️</span>
+                          <span style={{ position: 'absolute', bottom: '8px', left: '10px', fontSize: '0.9rem', filter: 'drop-shadow(0 0 6px #22c55e)' }}>🕸️</span>
+                        </div>
+                      )}
+
+                      {hudThemeKey === 'thunder' && (
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                          <span style={{ position: 'absolute', top: '10px', left: '14px', fontSize: '1.1rem', filter: 'drop-shadow(0 0 8px #facc15)' }}>⚡</span>
+                          <span style={{ position: 'absolute', top: '16px', right: '18px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #c084fc)' }}>⚡</span>
+                          <span style={{ position: 'absolute', bottom: '14px', left: '22%', fontSize: '0.85rem', filter: 'drop-shadow(0 0 8px #facc15)' }}>⚡</span>
+                        </div>
+                      )}
+
+                      {hudThemeKey === 'frost' && (
+                        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                          {/* Nhũ băng rủ từ mép trên camera */}
+                          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '14px', background: 'linear-gradient(to bottom, rgba(165, 243, 252, 0.4), transparent)', borderTop: '2px solid #a5f3fc' }} />
+                          <span style={{ position: 'absolute', top: '6px', left: '10px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
+                          <span style={{ position: 'absolute', top: '6px', right: '12px', fontSize: '0.95rem', filter: 'drop-shadow(0 0 8px #06b6d4)' }}>❄️</span>
+                          <span style={{ position: 'absolute', bottom: '8px', left: '12px', fontSize: '0.85rem', filter: 'drop-shadow(0 0 8px #67e8f9)' }}>❅</span>
                         </div>
                       )}
 
@@ -6533,12 +6707,33 @@ export default function App() {
               }}>
                 <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
-                {/* Hiệu ứng cánh hoa anh đào Sakura trên Cam */}
-                {currentHudTheme.hasPetals && (
+                {/* CÁC HIỆU ỨNG TƯƠNG TÁC THEO HUD TRÊN CAM MOBILE */}
+                {hudThemeKey === 'sakura' && (
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
                     <span className="sakura-petal-1" style={{ top: '10%', left: '10%', fontSize: '0.8rem' }}>🌸</span>
                     <span className="sakura-petal-2" style={{ top: '65%', left: '75%', fontSize: '0.75rem' }}>🌸</span>
                     <span className="sakura-petal-3" style={{ bottom: '15%', left: '40%', fontSize: '0.7rem' }}>🌸</span>
+                  </div>
+                )}
+
+                {hudThemeKey === 'cyber' && (
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                    <span style={{ position: 'absolute', top: '4px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 5px #38bdf8)' }}>🕸️</span>
+                    <span style={{ position: 'absolute', bottom: '4px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 5px #22c55e)' }}>🕸️</span>
+                  </div>
+                )}
+
+                {hudThemeKey === 'thunder' && (
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                    <span style={{ position: 'absolute', top: '6px', left: '8px', fontSize: '0.85rem', filter: 'drop-shadow(0 0 6px #facc15)' }}>⚡</span>
+                    <span style={{ position: 'absolute', bottom: '6px', right: '8px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #c084fc)' }}>⚡</span>
+                  </div>
+                )}
+
+                {hudThemeKey === 'frost' && (
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 2 }}>
+                    <span style={{ position: 'absolute', top: '5px', left: '6px', fontSize: '0.8rem', filter: 'drop-shadow(0 0 6px #06b6d4)' }}>❄️</span>
+                    <span style={{ position: 'absolute', bottom: '5px', right: '6px', fontSize: '0.75rem', filter: 'drop-shadow(0 0 6px #67e8f9)' }}>❅</span>
                   </div>
                 )}
 
