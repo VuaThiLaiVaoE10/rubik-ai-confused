@@ -704,28 +704,130 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
   };
 }
 
+// Quét Lưới Mạng Nhện Đa Hướng (Spider-Web Radial Ray Casting) để khóa chính xác Hitbox của khối Rubik
+function scanSpiderWebHitbox(frameImg, w, h, seedCx, seedCy, surfaceProfileKey = 'auto') {
+  const minSide = Math.min(w, h);
+  const maxRadius = Math.floor(minSide * 0.44);
+  const minRadius = Math.floor(minSide * 0.10);
+  const numRays = 16;
+  const rayHits = [];
+  let validRayHitsCount = 0;
+
+  for (let k = 0; k < numRays; k++) {
+    const angle = (k * 2 * Math.PI) / numRays;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    let edgeRadius = maxRadius;
+    let foundEdge = false;
+
+    // Quét tia mạng nhện từ tâm tỏa ra ngoài theo từng bước r = 3px
+    for (let r = 8; r <= maxRadius; r += 3) {
+      const px = Math.floor(seedCx + r * cosA);
+      const py = Math.floor(seedCy + r * sinA);
+      if (px < 2 || px >= w - 2 || py < 2 || py >= h - 2) {
+        edgeRadius = r;
+        foundEdge = true;
+        break;
+      }
+
+      const idx = (py * w + px) * 4;
+      const rVal = frameImg[idx];
+      const gVal = frameImg[idx + 1];
+      const bVal = frameImg[idx + 2];
+      const lum = 0.299 * rVal + 0.587 * gVal + 0.114 * bVal;
+
+      // Bước nhảy biên độ dọc theo tia (Sobel Edge gradient)
+      const nextPx = Math.floor(seedCx + (r + 4) * cosA);
+      const nextPy = Math.floor(seedCy + (r + 4) * sinA);
+      if (nextPx >= 0 && nextPx < w && nextPy >= 0 && nextPy < h) {
+        const nextIdx = (nextPy * w + nextPx) * 4;
+        const nextLum = 0.299 * frameImg[nextIdx] + 0.587 * frameImg[nextIdx + 1] + 0.114 * frameImg[nextIdx + 2];
+        const grad = Math.abs(nextLum - lum);
+
+        const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 10, 6, surfaceProfileKey);
+        const isPlastic = cKey !== 'invalid';
+
+        if (r >= minRadius && (grad >= 30 || (!isPlastic && r > minRadius * 1.15))) {
+          edgeRadius = r;
+          foundEdge = true;
+          validRayHitsCount++;
+          break;
+        }
+      }
+    }
+
+    const hitX = Math.max(2, Math.min(w - 2, Math.floor(seedCx + edgeRadius * cosA)));
+    const hitY = Math.max(2, Math.min(h - 2, Math.floor(seedCy + edgeRadius * sinA)));
+    rayHits.push({
+      angle,
+      r: edgeRadius,
+      x: hitX,
+      y: hitY,
+      xPct: Number(((hitX / w) * 100).toFixed(1)),
+      yPct: Number(((hitY / h) * 100).toFixed(1)),
+      foundEdge
+    });
+  }
+
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  for (const hit of rayHits) {
+    if (hit.x < minX) minX = hit.x;
+    if (hit.x > maxX) maxX = hit.x;
+    if (hit.y < minY) minY = hit.y;
+    if (hit.y > maxY) maxY = hit.y;
+  }
+
+  const hitboxW = maxX - minX;
+  const hitboxH = maxY - minY;
+  const aspect = hitboxW / Math.max(hitboxH, 1);
+  const boxSize = Math.max(hitboxW, hitboxH);
+  const cx = Math.floor((minX + maxX) / 2);
+  const cy = Math.floor((minY + maxY) / 2);
+
+  // Khối Rubik thật có Hitbox chuẩn vuông 1:1 (tỉ lệ 0.80..1.25)
+  const isSquareHitbox = aspect >= 0.80 && aspect <= 1.25 && boxSize >= minSide * 0.22 && boxSize <= minSide * 0.78;
+
+  return {
+    isSquareHitbox,
+    validRays: validRayHitsCount,
+    hitbox: {
+      minX, maxX, minY, maxY,
+      hitboxW, hitboxH,
+      aspect: Number(aspect.toFixed(2)),
+      cx, cy,
+      boxSize
+    },
+    rayHits
+  };
+}
+
 // Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker)
-// Tích hợp FAST-PATH ROI cho Speedcuber (60 FPS & < 1.5ms) + Chống bám nhầm mặt người
+// Tích hợp LƯỚI MẠNG NHỆN (Spider-Web Ray Casting) quét chính xác HITBOX Rubik + 60 FPS Speedcuber Pipeline
 function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileKey = 'auto') {
   const minSide = Math.min(w, h);
   const baseSize = minSide * 0.48;
 
   // 1. FAST-PATH DÀNH CHO SPEEDCUBER (60 FPS & độ trễ cực thấp):
-  // Khi khối đã được khóa ở khung hình trước, đánh giá ngay vùng ROI dự đoán vận tốc
+  // Khi khối đã được khóa ở khung hình trước, quét lưới mạng nhện ngay tại ROI dự đoán vận tốc
   if (prevTracker && prevTracker.cx > 0 && prevTracker.size > 0) {
     const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.95;
     const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.95;
-    const baseS = prevTracker.size;
+
+    // Quét lưới mạng nhện từ tâm dự đoán để tìm viền hitbox
+    const spider = scanSpiderWebHitbox(frameImg, w, h, predCx, predCy, surfaceProfileKey);
+    const baseS = spider.isSquareHitbox ? spider.hitbox.boxSize : prevTracker.size;
+    const targetCx = spider.isSquareHitbox ? spider.hitbox.cx : predCx;
+    const targetCy = spider.isSquareHitbox ? spider.hitbox.cy : predCy;
+
     const roiCandidates = [
-      { cx: predCx, cy: predCy, size: baseS },
-      { cx: predCx, cy: predCy, size: baseS * 0.94 },
-      { cx: predCx, cy: predCy, size: baseS * 1.06 },
-      { cx: prevTracker.cx, cy: prevTracker.cy, size: baseS }
+      { cx: targetCx, cy: targetCy, size: baseS },
+      { cx: targetCx, cy: targetCy, size: baseS * 0.95 },
+      { cx: targetCx, cy: targetCy, size: baseS * 1.05 }
     ];
 
     let bestRoi = null;
     for (const roi of roiCandidates) {
-      const clampedSize = Math.max(minSide * 0.30, Math.min(minSide * 0.70, roi.size));
+      const clampedSize = Math.max(minSide * 0.28, Math.min(minSide * 0.72, roi.size));
       const sx = Math.max(4, Math.min(w - clampedSize - 4, roi.cx - clampedSize / 2));
       const sy = Math.max(4, Math.min(h - clampedSize - 4, roi.cy - clampedSize / 2));
       const res = evaluateRubikGridCandidate(frameImg, w, h, dim, sx, sy, clampedSize, 4, surfaceProfileKey);
@@ -735,7 +837,12 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
     }
 
     if (bestRoi && bestRoi.score > 28) {
-      return bestRoi;
+      return {
+        ...bestRoi,
+        hitbox: spider.isSquareHitbox ? spider.hitbox : null,
+        spiderRays: spider.rayHits,
+        isSpiderLocked: spider.isSquareHitbox
+      };
     }
   }
 
@@ -788,27 +895,37 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
       gridSeamContrast: 0,
       isGeometricallyVerifiedCube: false,
       isMostlySkinOrWood: true,
-      score: -99999
+      score: -99999,
+      hitbox: null,
+      spiderRays: [],
+      isSpiderLocked: false
     };
   }
 
+  const heatCx = wxSum / weightSum;
+  const heatCy = wySum / weightSum;
+
+  // Quét lưới mạng nhện từ tâm cụm màu để tìm viền hitbox
+  const spider = scanSpiderWebHitbox(frameImg, w, h, heatCx, heatCy, surfaceProfileKey);
+
   const candidates = [];
   const pushCandidate = (cx, cy, size, motionTol = 0) => {
-    const clampedSize = Math.max(minSide * 0.30, Math.min(minSide * 0.68, size));
+    const clampedSize = Math.max(minSide * 0.28, Math.min(minSide * 0.72, size));
     const sx = Math.max(4, Math.min(w - clampedSize - 4, cx - clampedSize / 2));
     const sy = Math.max(4, Math.min(h - clampedSize - 4, cy - clampedSize / 2));
     candidates.push({ sx, sy, size: clampedSize, motionTol });
   };
 
-  const heatCx = wxSum / weightSum;
-  const heatCy = wySum / weightSum;
+  if (spider.isSquareHitbox) {
+    pushCandidate(spider.hitbox.cx, spider.hitbox.cy, spider.hitbox.boxSize, 5);
+  }
+
   const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
   const adaptiveSize = span > minSide * 0.18 ? span * 1.25 : baseSize;
 
   pushCandidate(heatCx, heatCy, adaptiveSize, 4);
   pushCandidate(heatCx, heatCy, baseSize, 4);
   pushCandidate(heatCx, heatCy, minSide * 0.38, 4);
-  pushCandidate(heatCx, heatCy, minSide * 0.55, 4);
 
   let bestEval = null;
   for (const cand of candidates) {
@@ -842,11 +959,19 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker, surfaceProfileK
       gridSeamContrast: 0,
       isGeometricallyVerifiedCube: false,
       isMostlySkinOrWood: true,
-      score: -99999
+      score: -99999,
+      hitbox: null,
+      spiderRays: [],
+      isSpiderLocked: false
     };
   }
 
-  return bestEval;
+  return {
+    ...bestEval,
+    hitbox: spider.isSquareHitbox ? spider.hitbox : null,
+    spiderRays: spider.rayHits,
+    isSpiderLocked: spider.isSquareHitbox
+  };
 }
 
 // Accurate WCA Average of N
@@ -1812,7 +1937,7 @@ export default function App() {
     localStorage.setItem('rubik_3d_mode_v2', mode);
   };
 
-  // Trạng thái bám đuổi chuyển động (Dynamic Object Tracking Box) & Xác minh Mô hình 3D
+  // Trạng thái bám đuổi chuyển động (Dynamic Object Tracking Box) & Lưới Mạng Nhện Hitbox Rubik
   const [trackingBox, setTrackingBox] = useState({
     leftPct: 23,
     topPct: 23,
@@ -1822,7 +1947,10 @@ export default function App() {
     cyPct: 50,
     isLocked: false,
     isMoving: false,
-    speed: 0
+    speed: 0,
+    hitbox: null,
+    spiderRays: [],
+    isSpiderLocked: false
   });
   const [model3DVerification, setModel3DVerification] = useState({
     verified: false,
@@ -2448,7 +2576,10 @@ export default function App() {
           cyPct,
           isLocked: hasCubeSignal,
           isMoving: isMovingNow,
-          speed: Math.round(moveSpeed)
+          speed: Math.round(moveSpeed),
+          hitbox: bestRegion.hitbox || null,
+          spiderRays: bestRegion.spiderRays || [],
+          isSpiderLocked: Boolean(bestRegion.isSpiderLocked)
         });
 
         // Bộ lọc Khử nhòe Chuyển động (3-Frame Temporal Stabilizer) giúp bắt nét màu lên Mô hình 3D ngay cả khi đang di chuyển khối
@@ -3645,7 +3776,65 @@ export default function App() {
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       />
 
-                      {/* Lưới ngắm AI động (Dynamic Tracking Grid) tự động chạy bám theo khối Rubik khi di chuyển */}
+                      {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK (Spider-Web Ray Casting HUD) */}
+                      <svg
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          pointerEvents: 'none',
+                          zIndex: 1
+                        }}
+                      >
+                        {trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
+                          <>
+                            {/* 3 vòng tơ nhện đồng tâm (33%, 66%, 100%) */}
+                            {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
+                              const ringPoints = trackingBox.spiderRays.map(r => {
+                                const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
+                                const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
+                                return `${rx}%,${ry}%`;
+                              }).join(' ');
+                              return (
+                                <polygon
+                                  key={rIdx}
+                                  points={ringPoints}
+                                  fill="none"
+                                  stroke={trackingBox.isLocked ? 'rgba(34, 197, 94, 0.45)' : 'rgba(56, 189, 248, 0.35)'}
+                                  strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
+                                  strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                                />
+                              );
+                            })}
+                            {/* 16 tia quét mạng nhện hướng tâm */}
+                            {trackingBox.spiderRays.map((r, i) => (
+                              <line
+                                key={i}
+                                x1={`${trackingBox.cxPct}%`}
+                                y1={`${trackingBox.cyPct}%`}
+                                x2={`${r.xPct}%`}
+                                y2={`${r.yPct}%`}
+                                stroke={trackingBox.isLocked ? 'rgba(74, 222, 128, 0.55)' : 'rgba(56, 189, 248, 0.38)'}
+                                strokeWidth="0.8"
+                              />
+                            ))}
+                          </>
+                        ) : (
+                          /* Lưới mạng nhện radar ở chế độ quét tìm */
+                          <g opacity="0.45">
+                            <circle cx="50%" cy="50%" r="20%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
+                            <circle cx="50%" cy="50%" r="38%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
+                            <line x1="50%" y1="10%" x2="50%" y2="90%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="10%" y1="50%" x2="90%" y2="50%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
+                            <line x1="22%" y1="22%" x2="78%" y2="78%" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
+                            <line x1="78%" y1="22%" x2="22%" y2="78%" stroke="#38bdf8" strokeWidth="0.5" strokeDasharray="2,2" />
+                          </g>
+                        )}
+                      </svg>
+
+                      {/* KHUNG HITBOX RUBIK CHUẨN XÁC VỚI 4 GÓC TACTICAL BRACKETS */}
                       <div style={{
                         position: 'absolute',
                         top: `${trackingBox.topPct}%`,
@@ -3659,12 +3848,21 @@ export default function App() {
                         border: preCheckStatus.verified
                           ? '2px solid #22c55e'
                           : trackingBox.isLocked
-                            ? '2px solid #38bdf8'
+                            ? '2px solid #22c55e'
                             : '1.5px dashed rgba(56, 189, 248, 0.85)',
                         borderRadius: '4px',
                         pointerEvents: 'none',
-                        boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.32)'
+                        boxShadow: trackingBox.isLocked
+                          ? '0 0 14px rgba(34, 197, 94, 0.4), 0 0 0 999px rgba(2, 6, 23, 0.32)'
+                          : '0 0 0 999px rgba(2, 6, 23, 0.32)',
+                        zIndex: 3
                       }}>
+                        {/* 4 góc Tactical Hitbox Brackets */}
+                        <div style={{ position: 'absolute', top: '-3px', left: '-3px', width: '8px', height: '8px', borderTop: '2.5px solid #38bdf8', borderLeft: '2.5px solid #38bdf8' }} />
+                        <div style={{ position: 'absolute', top: '-3px', right: '-3px', width: '8px', height: '8px', borderTop: '2.5px solid #38bdf8', borderRight: '2.5px solid #38bdf8' }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', left: '-3px', width: '8px', height: '8px', borderBottom: '2.5px solid #38bdf8', borderLeft: '2.5px solid #38bdf8' }} />
+                        <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '8px', height: '8px', borderBottom: '2.5px solid #38bdf8', borderRight: '2.5px solid #38bdf8' }} />
+
                         {detectedColors.map((colorKey, idx) => (
                           <div
                             key={idx}
@@ -3690,17 +3888,24 @@ export default function App() {
                         position: 'absolute',
                         top: '4px',
                         left: '6px',
-                        background: 'rgba(2, 6, 23, 0.82)',
+                        background: 'rgba(2, 6, 23, 0.88)',
                         padding: '1px 6px',
                         borderRadius: '4px',
-                        fontSize: '0.56rem',
+                        fontSize: '0.54rem',
                         color: trackingBox.isLocked ? '#4ade80' : '#38bdf8',
                         fontWeight: '700',
-                        pointerEvents: 'none'
+                        pointerEvents: 'none',
+                        zIndex: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
                       }}>
-                        {trackingBox.isLocked
-                          ? `🎯 Đang bám (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
-                          : '📷 Tự động bắt khi di chuyển'}
+                        <span>{trackingBox.isLocked ? '🎯' : '🕸️'}</span>
+                        <span>
+                          {trackingBox.isLocked
+                            ? `HITBOX: KHÓA (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
+                            : 'QUÉT MẠNG NHỆN HITBOX'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -3876,6 +4081,60 @@ export default function App() {
                 flexShrink: 0
               }}>
                 <video ref={attachVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+
+                {/* LƯỚI MẠNG NHỆN RADAR & QUÉT HITBOX RUBIK */}
+                <svg
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    pointerEvents: 'none',
+                    zIndex: 1
+                  }}
+                >
+                  {trackingBox.spiderRays && trackingBox.spiderRays.length > 0 ? (
+                    <>
+                      {[0.33, 0.66, 1.0].map((ringScale, rIdx) => {
+                        const ringPoints = trackingBox.spiderRays.map(r => {
+                          const rx = trackingBox.cxPct + (r.xPct - trackingBox.cxPct) * ringScale;
+                          const ry = trackingBox.cyPct + (r.yPct - trackingBox.cyPct) * ringScale;
+                          return `${rx}%,${ry}%`;
+                        }).join(' ');
+                        return (
+                          <polygon
+                            key={rIdx}
+                            points={ringPoints}
+                            fill="none"
+                            stroke={trackingBox.isLocked ? 'rgba(34, 197, 94, 0.45)' : 'rgba(56, 189, 248, 0.35)'}
+                            strokeWidth={rIdx === 2 ? '1.2' : '0.8'}
+                            strokeDasharray={rIdx === 2 ? 'none' : '2,2'}
+                          />
+                        );
+                      })}
+                      {trackingBox.spiderRays.map((r, i) => (
+                        <line
+                          key={i}
+                          x1={`${trackingBox.cxPct}%`}
+                          y1={`${trackingBox.cyPct}%`}
+                          x2={`${r.xPct}%`}
+                          y2={`${r.yPct}%`}
+                          stroke={trackingBox.isLocked ? 'rgba(74, 222, 128, 0.55)' : 'rgba(56, 189, 248, 0.38)'}
+                          strokeWidth="0.8"
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <g opacity="0.45">
+                      <circle cx="50%" cy="50%" r="22%" fill="none" stroke="#38bdf8" strokeWidth="0.8" strokeDasharray="3,3" />
+                      <line x1="50%" y1="10%" x2="50%" y2="90%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
+                      <line x1="10%" y1="50%" x2="90%" y2="50%" stroke="#38bdf8" strokeWidth="0.6" strokeDasharray="2,2" />
+                    </g>
+                  )}
+                </svg>
+
+                {/* KHUNG HITBOX RUBIK */}
                 <div style={{
                   position: 'absolute',
                   top: `${trackingBox.topPct}%`,
@@ -3886,11 +4145,24 @@ export default function App() {
                   display: 'grid',
                   gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                   gridTemplateRows: `repeat(${currentDim}, 1fr)`,
-                  border: preCheckStatus.verified ? '2px solid #22c55e' : '1.5px dashed rgba(56, 189, 248, 0.85)',
+                  border: preCheckStatus.verified
+                    ? '2px solid #22c55e'
+                    : trackingBox.isLocked
+                      ? '2px solid #22c55e'
+                      : '1.5px dashed rgba(56, 189, 248, 0.85)',
                   borderRadius: '4px',
                   pointerEvents: 'none',
-                  boxShadow: '0 0 0 999px rgba(2, 6, 23, 0.3)'
+                  boxShadow: trackingBox.isLocked
+                    ? '0 0 12px rgba(34, 197, 94, 0.38), 0 0 0 999px rgba(2, 6, 23, 0.3)'
+                    : '0 0 0 999px rgba(2, 6, 23, 0.3)',
+                  zIndex: 3
                 }}>
+                  {/* Tactical Brackets */}
+                  <div style={{ position: 'absolute', top: '-2px', left: '-2px', width: '6px', height: '6px', borderTop: '2px solid #38bdf8', borderLeft: '2px solid #38bdf8' }} />
+                  <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '6px', height: '6px', borderTop: '2px solid #38bdf8', borderRight: '2px solid #38bdf8' }} />
+                  <div style={{ position: 'absolute', bottom: '-2px', left: '-2px', width: '6px', height: '6px', borderBottom: '2px solid #38bdf8', borderLeft: '2px solid #38bdf8' }} />
+                  <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: '2px solid #38bdf8', borderRight: '2px solid #38bdf8' }} />
+
                   {detectedColors.map((colorKey, idx) => (
                     <div key={idx} style={{ border: '0.5px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span style={{
