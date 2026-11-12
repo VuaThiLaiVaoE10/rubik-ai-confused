@@ -161,84 +161,97 @@ function rgbToHsv(r, g, b) {
   return { h, s, v };
 }
 
-// Phân loại màu Sticker Rubik chuẩn WCA + Lọc chống nhận nhầm da người / tường / đồ vật thường
-// Hỗ trợ motionTolerance (khi khối đang di chuyển trên tay) nhưng vẫn khóa chặt da người & tường
+// Kiểm tra nhanh xem 1 điểm ảnh có mang sắc thái da người / gỗ / tường ấm không
+function isSkinOrWoodTone(r, g, b, h, s, v) {
+  return (
+    r > g &&
+    g > b &&
+    h >= 6 &&
+    h < 38 &&
+    s >= 0.15 &&
+    s < 0.58 &&
+    v >= 0.25 &&
+    v < 0.86 &&
+    r - g >= 12 &&
+    r - g < 62 &&
+    g - b >= 8
+  );
+}
+
+// Phân loại màu Sticker Rubik chuẩn WCA (Nhận diện nhạy cả MẶT CHƯA GIẢI nhiều màu lẫn mặt đã giải)
 function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0) {
   const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
   const { h, s, v } = rgbToHsv(avgR, avgG, avgB);
-  const maxAllowedStd = 25 + motionTolerance;
+  // Khi mặt Rubik CHƯA GIẢI (nhiều màu cạnh nhau) hoặc đang di chuyển, cho phép độ lệch nội ô rộng hơn
+  const maxAllowedStd = 38 + motionTolerance;
 
-  // 1. Loại bỏ vùng tối hoặc vùng có bề mặt gồ ghề/nhiều chi tiết (mặt người, tóc, quần áo, đồ vật)
-  if (rawBrightness < 42 || v < 0.24 || cellStdDev > maxAllowedStd) return 'invalid';
+  if (rawBrightness < 36 || v < 0.20 || cellStdDev > maxAllowedStd) return 'invalid';
 
-  // 2. Bộ lọc CHỐNG NHẬN NHẦM DA NGƯỜI, GỖ, TƯỜNG VÀNG NHẠT (Anti-Skin & Anti-Background Filter)
-  const isSkinOrWarmAmbient =
-    avgR > avgG &&
-    avgG > avgB &&
-    h >= 4 &&
-    h < 42 &&
-    (s < 0.64 || (avgR - avgG < 65 && avgG - avgB > 6 && v < 0.88));
-  if (isSkinOrWarmAmbient) return 'invalid';
-
-  // 3. Nhận diện màu Trắng (White Sticker): phải sáng rõ, phẳng và trung tính
+  // 1. Nhận diện màu Trắng (White Sticker trên mặt chưa giải hoặc đã giải)
   const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
   if (
-    s <= 0.14 &&
-    v >= 0.72 &&
-    rawBrightness >= 170 &&
-    rgbSpread <= 28 &&
-    cellStdDev <= 16 + motionTolerance * 0.5
+    s <= 0.22 &&
+    v >= 0.62 &&
+    rawBrightness >= 145 &&
+    rgbSpread <= 38 &&
+    cellStdDev <= 26 + motionTolerance * 0.6
   ) {
     return 'white';
   }
 
-  // 4. Nhận diện 5 màu sắc rực chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương)
+  // 2. Nhận diện 5 màu sắc chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương)
+  // Đỏ (Red)
   if (
-    (h >= 346 || h < 10) &&
-    s >= 0.58 &&
-    v >= 0.38 &&
-    avgR > avgG * 1.68 &&
-    avgR > avgB * 1.68
+    (h >= 340 || h < 11) &&
+    s >= 0.45 &&
+    v >= 0.30 &&
+    avgR > avgG * 1.42 &&
+    avgR > avgB * 1.42
   ) {
     return 'red';
   }
+  // Cam (Orange) — phân biệt rõ với da người nhờ độ bão hòa s cao và tỷ lệ R/B
   if (
     h >= 11 &&
-    h < 35 &&
-    s >= 0.63 &&
-    v >= 0.58 &&
-    avgR > avgB * 2.05 &&
-    avgG > avgB * 1.22
+    h < 39 &&
+    s >= 0.52 &&
+    v >= 0.48 &&
+    avgR > avgB * 1.75 &&
+    avgG > avgB * 1.15 &&
+    !isSkinOrWoodTone(avgR, avgG, avgB, h, s, v)
   ) {
     return 'orange';
   }
+  // Vàng (Yellow)
   if (
-    h >= 40 &&
-    h < 72 &&
-    s >= 0.48 &&
-    v >= 0.58 &&
-    avgR > avgB * 1.55 &&
-    avgG > avgB * 1.55
+    h >= 39 &&
+    h < 76 &&
+    s >= 0.38 &&
+    v >= 0.48 &&
+    avgR > avgB * 1.38 &&
+    avgG > avgB * 1.38
   ) {
     return 'yellow';
   }
+  // Xanh lá (Green)
   if (
-    h >= 82 &&
-    h < 160 &&
-    s >= 0.46 &&
-    v >= 0.34 &&
-    avgG > avgR * 1.20 &&
-    avgG > avgB * 1.14
+    h >= 76 &&
+    h < 168 &&
+    s >= 0.36 &&
+    v >= 0.28 &&
+    avgG > avgR * 1.12 &&
+    avgG > avgB * 1.08
   ) {
     return 'green';
   }
+  // Xanh dương (Blue)
   if (
-    h >= 188 &&
-    h < 255 &&
-    s >= 0.48 &&
-    v >= 0.34 &&
-    avgB > avgR * 1.30 &&
-    avgB > avgG * 1.10
+    h >= 178 &&
+    h < 262 &&
+    s >= 0.38 &&
+    v >= 0.28 &&
+    avgB > avgR * 1.20 &&
+    avgB > avgG * 1.05
   ) {
     return 'blue';
   }
@@ -247,13 +260,16 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
 }
 
 // Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
+// Đặc biệt tối ưu cho MẶT CHƯA GIẢI (Scrambled / Unsolved faces có nhiều màu đứng cạnh nhau)
 function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0) {
   const cellSize = boxSize / dim;
-  const sampleRadius = Math.max(2, Math.floor(cellSize * 0.16));
+  // Lấy mẫu lõi trung tâm của từng ô sticker (11% cellSize) để không bị lem màu từ ô bên cạnh khi mặt CHƯA GIẢI
+  const sampleRadius = Math.max(1, Math.floor(cellSize * 0.11));
   const currentNxNColors = [];
   const cellStats = [];
   let validColorsCount = 0;
   let vividColorsCount = 0;
+  let skinLikeCellsCount = 0;
   let centerLumSum = 0;
 
   for (let row = 0; row < dim; row++) {
@@ -261,13 +277,9 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
       const cx = Math.floor(startX + col * cellSize + cellSize / 2);
       const cy = Math.floor(startY + row * cellSize + cellSize / 2);
 
-      let rSum = 0, gSum = 0, bSum = 0, count = 0;
-      const rSamples = [];
-      const gSamples = [];
-      const bSamples = [];
-
-      for (let dy = -sampleRadius; dy <= sampleRadius; dy += 2) {
-        for (let dx = -sampleRadius; dx <= sampleRadius; dx += 2) {
+      const pixels = [];
+      for (let dy = -sampleRadius; dy <= sampleRadius; dy += 1) {
+        for (let dx = -sampleRadius; dx <= sampleRadius; dx += 1) {
           const px = cx + dx;
           const py = cy + dy;
           if (px >= 0 && px < w && py >= 0 && py < h) {
@@ -275,30 +287,43 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
             const r = frameImg[idx];
             const g = frameImg[idx + 1];
             const b = frameImg[idx + 2];
-            rSum += r;
-            gSum += g;
-            bSum += b;
-            rSamples.push(r);
-            gSamples.push(g);
-            bSamples.push(b);
-            count++;
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            pixels.push({ r, g, b, lum });
           }
         }
       }
 
-      if (count > 0) {
+      if (pixels.length > 0) {
+        // Lọc trung vị (Trimmed Core): loại bỏ 20% điểm tối nhất (rãnh nhựa đen) & 15% điểm chói sáng nhất
+        pixels.sort((a, b) => a.lum - b.lum);
+        const trimStart = Math.floor(pixels.length * 0.2);
+        const trimEnd = Math.max(trimStart + 1, Math.ceil(pixels.length * 0.85));
+        const corePixels = pixels.slice(trimStart, trimEnd);
+
+        let rSum = 0, gSum = 0, bSum = 0;
+        for (const p of corePixels) {
+          rSum += p.r;
+          gSum += p.g;
+          bSum += p.b;
+        }
+        const count = corePixels.length;
         const avgR = rSum / count;
         const avgG = gSum / count;
         const avgB = bSum / count;
 
         let varSum = 0;
-        for (let k = 0; k < count; k++) {
-          const dr = rSamples[k] - avgR;
-          const dg = gSamples[k] - avgG;
-          const db = bSamples[k] - avgB;
+        for (const p of corePixels) {
+          const dr = p.r - avgR;
+          const dg = p.g - avgG;
+          const db = p.b - avgB;
           varSum += (dr * dr + dg * dg + db * db) / 3;
         }
         const cellStdDev = Math.sqrt(varSum / count);
+        const { h: hue, s: sat, v: val } = rgbToHsv(avgR, avgG, avgB);
+        if (isSkinOrWoodTone(avgR, avgG, avgB, hue, sat, val)) {
+          skinLikeCellsCount++;
+        }
+
         const colorKey = classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance);
         const cellLum = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
         centerLumSum += cellLum;
@@ -316,7 +341,11 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
     }
   }
 
+  // Nếu vùng này có nhiều ô giống màu da người / bàn gỗ (>= 35% số ô) -> phạt nặng để chống nhận nhầm mặt người/tay
+  const isMostlySkinOrWood = skinLikeCellsCount >= Math.ceil(dim * dim * 0.35);
+
   let sharpAdjacentEdges = 0;
+  let colorTransitions = 0;
   for (let r = 0; r < dim; r++) {
     for (let c = 0; c < dim; c++) {
       const idxA = r * dim + c;
@@ -331,12 +360,13 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
         const cellB = cellStats[idxB];
         if (!cellB || cellB.colorKey === 'invalid') continue;
         if (cellA.colorKey !== cellB.colorKey) {
+          colorTransitions++;
           const rgbDist = Math.hypot(
             cellA.avgR - cellB.avgR,
             cellA.avgG - cellB.avgG,
             cellA.avgB - cellB.avgB
           );
-          if (rgbDist >= 62) sharpAdjacentEdges++;
+          if (rgbDist >= 42) sharpAdjacentEdges++;
         }
       }
     }
@@ -369,66 +399,72 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
   const validOnly = currentNxNColors.filter((c) => c !== 'invalid');
   const uniqueColorsCount = new Set(validOnly).size;
 
-  // Điểm cấu trúc khối Rubik để chọn vùng bám đuổi tốt nhất khi khối di chuyển
+  // ƯU TIÊN SỐ 1 CHO MẶT CHƯA GIẢI (uniqueColorsCount >= 2):
+  // Mặt chưa giải có nhiều màu khác nhau và có ranh giới chuyển màu (colorTransitions) giữa các ô
+  const unsolvedBonus =
+    uniqueColorsCount >= 2
+      ? uniqueColorsCount * 8 + sharpAdjacentEdges * 7 + colorTransitions * 4
+      : 4;
+  const skinPenalty = isMostlySkinOrWood ? -120 : 0;
+
   const score =
-    validColorsCount * 4 +
+    validColorsCount * 5 +
     vividColorsCount * 3.5 +
-    sharpAdjacentEdges * 6 +
-    uniqueColorsCount * 5 +
-    (gridSeamContrast >= 8 ? 6 : 0);
+    unsolvedBonus +
+    (gridSeamContrast >= 7 ? 6 : 0) +
+    skinPenalty;
 
   return {
     startX,
     startY,
     boxSize,
-    currentNxNColors,
-    validColorsCount,
-    vividColorsCount,
-    uniqueColorsCount,
-    sharpAdjacentEdges,
+    currentNxNColors: isMostlySkinOrWood ? Array(dim * dim).fill('invalid') : currentNxNColors,
+    validColorsCount: isMostlySkinOrWood ? 0 : validColorsCount,
+    vividColorsCount: isMostlySkinOrWood ? 0 : vividColorsCount,
+    uniqueColorsCount: isMostlySkinOrWood ? 0 : uniqueColorsCount,
+    sharpAdjacentEdges: isMostlySkinOrWood ? 0 : sharpAdjacentEdges,
+    colorTransitions: isMostlySkinOrWood ? 0 : colorTransitions,
     gridSeamContrast,
+    isMostlySkinOrWood,
     score
   };
 }
 
 // Bộ định vị & bám đuổi khối Rubik động (Dynamic Multi-Scale Object Tracker) trên toàn khung hình
+// Bắt nhạy cả MẶT CHƯA GIẢI (nhiều màu lộn xộn) và mặt đã giải khi di chuyển
 function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
   const minSide = Math.min(w, h);
-  const baseSize = minSide * 0.52;
+  const baseSize = minSide * 0.48;
 
-  // 1. Quét nhanh Heatmap các điểm màu sticker Rubik rực rỡ trên toàn khung hình (15 x 11 điểm)
+  // 1. Quét Heatmap các điểm màu sticker Rubik trên toàn khung hình (17 x 13 điểm)
+  // Lưu ý quan trọng: KHÔNG phạt độ lệch màu giữa 2 điểm cách nhau 3px vì mặt Rubik CHƯA GIẢI có các ô khác màu nằm sát nhau!
   let weightSum = 0;
   let wxSum = 0;
   let wySum = 0;
   let minHitX = w, maxHitX = 0, minHitY = h, maxHitY = 0;
   let vividHits = 0;
+  const hitColors = new Set();
 
-  const cols = 15;
-  const rows = 11;
+  const cols = 17;
+  const rows = 13;
   for (let r = 1; r < rows - 1; r++) {
     const py = Math.floor((r / (rows - 1)) * h);
     for (let c = 1; c < cols - 1; c++) {
       const px = Math.floor((c / (cols - 1)) * w);
       const idx = (py * w + px) * 4;
-      const idxR = (py * w + Math.min(w - 1, px + 3)) * 4;
-      const idxD = (Math.min(h - 1, py + 3) * w + px) * 4;
+      const rVal = frameImg[idx];
+      const gVal = frameImg[idx + 1];
+      const bVal = frameImg[idx + 2];
 
-      const avgR = (frameImg[idx] + frameImg[idxR] + frameImg[idxD]) / 3;
-      const avgG = (frameImg[idx + 1] + frameImg[idxR + 1] + frameImg[idxD + 1]) / 3;
-      const avgB = (frameImg[idx + 2] + frameImg[idxR + 2] + frameImg[idxD + 2]) / 3;
-      const localDiff =
-        (Math.abs(frameImg[idx] - frameImg[idxR]) +
-          Math.abs(frameImg[idx + 1] - frameImg[idxR + 1]) +
-          Math.abs(frameImg[idx + 2] - frameImg[idxR + 2])) /
-        3;
-
-      const cKey = classifyRubikStickerCell(avgR, avgG, avgB, localDiff, 4);
+      // Phân loại trực tiếp màu tại điểm lấy mẫu (stdDev = 8) để không bỏ sót các mặt chưa giải nhiều màu
+      const cKey = classifyRubikStickerCell(rVal, gVal, bVal, 8, 6);
       if (cKey !== 'invalid' && cKey !== 'white') {
-        const wt = 3.0;
+        const wt = 3.2;
         weightSum += wt;
         wxSum += px * wt;
         wySum += py * wt;
         vividHits++;
+        hitColors.add(cKey);
         if (px < minHitX) minHitX = px;
         if (px > maxHitX) maxHitX = px;
         if (py < minHitY) minHitY = py;
@@ -439,42 +475,43 @@ function locateDynamicRubikBox(frameImg, w, h, dim, prevTracker) {
 
   const candidates = [];
   const pushCandidate = (cx, cy, size, motionTol = 0) => {
-    const clampedSize = Math.max(minSide * 0.36, Math.min(minSide * 0.68, size));
+    const clampedSize = Math.max(minSide * 0.30, Math.min(minSide * 0.68, size));
     const sx = Math.max(4, Math.min(w - clampedSize - 4, cx - clampedSize / 2));
     const sy = Math.max(4, Math.min(h - clampedSize - 4, cy - clampedSize / 2));
     candidates.push({ sx, sy, size: clampedSize, motionTol });
   };
 
-  // Ứng viên 1: Vị trí trung tâm mặc định
-  pushCandidate(w / 2, h / 2, baseSize, 0);
+  // Ứng viên 1: Vị trí trung tâm với nhiều kích cỡ (từ cầm xa 34% đến cầm gần 54%)
+  pushCandidate(w / 2, h / 2, baseSize, 2);
+  pushCandidate(w / 2, h / 2, minSide * 0.38, 3);
+  pushCandidate(w / 2, h / 2, minSide * 0.56, 2);
 
   // Ứng viên 2: Vị trí vừa khóa ở khung hình trước + dự đoán vận tốc di chuyển (Kalman/EMA Velocity)
   if (prevTracker && prevTracker.cx > 0) {
     const predCx = prevTracker.cx + (prevTracker.vx || 0) * 0.85;
     const predCy = prevTracker.cy + (prevTracker.vy || 0) * 0.85;
-    pushCandidate(predCx, predCy, prevTracker.size || baseSize, 3);
-    pushCandidate(prevTracker.cx, prevTracker.cy, prevTracker.size || baseSize, 2);
+    pushCandidate(predCx, predCy, prevTracker.size || baseSize, 4);
+    pushCandidate(prevTracker.cx, prevTracker.cy, prevTracker.size || baseSize, 3);
   }
 
-  // Ứng viên 3: Tâm cụm màu Sticker (Heatmap Centroid) khi người chơi đưa khối Rubik sang trái/phải/trên/dưới/xa/gần
+  // Ứng viên 3: Tâm cụm màu Sticker (Heatmap Centroid) khi người chơi đưa khối Rubik chưa giải sang trái/phải/trên/dưới
   if (vividHits >= 2 && weightSum > 0) {
     const heatCx = wxSum / weightSum;
     const heatCy = wySum / weightSum;
     const span = Math.max(maxHitX - minHitX, maxHitY - minHitY);
-    const adaptiveSize = span > minSide * 0.18 ? span * 1.32 : baseSize;
-    pushCandidate(heatCx, heatCy, adaptiveSize, 3);
-    pushCandidate(heatCx, heatCy, baseSize, 3);
-    pushCandidate(heatCx, heatCy, minSide * 0.42, 3);
+    const adaptiveSize = span > minSide * 0.16 ? span * 1.28 : baseSize;
+    pushCandidate(heatCx, heatCy, adaptiveSize, 4);
+    pushCandidate(heatCx, heatCy, baseSize, 4);
+    pushCandidate(heatCx, heatCy, minSide * 0.36, 4);
   }
 
   // Ứng viên 4..9: Lưới tìm kiếm đa vị trí quanh khung hình để bắt nhanh khi vung tay di chuyển
   const shiftX = w * 0.15;
   const shiftY = h * 0.14;
-  pushCandidate(w / 2 - shiftX, h / 2, baseSize * 0.92, 2);
-  pushCandidate(w / 2 + shiftX, h / 2, baseSize * 0.92, 2);
-  pushCandidate(w / 2, h / 2 - shiftY, baseSize * 0.92, 2);
-  pushCandidate(w / 2, h / 2 + shiftY, baseSize * 0.92, 2);
-  pushCandidate(w / 2, h / 2, minSide * 0.42, 2);
+  pushCandidate(w / 2 - shiftX, h / 2, baseSize * 0.9, 3);
+  pushCandidate(w / 2 + shiftX, h / 2, baseSize * 0.9, 3);
+  pushCandidate(w / 2, h / 2 - shiftY, baseSize * 0.9, 3);
+  pushCandidate(w / 2, h / 2 + shiftY, baseSize * 0.9, 3);
 
   let bestEval = null;
   for (const cand of candidates) {
@@ -2091,8 +2128,9 @@ export default function App() {
         setDetectedColors(currentNxNColors);
 
         const now = performance.now();
-        const minStickersRequired = Math.ceil(dim * dim * 0.75); // 3x3 cần >= 7/9 ô sticker hợp lệ
-        const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.44)); // 3x3 cần >= 4 ô màu rực (không phải trắng)
+        // Tối ưu nhận diện MẶT CHƯA GIẢI (nhiều màu lộn xộn): chỉ cần >= 65% số ô rõ nét (VD: 6/9 ô với 3x3, 3/4 ô với 2x2)
+        const minStickersRequired = Math.max(3, Math.ceil(dim * dim * 0.65));
+        const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.33));
 
         if (validColorsCount < minStickersRequired) {
           validCubeStreakRef.current = 0;
@@ -2103,21 +2141,21 @@ export default function App() {
               setPreCheckStatus(prev => ({
                 ...prev,
                 verified: true,
-                text: `🟢 ĐÃ KHÓA LÊN MÔ HÌNH 3D (${dim}×${dim}) — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
+                text: `🟢 ĐÃ KHÓA MẶT CHƯA GIẢI LÊN 3D (${dim}×${dim}) — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
               }));
             } else {
               if (lastCubeVerifiedAtRef.current > 0) lastCubeVerifiedAtRef.current = 0;
               setPreCheckStatus({
                 verified: false,
-                text: `🔍 Đưa hoặc di chuyển khối Rubik ${dim}×${dim} trước camera để AI tự bám theo & phân tích lên 3D...`,
+                text: `🔍 Đưa mặt Rubik CHƯA GIẢI (${dim}×${dim}) vào trước camera để AI phân tích các màu xáo trộn lên 3D...`,
                 isScrambled: false,
                 centerFace: null
               });
               setModel3DVerification({
                 verified: false,
-                badgeText: '🔍 ĐỢI KHỐI RUBIK',
-                statusTitle: 'Đang tìm khối Rubik trong vùng Camera...',
-                detailText: 'Bạn có thể cầm di chuyển khối Rubik tự nhiên; khung lưới AI sẽ tự bám theo và chiếu lên Mô hình 3D.',
+                badgeText: '🔍 ĐỢI MẶT CHƯA GIẢI',
+                statusTitle: 'Đang quét tìm các mặt Rubik chưa giải...',
+                detailText: 'Xoay các mặt chưa giải (nhiều màu) trước Camera để AI tự bám theo và cập nhật đủ 6 mặt lên Mô hình 3D.',
                 facesCount: Object.keys(scannedFacesRef.current || {}).length,
                 validStickers: validColorsCount
               });
@@ -2129,26 +2167,27 @@ export default function App() {
         }
 
         const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
-        const centerColor = currentNxNColors[centerIdx];
-        const centerDef = COLOR_DEFINITIONS[centerColor];
-        const centerName = centerDef ? centerDef.name : 'Không rõ';
+        const rawCenterColor = currentNxNColors[centerIdx];
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
+        const effectiveCenterColor = rawCenterColor !== 'invalid' ? rawCenterColor : (validColorsOnly[0] || 'green');
+        const centerDef = COLOR_DEFINITIONS[effectiveCenterColor];
+        const centerName = centerDef ? centerDef.name : 'Hỗn hợp';
         const uniqueColorsCount = new Set(validColorsOnly).size;
         const isAllSameColor =
-          validColorsCount === dim * dim &&
+          validColorsCount >= Math.ceil(dim * dim * 0.88) &&
           uniqueColorsCount === 1 &&
-          (centerColor !== 'white' || gridSeamContrast >= 9);
+          (effectiveCenterColor !== 'white' || gridSeamContrast >= 8);
 
-        // Điều kiện công nhận 1 mặt Rubik ĐÃ XÁO TRỘN THẬT (hỗ trợ cả khi đang di chuyển khối trên tay)
-        const minUniqueForScramble = dim === 2 ? 2 : 3;
-        const minSharpEdges = dim === 2 ? 2 : 3;
+        // NHẬN DIỆN MỌI MẶT CHƯA GIẢI (2 màu trở lên: từ mặt mới xáo trộn 3-6 màu đến mặt đang giải dở 2 màu)
+        const minUniqueForScramble = 2;
         const isGenuineScrambledCube =
+          !bestRegion.isMostlySkinOrWood &&
           validColorsCount >= minStickersRequired &&
           vividColorsCount >= minVividRequired &&
           uniqueColorsCount >= minUniqueForScramble &&
-          sharpAdjacentEdges >= minSharpEdges;
+          (sharpAdjacentEdges >= 1 || bestRegion.colorTransitions >= 2);
 
-        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D ngay khi bắt được khối (kể cả khi đang di chuyển)
+        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D (hỗ trợ lưu cả các mặt CHƯA GIẢI lẫn mặt đã giải)
         const faceCodeMap = {
           white: 'U',
           yellow: 'D',
@@ -2157,36 +2196,41 @@ export default function App() {
           green: 'F',
           blue: 'B'
         };
-        const mappedFace = faceCodeMap[centerColor] || 'F';
+        const mappedFace = faceCodeMap[effectiveCenterColor] || 'F';
         let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
         if (isGenuineScrambledCube || isAllSameColor) {
+          const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
+          const cleanedFaceColors = currentNxNColors.map((col, idx) =>
+            col !== 'invalid' ? col : (prevFaceColors[idx] || effectiveCenterColor)
+          );
           const nextFaces = {
             ...(scannedFacesRef.current || {}),
-            [mappedFace]: [...currentNxNColors]
+            [mappedFace]: cleanedFaceColors
           };
           scannedFacesRef.current = nextFaces;
           updatedFacesCount = Object.keys(nextFaces).length;
           setScannedFaces(nextFaces);
         }
 
-        // Phân tích & xác minh trực tiếp trên Mô hình 3D (3D Model Verification Analyzer)
+        // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI)
         if (isGenuineScrambledCube) {
+          const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
           setModel3DVerification({
             verified: true,
-            badgeText: isMovingNow ? '🎯 BÁM 3D KHI DI CHUYỂN' : '✅ 3D XÁC MINH ĐÚNG',
-            statusTitle: `✅ Mô hình 3D xác minh ĐÚNG khối ${dim}×${dim} (${uniqueColorsCount} màu WCA, Tâm ${centerName})`,
-            detailText: `Khớp ${validColorsCount}/${dim * dim} ô sticker lên 3D • Đã lưu ${updatedFacesCount}/6 mặt • Tọa độ bám: (${cxPct}%, ${cyPct}%)${isMovingNow ? ' [Đang di chuyển]' : ''}`,
+            badgeText: isMovingNow ? `🎯 BÁM MẶT CHƯA GIẢI (${uniqueColorsCount} MÀU)` : `🧩 MẶT CHƯA GIẢI (${uniqueColorsCount} MÀU)`,
+            statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu khác nhau`,
+            detailText: `Khớp ${validColorsCount}/${dim * dim} ô chưa giải lên 3D • Đã quét ${updatedFacesCount}/6 mặt (${Object.keys(scannedFacesRef.current || {}).join(', ')}) • Tọa độ: (${cxPct}%, ${cyPct}%)`,
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
         } else if (isAllSameColor) {
           setModel3DVerification({
             verified: startScrambledRef.current && cubeStateChangedRef.current,
-            badgeText: '🏆 MẶT 3D ĐỒNG MÀU',
-            statusTitle: `🧊 Mô hình 3D nhận diện mặt ${centerName} đã đồng màu (${dim}×${dim})`,
+            badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
+            statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
             detailText: startScrambledRef.current
-              ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) lên Mô hình 3D!`
-              : `Khối trên Mô hình 3D đang ở trạng thái hoàn thành — Hãy xáo trộn khối để bắt đầu giải!`,
+              ? `Đã đối chiếu khớp quá trình xoay (${cubeMovesSeenRef.current} nhịp) từ lúc chưa giải đến khi hoàn thành!`
+              : `Mặt này đang đồng màu (đã giải) — Hãy xoay sang các mặt CHƯA GIẢI (nhiều màu) để AI xác minh trước khi bấm giờ!`,
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           });
@@ -2195,8 +2239,8 @@ export default function App() {
         if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
           if (isGenuineScrambledCube) {
             validCubeStreakRef.current += 1;
-            // Bắt nhạy ngay trong 2 khung hình liên tiếp kể cả khi người chơi đang di chuyển khối Rubik
-            if (validCubeStreakRef.current >= 2) {
+            // Bắt nhạy ngay khi thấy mặt chưa giải (kể cả khi đang xoay/di chuyển khối trên tay)
+            if (validCubeStreakRef.current >= 1) {
               lastCubeVerifiedAtRef.current = now;
               initialCubeColorsRef.current = [...currentNxNColors];
               lastValidCubeColorsRef.current = [...currentNxNColors];
@@ -2205,16 +2249,9 @@ export default function App() {
               }
               setPreCheckStatus({
                 verified: true,
-                text: `🟢 ĐÃ BẮT & XÁC MINH LÊN 3D (${uniqueColorsCount} màu, Tâm ${centerName})${isMovingNow ? ' [Đang bám chuyển động]' : ''}: Sẵn sàng bấm giờ!`,
+                text: `🟢 ĐÃ NHẬN DIỆN MẶT CHƯA GIẢI (${uniqueColorsCount} màu, Mặt ${mappedFace} - ${centerName})${isMovingNow ? ' [Đang bám chuyển động]' : ''}: Sẵn sàng bấm giờ!`,
                 isScrambled: true,
-                centerFace: centerName
-              });
-            } else {
-              setPreCheckStatus({
-                verified: false,
-                text: `🎯 Đã bắt được khối tại (${cxPct}%, ${cyPct}%) — Đang đồng bộ lên Mô hình 3D...`,
-                isScrambled: false,
-                centerFace: centerName
+                centerFace: `${mappedFace} (${centerName})`
               });
             }
           } else {
@@ -2222,14 +2259,14 @@ export default function App() {
             if (isAllSameColor) {
               setPreCheckStatus({
                 verified: false,
-                text: `⚠️ Khối ${dim}×${dim} đang ở trạng thái đồng màu — Hãy xáo trộn khối trước khi giải!`,
+                text: `⚠️ Mặt ${centerName} này đã đồng màu (1 màu) — Hãy xoay sang các MẶT CHƯA GIẢI (có từ 2 màu trở lên) để mở khóa đồng hồ!`,
                 isScrambled: false,
                 centerFace: centerName
               });
             } else if (lastCubeVerifiedAtRef.current === 0 || now - lastCubeVerifiedAtRef.current > 25000) {
               setPreCheckStatus({
                 verified: false,
-                text: `🚫 Vật thể trước camera chưa khớp chuẩn khối Rubik ${dim}×${dim} đã xáo trộn (cần >= ${minUniqueForScramble} màu sticker rõ nét)`,
+                text: `🔍 Đưa các mặt Rubik CHƯA GIẢI (nhiều màu xáo trộn) vào trước camera để AI nhận diện lên Mô hình 3D...`,
                 isScrambled: false,
                 centerFace: null
               });
@@ -3136,6 +3173,7 @@ export default function App() {
                     dim={currentDim}
                     detectedColors={detectedColors}
                     scannedFaces={scannedFaces}
+                    scramble={scramble}
                     lastMove={lastMoveDetected}
                     trackingBox={trackingBox}
                     modelVerification={model3DVerification}
@@ -3278,6 +3316,45 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Dải trạng thái 6 mặt trên Mô hình 3D (Hiển thị rõ mặt nào chưa giải / đã giải) */}
+                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                    {['U', 'D', 'F', 'B', 'L', 'R'].map((fKey) => {
+                      const fArr = scannedFaces[fKey];
+                      const isScanned = Array.isArray(fArr) && fArr.length > 0;
+                      const uniq = isScanned ? new Set(fArr.filter(c => c !== 'invalid')).size : 0;
+                      const isUnsolvedFace = isScanned && uniq >= 2;
+                      return (
+                        <span
+                          key={fKey}
+                          title={
+                            isScanned
+                              ? (isUnsolvedFace ? `Mặt ${fKey}: Chưa giải (${uniq} màu)` : `Mặt ${fKey}: Đã giải (1 màu)`)
+                              : `Mặt ${fKey}: Đang hiển thị trạng thái xáo trộn theo Scramble`
+                          }
+                          style={{
+                            flex: 1,
+                            textAlign: 'center',
+                            padding: '2px 3px',
+                            borderRadius: '4px',
+                            fontSize: '0.58rem',
+                            fontWeight: '800',
+                            background: isScanned
+                              ? (isUnsolvedFace ? 'rgba(245, 158, 11, 0.2)' : 'rgba(34, 197, 94, 0.2)')
+                              : '#111c34',
+                            border: isScanned
+                              ? (isUnsolvedFace ? '1px solid #f59e0b' : '1px solid #22c55e')
+                              : '1px solid #1e293b',
+                            color: isScanned
+                              ? (isUnsolvedFace ? '#fbbf24' : '#4ade80')
+                              : '#64748b'
+                          }}
+                        >
+                          {fKey}{isScanned ? (isUnsolvedFace ? `:${uniq}m` : ':✓') : ''}
+                        </span>
+                      );
+                    })}
+                  </div>
+
                   {Object.keys(scannedFaces).length > 0 && (
                     <button
                       type="button"
@@ -3293,7 +3370,7 @@ export default function App() {
                         width: '100%'
                       }}
                     >
-                      🔄 Xóa bộ nhớ 3D ({Object.keys(scannedFaces).length}/6 mặt đã phân tích)
+                      🔄 Đặt lại 6 mặt ({Object.keys(scannedFaces).length}/6 mặt đã quét)
                     </button>
                   )}
                 </div>
@@ -3973,7 +4050,10 @@ export default function App() {
                 dim={currentDim}
                 detectedColors={detectedColors}
                 scannedFaces={scannedFaces}
+                scramble={scramble}
                 lastMove={lastMoveDetected}
+                trackingBox={trackingBox}
+                modelVerification={model3DVerification}
                 width={330}
                 height={240}
               />
@@ -5447,6 +5527,7 @@ export default function App() {
               dim={currentDim}
               detectedColors={detectedColors}
               scannedFaces={scannedFaces}
+              scramble={scramble}
               lastMove={lastMoveDetected}
               trackingBox={trackingBox}
               modelVerification={model3DVerification}
