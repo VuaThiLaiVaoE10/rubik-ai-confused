@@ -1698,6 +1698,24 @@ export default function App() {
   const scrambleAuditRef = useRef(scrambleAudit);
   useEffect(() => { scrambleAuditRef.current = scrambleAudit; }, [scrambleAudit]);
 
+  // Các state phát hiện & nhận diện mặt Rubik (Khai báo trước để tránh Temporal Dead Zone)
+  const currentDim = PUZZLE_CONFIGS[puzzleType]?.dim || 3;
+  const [detectedColors, setDetectedColors] = useState(() => Array(currentDim * currentDim).fill('invalid'));
+  const [preCheckStatus, setPreCheckStatus] = useState({
+    verified: false,
+    text: 'Camera AI đang tắt (Chế độ thủ công chuẩn WCA)',
+    isScrambled: false,
+    centerFace: null
+  });
+
+  const [trackedMoves, setTrackedMoves] = useState([]);
+  const [lastMoveDetected, setLastMoveDetected] = useState('');
+  const [scannedFaces, setScannedFaces] = useState({});
+  const scannedFacesRef = useRef({});
+  useEffect(() => {
+    scannedFacesRef.current = scannedFaces;
+  }, [scannedFaces]);
+
   // =========================================================================
   // QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
   // 1. 'step1_check_scb': Kiểm tra scb (quét 3 mặt mặc định hoặc 6 mặt)
@@ -2752,20 +2770,8 @@ export default function App() {
     contrast: 0
   });
 
-  const currentDim = PUZZLE_CONFIGS[puzzleType]?.dim || 3;
-  const [detectedColors, setDetectedColors] = useState(() => Array(currentDim * currentDim).fill('invalid'));
-  const [preCheckStatus, setPreCheckStatus] = useState({
-    verified: false,
-    text: 'Camera AI đang tắt (Chế độ thủ công chuẩn WCA)',
-    isScrambled: false,
-    centerFace: null
-  });
-
-  const [trackedMoves, setTrackedMoves] = useState([]);
-  const [lastMoveDetected, setLastMoveDetected] = useState('');
   const [cubeVisualMode, setCubeVisualMode] = useState('3d'); // '3d' hoặc '2d'
   const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
-  const [scannedFaces, setScannedFaces] = useState({});
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
   // Chế độ hiển thị 3D: mặc định 'always' để khi di chuyển khối trước Camera luôn phân tích trực tiếp lên mô hình 3D
@@ -2825,10 +2831,6 @@ export default function App() {
   const prevTrackingBoxRef = useRef(null);
   const trackerStateRef = useRef({ cx: 0, cy: 0, size: 0, vx: 0, vy: 0 });
   const temporalBufferRef = useRef([]);
-  const scannedFacesRef = useRef({});
-  useEffect(() => {
-    scannedFacesRef.current = scannedFaces;
-  }, [scannedFaces]);
 
   // ANTI-BOT & ANTI-FAKE OBJECT (STRICT 3-STAGE RUBIK CUBE VERIFICATION)
   const [showHumanCheck, setShowHumanCheck] = useState(false);
