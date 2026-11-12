@@ -162,109 +162,135 @@ function rgbToHsv(r, g, b) {
 }
 
 // Kiểm tra nhanh xem 1 điểm ảnh có mang sắc thái da người / gỗ / tường ấm không
+// (Chỉ khóa dải màu da/gỗ tự nhiên có độ bão hòa thấp-trung bình, tuyệt đối KHÔNG chặn màu Cam Fluoro/UV của Rubik)
 function isSkinOrWoodTone(r, g, b, h, s, v) {
+  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+  // Cam UV / Fluoro của Rubik luôn có độ rực màu (chroma >= 72 hoặc s >= 0.56 hoặc R >= 215)
+  if (chroma >= 72 || s >= 0.56 || (r >= 210 && g >= 95 && b < 90)) return false;
   return (
     r > g &&
     g > b &&
-    h >= 6 &&
-    h < 38 &&
-    s >= 0.15 &&
-    s < 0.58 &&
+    h >= 7 &&
+    h < 35 &&
+    s >= 0.16 &&
+    s < 0.52 &&
     v >= 0.25 &&
-    v < 0.86 &&
+    v < 0.82 &&
     r - g >= 12 &&
-    r - g < 62 &&
+    r - g < 52 &&
     g - b >= 8
   );
 }
 
-// Phân loại màu Sticker Rubik chuẩn WCA (Nhận diện nhạy cả MẶT CHƯA GIẢI nhiều màu lẫn mặt đã giải)
+// Khử bóng lóa phản quang UV (Dichromatic Specular Highlight Compensation)
+// Giúp đọc chuẩn màu sắc tố gốc dưới lớp phủ bóng UV / đèn trần / ánh sáng màn hình
+function removeUvSpecularGlare(r, g, b) {
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const chroma = maxC - minC;
+  // Nếu có sắc tố màu (chroma >= 15) nhưng nền sáng bị nâng cao do lóa UV (minC > 18)
+  if (chroma >= 15 && minC > 18) {
+    const glareFloor = (minC - 12) * 0.62;
+    const dr = Math.max(0, r - glareFloor);
+    const dg = Math.max(0, g - glareFloor);
+    const db = Math.max(0, b - glareFloor);
+    // Chuẩn hóa lại độ sáng để giữ nguyên cường độ sắc tố
+    const newMax = Math.max(dr, dg, db, 1);
+    const scale = maxC / newMax;
+    return {
+      r: Math.min(255, dr * scale),
+      g: Math.min(255, dg * scale),
+      b: Math.min(255, db * scale),
+      chroma
+    };
+  }
+  return { r, g, b, chroma };
+}
+
+// Phân loại màu Sticker Rubik chuẩn WCA + Tối ưu chuyên sâu cho Rubik phủ bóng UV / Stickerless Fluoro / Matte
 function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance = 0) {
   const rawBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
-  const { h, s, v } = rgbToHsv(avgR, avgG, avgB);
-  // Khi mặt Rubik CHƯA GIẢI (nhiều màu cạnh nhau) hoặc đang di chuyển, cho phép độ lệch nội ô rộng hơn
-  const maxAllowedStd = 38 + motionTolerance;
+  const rawHsv = rgbToHsv(avgR, avgG, avgB);
+  // Rubik UV có phản quang nên cho phép biên độ lệch nội ô rộng hơn mà vẫn lọc sạch nhiễu
+  const maxAllowedStd = 54 + motionTolerance;
 
-  if (rawBrightness < 36 || v < 0.20 || cellStdDev > maxAllowedStd) return 'invalid';
+  if (rawBrightness < 30 || rawHsv.v < 0.16 || cellStdDev > maxAllowedStd) return 'invalid';
 
-  // 1. Nhận diện màu Trắng (White Sticker trên mặt chưa giải hoặc đã giải)
+  // Khử bóng lóa UV trước khi phân tích Hue & Saturation
+  const deGlared = removeUvSpecularGlare(avgR, avgG, avgB);
+  const { h, s, v } = rgbToHsv(deGlared.r, deGlared.g, deGlared.b);
   const rgbSpread = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB);
+
+  // 1. Nhận diện màu Trắng (White Sticker — hỗ trợ cả mặt trắng bóng UV, ánh đèn vàng hoặc xanh dịu)
   if (
-    s <= 0.22 &&
-    v >= 0.62 &&
-    rawBrightness >= 145 &&
-    rgbSpread <= 38 &&
-    cellStdDev <= 26 + motionTolerance * 0.6
+    ((rawHsv.s <= 0.24 && rawHsv.v >= 0.56 && rawBrightness >= 135 && rgbSpread <= 45) ||
+      (rawHsv.s <= 0.30 && rawHsv.v >= 0.72 && rawBrightness >= 168 && rgbSpread <= 54)) &&
+    cellStdDev <= 38 + motionTolerance * 0.7
   ) {
     return 'white';
   }
 
-  // 2. Nhận diện 5 màu sắc chuẩn WCA (Đỏ, Cam, Vàng, Xanh lá, Xanh dương)
-  // Đỏ (Red)
-  if (
-    (h >= 340 || h < 11) &&
-    s >= 0.45 &&
-    v >= 0.30 &&
-    avgR > avgG * 1.42 &&
-    avgR > avgB * 1.42
-  ) {
-    return 'red';
+  // Nếu độ bão hòa sau khi khử lóa UV vẫn quá thấp -> không phải sticker màu
+  if (s < 0.22 || rgbSpread < 16) return 'invalid';
+
+  // Chặn vùng màu da người / gỗ tự nhiên
+  if (isSkinOrWoodTone(avgR, avgG, avgB, rawHsv.h, rawHsv.s, rawHsv.v)) {
+    return 'invalid';
   }
-  // Cam (Orange) — phân biệt rõ với da người nhờ độ bão hòa s cao và tỷ lệ R/B
-  if (
-    h >= 11 &&
-    h < 39 &&
-    s >= 0.52 &&
-    v >= 0.48 &&
-    avgR > avgB * 1.75 &&
-    avgG > avgB * 1.15 &&
-    !isSkinOrWoodTone(avgR, avgG, avgB, h, s, v)
-  ) {
-    return 'orange';
+
+  // 2. Phân loại 5 màu WCA liên tục KHÔNG ĐIỂM MÙ (Zero Dead-Zone Hue + Opponent Channels cho Rubik UV/Fluoro)
+  // ĐỎ (Red) & Đỏ ánh hồng UV (320° -> 360° và 0° -> 11°)
+  if (h >= 320 || h < 11) {
+    // Phân biệt Đỏ và Cam Fluoro ở vùng giao thoa 7°..11°
+    if (h >= 7 && h < 11 && avgG > avgB * 1.35 && avgR > 195 && avgG > 85) {
+      return 'orange';
+    }
+    if (s >= 0.30 && v >= 0.24 && deGlared.r > deGlared.g * 1.18 && deGlared.r > deGlared.b * 1.14) {
+      return 'red';
+    }
   }
-  // Vàng (Yellow)
-  if (
-    h >= 39 &&
-    h < 76 &&
-    s >= 0.38 &&
-    v >= 0.48 &&
-    avgR > avgB * 1.38 &&
-    avgG > avgB * 1.38
-  ) {
-    return 'yellow';
+
+  // CAM (Orange — bao gồm Cam chuẩn, Cam Fluoro sáng & Cam phủ UV từ 9° -> 40°)
+  if (h >= 9 && h < 40) {
+    // Nếu nghiêng hẳn về Vàng chanh sáng ở 37°..40°
+    if (h >= 37 && deGlared.g > deGlared.r * 0.86) {
+      return 'yellow';
+    }
+    if (s >= 0.32 && v >= 0.36 && deGlared.r > deGlared.b * 1.32 && deGlared.g >= deGlared.b * 1.02) {
+      return 'orange';
+    }
   }
-  // Xanh lá (Green)
-  if (
-    h >= 76 &&
-    h < 168 &&
-    s >= 0.36 &&
-    v >= 0.28 &&
-    avgG > avgR * 1.12 &&
-    avgG > avgB * 1.08
-  ) {
-    return 'green';
+
+  // VÀNG (Yellow — bao gồm Vàng nghệ, Vàng chanh Fluoro & Vàng bóng UV từ 37° -> 78°)
+  if (h >= 37 && h < 78) {
+    if (s >= 0.24 && v >= 0.38 && deGlared.r > deGlared.b * 1.18 && deGlared.g > deGlared.b * 1.20) {
+      return 'yellow';
+    }
   }
-  // Xanh dương (Blue)
-  if (
-    h >= 178 &&
-    h < 262 &&
-    s >= 0.38 &&
-    v >= 0.28 &&
-    avgB > avgR * 1.20 &&
-    avgB > avgG * 1.05
-  ) {
-    return 'blue';
+
+  // XANH LÁ (Green — bao gồm Xanh lá chuẩn, Xanh nõn chuối Fluoro & Xanh lá UV từ 74° -> 174°)
+  if (h >= 74 && h < 174) {
+    if (s >= 0.24 && v >= 0.22 && deGlared.g > deGlared.r * 1.04 && deGlared.g > deGlared.b * 1.02) {
+      return 'green';
+    }
+  }
+
+  // XANH DƯƠNG (Blue — bao gồm Xanh dương đậm, Xanh lam Cyan UV & Xanh pastel từ 170° -> 275°)
+  if (h >= 170 && h < 275) {
+    if (s >= 0.24 && v >= 0.22 && deGlared.b > deGlared.r * 1.12 && deGlared.b >= deGlared.g * 0.98) {
+      return 'blue';
+    }
   }
 
   return 'invalid';
 }
 
 // Đánh giá một vùng lưới ứng viên (startX, startY, boxSize) trên khung hình Camera
-// Đặc biệt tối ưu cho MẶT CHƯA GIẢI (Scrambled / Unsolved faces có nhiều màu đứng cạnh nhau)
+// Tích hợp Bộ lọc Khử Lóa Phản Quang UV (UV Specular Highlight Rejector) & Lấy mẫu Lõi Trung tâm
 function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize, motionTolerance = 0) {
   const cellSize = boxSize / dim;
-  // Lấy mẫu lõi trung tâm của từng ô sticker (11% cellSize) để không bị lem màu từ ô bên cạnh khi mặt CHƯA GIẢI
-  const sampleRadius = Math.max(1, Math.floor(cellSize * 0.11));
+  // Lấy mẫu lõi trung tâm của từng ô sticker (13% cellSize) để tránh rãnh nhựa đen nhưng đủ điểm để lọc vết lóa UV
+  const sampleRadius = Math.max(1, Math.floor(cellSize * 0.13));
   const currentNxNColors = [];
   const cellStats = [];
   let validColorsCount = 0;
@@ -288,17 +314,37 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
             const g = frameImg[idx + 1];
             const b = frameImg[idx + 2];
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-            pixels.push({ r, g, b, lum });
+            const maxC = Math.max(r, g, b);
+            const minC = Math.min(r, g, b);
+            const chroma = maxC - minC;
+            const sat = maxC > 0 ? chroma / maxC : 0;
+            pixels.push({ r, g, b, lum, chroma, sat });
           }
         }
       }
 
       if (pixels.length > 0) {
-        // Lọc trung vị (Trimmed Core): loại bỏ 20% điểm tối nhất (rãnh nhựa đen) & 15% điểm chói sáng nhất
-        pixels.sort((a, b) => a.lum - b.lum);
-        const trimStart = Math.floor(pixels.length * 0.2);
-        const trimEnd = Math.max(trimStart + 1, Math.ceil(pixels.length * 0.85));
-        const corePixels = pixels.slice(trimStart, trimEnd);
+        // BƯỚC 1: Loại bỏ các điểm tối ở rãnh khớp nối nhựa đen (lum < 32)
+        const nonDark = pixels.filter((p) => p.lum >= 32);
+        const workingPool = nonDark.length >= 2 ? nonDark : pixels;
+
+        // BƯỚC 2: KHỬ ĐỐM LÓA TRẮNG TRÊN RUBIK UV (UV Specular Glare Spot Removal)
+        // Nếu trong ô có >= 30% điểm ảnh mang sắc tố màu rõ rệt (chroma >= 20, sat >= 0.20),
+        // thì các điểm chói trắng (lum >= 180, sat < 0.20) chính là ánh đèn phản xạ trên mặt phủ UV -> loại bỏ đốm lóa!
+        const chromaticPixels = workingPool.filter((p) => p.chroma >= 20 && p.sat >= 0.20);
+        let corePixels;
+        if (chromaticPixels.length >= Math.max(2, Math.floor(workingPool.length * 0.28))) {
+          // Sắp xếp theo độ giàu sắc tố (chroma) và lấy 70% điểm màu chuẩn nhất của viên Rubik UV
+          chromaticPixels.sort((a, b) => b.chroma - a.chroma);
+          const keepCount = Math.max(2, Math.ceil(chromaticPixels.length * 0.75));
+          corePixels = chromaticPixels.slice(0, keepCount);
+        } else {
+          // Trường hợp viên màu Trắng (White Sticker) hoặc vùng trung tính: lọc trung vị theo độ sáng
+          workingPool.sort((a, b) => a.lum - b.lum);
+          const trimStart = Math.floor(workingPool.length * 0.18);
+          const trimEnd = Math.max(trimStart + 1, Math.ceil(workingPool.length * 0.85));
+          corePixels = workingPool.slice(trimStart, trimEnd);
+        }
 
         let rSum = 0, gSum = 0, bSum = 0;
         for (const p of corePixels) {
@@ -343,6 +389,42 @@ function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, boxSize
 
   // Nếu vùng này có nhiều ô giống màu da người / bàn gỗ (>= 35% số ô) -> phạt nặng để chống nhận nhầm mặt người/tay
   const isMostlySkinOrWood = skinLikeCellsCount >= Math.ceil(dim * dim * 0.35);
+
+  // BƯỚC 3: KHÔI PHỤC Ô BỊ LÓA NẶNG TRÊN RUBIK UV (Second-Pass UV Glare Recovery)
+  // Khi lưới đã xác nhận có khối Rubik thật (>= 55% số ô rõ màu & >= 2 ô màu rực, không phải da người),
+  // nếu còn 1-3 ô bị chói đèn UV trực diện khiến màu bị nhạt đi, tự động khôi phục theo kênh Hue đối kháng
+  if (
+    !isMostlySkinOrWood &&
+    validColorsCount >= Math.ceil(dim * dim * 0.55) &&
+    vividColorsCount >= 2
+  ) {
+    for (let i = 0; i < currentNxNColors.length; i++) {
+      if (currentNxNColors[i] !== 'invalid') continue;
+      const st = cellStats[i];
+      if (!st || st.cellLum < 45) continue;
+      const spread = Math.max(st.avgR, st.avgG, st.avgB) - Math.min(st.avgR, st.avgG, st.avgB);
+      if (spread < 16 && st.cellLum >= 125) {
+        currentNxNColors[i] = 'white';
+        st.colorKey = 'white';
+        validColorsCount++;
+      } else if (spread >= 12) {
+        const dg = removeUvSpecularGlare(st.avgR, st.avgG, st.avgB);
+        const { h: dh } = rgbToHsv(dg.r, dg.g, dg.b);
+        let recovered = 'invalid';
+        if (dh >= 320 || dh < 10) recovered = 'red';
+        else if (dh >= 10 && dh < 38) recovered = 'orange';
+        else if (dh >= 38 && dh < 76) recovered = 'yellow';
+        else if (dh >= 76 && dh < 172) recovered = 'green';
+        else if (dh >= 172 && dh < 285) recovered = 'blue';
+        if (recovered !== 'invalid') {
+          currentNxNColors[i] = recovered;
+          st.colorKey = recovered;
+          validColorsCount++;
+          vividColorsCount++;
+        }
+      }
+    }
+  }
 
   let sharpAdjacentEdges = 0;
   let colorTransitions = 0;
@@ -2176,7 +2258,7 @@ export default function App() {
         const isAllSameColor =
           validColorsCount >= Math.ceil(dim * dim * 0.88) &&
           uniqueColorsCount === 1 &&
-          (effectiveCenterColor !== 'white' || gridSeamContrast >= 8);
+          (effectiveCenterColor !== 'white' || gridSeamContrast >= 4.5);
 
         // NHẬN DIỆN MỌI MẶT CHƯA GIẢI (2 màu trở lên: từ mặt mới xáo trộn 3-6 màu đến mặt đang giải dở 2 màu)
         const minUniqueForScramble = 2;
