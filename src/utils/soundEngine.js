@@ -1,6 +1,13 @@
 // Singleton Web Audio synthesizer (zero AudioContext limit leak across repeated solves)
 
 let sharedAudioCtx = null;
+let memoryMuted = (() => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('rubik_sound_muted') === 'true';
+  } catch {
+    return false;
+  }
+})();
 
 function getAudioContext() {
   if (typeof window === 'undefined') return null;
@@ -17,19 +24,24 @@ function getAudioContext() {
 
 export function isSoundMuted() {
   try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem('rubik_sound_muted') === 'true';
-  } catch {
-    return false;
-  }
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('rubik_sound_muted');
+      if (stored === 'true' || stored === 'false') {
+        memoryMuted = stored === 'true';
+      }
+    }
+  } catch {}
+  return memoryMuted;
 }
 
 export function setSoundMuted(muted) {
+  memoryMuted = Boolean(muted);
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('rubik_sound_muted', String(Boolean(muted)));
+      localStorage.setItem('rubik_sound_muted', String(memoryMuted));
     }
   } catch {}
-  return Boolean(muted);
+  return memoryMuted;
 }
 
 export function playSoundEffect(type) {
