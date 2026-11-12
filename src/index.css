@@ -90,4 +90,31 @@ input, textarea, select {
   filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.85));
 }
 
+/* Hiệu ứng hoa anh đào toàn màn hình trang Web */
+@keyframes sakuraDriftScreen {
+  0% {
+    transform: translateY(-20px) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateY(105vh) translateX(60px) rotate(360deg);
+    opacity: 0;
+  }
+}
+.sakura-screen-petal {
+  position: fixed;
+  top: -30px;
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+  animation: sakuraDriftScreen linear infinite;
+  filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.8));
+}
+
 

@@ -182,6 +182,7 @@ const COLOR_DEFINITIONS = {
 };
 
 // Các phong cách giao diện Lưới Mạng Nhện & Hitbox Rubik (HUD Themes: Hoa Anh Đào, Mạng Nhện Cyber, Lôi Thần, Băng Tuyết)
+// Toàn bộ hệ thống Giao diện Web (Toàn trang: Nền, Header, Sidebar, Cards, Bảng Kỷ Lục, Nút bấm, Hitbox)
 const HUD_THEMES = {
   sakura: {
     id: 'sakura',
@@ -189,6 +190,19 @@ const HUD_THEMES = {
     shortName: '🌸 Hoa Anh Đào',
     color: '#f472b6',
     glowColor: 'rgba(244, 114, 182, 0.60)',
+    pageBg: 'radial-gradient(ellipse at 50% 0%, #20081a 0%, #11040e 65%, #070105 100%)',
+    headerBg: '#1b0716',
+    headerBorder: '1px solid rgba(244, 114, 182, 0.35)',
+    cardBg: '#160613',
+    cardBorder: '1px solid rgba(244, 114, 182, 0.32)',
+    cardShadow: '0 8px 30px rgba(244, 114, 182, 0.15)',
+    innerCardBg: '#230a1e',
+    innerCardBorder: '1px solid rgba(244, 114, 182, 0.22)',
+    primaryAccent: '#f472b6',
+    secondaryAccent: '#fda4af',
+    textColor: '#fdf2f8',
+    subTextColor: '#f9a8d4',
+    timerGlow: '0 0 50px rgba(244, 114, 182, 0.55)',
     rayColor: 'rgba(251, 113, 133, 0.70)',
     rayLockedColor: 'rgba(244, 114, 182, 0.95)',
     bracketColor: '#f472b6',
@@ -202,6 +216,19 @@ const HUD_THEMES = {
     shortName: '🕸️ Mạng Nhện',
     color: '#38bdf8',
     glowColor: 'rgba(56, 189, 248, 0.55)',
+    pageBg: 'radial-gradient(ellipse at 50% 0%, #06192e 0%, #030d19 65%, #01060e 100%)',
+    headerBg: '#071629',
+    headerBorder: '1px solid rgba(56, 189, 248, 0.35)',
+    cardBg: '#051322',
+    cardBorder: '1px solid rgba(56, 189, 248, 0.32)',
+    cardShadow: '0 8px 30px rgba(56, 189, 248, 0.15)',
+    innerCardBg: '#09213b',
+    innerCardBorder: '1px solid rgba(56, 189, 248, 0.22)',
+    primaryAccent: '#38bdf8',
+    secondaryAccent: '#22c55e',
+    textColor: '#f0f9ff',
+    subTextColor: '#7dd3fc',
+    timerGlow: '0 0 50px rgba(56, 189, 248, 0.55)',
     rayColor: 'rgba(56, 189, 248, 0.60)',
     rayLockedColor: 'rgba(74, 222, 128, 0.90)',
     bracketColor: '#38bdf8',
@@ -215,6 +242,19 @@ const HUD_THEMES = {
     shortName: '⚡ Lôi Thần',
     color: '#a855f7',
     glowColor: 'rgba(168, 85, 247, 0.55)',
+    pageBg: 'radial-gradient(ellipse at 50% 0%, #1c062e 0%, #0d0217 65%, #06010b 100%)',
+    headerBg: '#180629',
+    headerBorder: '1px solid rgba(168, 85, 247, 0.35)',
+    cardBg: '#130422',
+    cardBorder: '1px solid rgba(168, 85, 247, 0.32)',
+    cardShadow: '0 8px 30px rgba(168, 85, 247, 0.16)',
+    innerCardBg: '#22083b',
+    innerCardBorder: '1px solid rgba(168, 85, 247, 0.22)',
+    primaryAccent: '#a855f7',
+    secondaryAccent: '#facc15',
+    textColor: '#faf5ff',
+    subTextColor: '#d8b4fe',
+    timerGlow: '0 0 50px rgba(168, 85, 247, 0.55)',
     rayColor: 'rgba(168, 85, 247, 0.65)',
     rayLockedColor: 'rgba(250, 204, 21, 0.95)',
     bracketColor: '#facc15',
@@ -228,6 +268,19 @@ const HUD_THEMES = {
     shortName: '💎 Băng Tuyết',
     color: '#06b6d4',
     glowColor: 'rgba(6, 182, 212, 0.55)',
+    pageBg: 'radial-gradient(ellipse at 50% 0%, #051c2c 0%, #020f18 65%, #01070c 100%)',
+    headerBg: '#061a29',
+    headerBorder: '1px solid rgba(6, 182, 212, 0.35)',
+    cardBg: '#041624',
+    cardBorder: '1px solid rgba(6, 182, 212, 0.32)',
+    cardShadow: '0 8px 30px rgba(6, 182, 212, 0.15)',
+    innerCardBg: '#09253b',
+    innerCardBorder: '1px solid rgba(6, 182, 212, 0.22)',
+    primaryAccent: '#06b6d4',
+    secondaryAccent: '#67e8f9',
+    textColor: '#ecfeff',
+    subTextColor: '#a5f3fc',
+    timerGlow: '0 0 50px rgba(6, 182, 212, 0.55)',
     rayColor: 'rgba(6, 182, 212, 0.65)',
     rayLockedColor: 'rgba(103, 232, 249, 0.95)',
     bracketColor: '#67e8f9',
@@ -3231,30 +3284,60 @@ export default function App() {
       width: '100%',
       minHeight: '100dvh',
       height: isMobile ? 'auto' : '100vh',
-      backgroundColor: '#090f1d',
+      background: currentHudTheme.pageBg,
       color: '#e2e8f0',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
       display: 'flex',
       flexDirection: 'column',
       overflowY: isMobile ? 'visible' : 'hidden',
       overflowX: 'hidden',
-      userSelect: 'none'
+      userSelect: 'none',
+      transition: 'background 0.3s ease'
     }}>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* Hiệu ứng cánh hoa anh đào bay lượn toàn màn hình Web khi bật theme Hoa Anh Đào */}
+      {currentHudTheme.hasPetals && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9998 }}>
+          {[
+            { left: '6%', delay: '0s', dur: '8.5s', size: '1.2rem' },
+            { left: '18%', delay: '2.5s', dur: '10s', size: '0.95rem' },
+            { left: '32%', delay: '1.2s', dur: '9.2s', size: '1.1rem' },
+            { left: '48%', delay: '4s', dur: '11.5s', size: '1.0rem' },
+            { left: '64%', delay: '1.8s', dur: '8.8s', size: '1.25rem' },
+            { left: '78%', delay: '3.2s', dur: '9.8s', size: '0.9rem' },
+            { left: '92%', delay: '0.7s', dur: '12s', size: '1.15rem' }
+          ].map((p, idx) => (
+            <span
+              key={idx}
+              className="sakura-screen-petal"
+              style={{
+                left: p.left,
+                animationDelay: p.delay,
+                animationDuration: p.dur,
+                fontSize: p.size
+              }}
+            >
+              🌸
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* ==========================================
           HEADER BAR: AUTH + DASHBOARD (HIỂN THỊ ĐẦY ĐỦ & CUỘN MƯỢT TRÊN ĐIỆN THOẠI)
       ========================================== */}
       <header style={{
         padding: isMobile ? '8px 10px' : '10px 24px',
-        backgroundColor: '#0d1629',
-        borderBottom: '1px solid #192642',
+        backgroundColor: currentHudTheme.headerBg,
+        borderBottom: currentHudTheme.headerBorder,
         display: 'flex',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
         alignItems: 'center',
         gap: '8px',
-        width: '100%'
+        width: '100%',
+        transition: 'all 0.3s ease'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <div style={{
@@ -3331,6 +3414,31 @@ export default function App() {
               )}
             </button>
           )}
+
+          {/* NÚT ĐỔI THEME TOÀN TRANG WEB */}
+          <button
+            type="button"
+            onClick={cycleHudTheme}
+            title="Bấm để đổi theme toàn trang web: Hoa Anh Đào, Mạng Nhện Neon, Lôi Thần, Băng Tuyết"
+            style={{
+              padding: isMobile ? '5px 8px' : '6px 13px',
+              borderRadius: '6px',
+              border: `1.5px solid ${currentHudTheme.color}`,
+              background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : currentHudTheme.innerCardBg,
+              color: currentHudTheme.color,
+              fontWeight: '800',
+              fontSize: isMobile ? '0.74rem' : '0.8rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: `0 0 14px ${currentHudTheme.glowColor}`,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <span>{currentHudTheme.shortName}</span>
+            <span style={{ fontSize: '0.65rem' }}>↻</span>
+          </button>
 
           {/* NÚT MỞ DASHBOARD */}
           <button
@@ -3512,38 +3620,39 @@ export default function App() {
         {(!isMobile || mobileTab === 'stats') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: isMobile ? 'visible' : 'hidden', width: isMobile ? '100%' : undefined }}>
           <div style={{
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
+            boxShadow: currentHudTheme.cardShadow,
             borderRadius: '14px',
             padding: '16px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>
+              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: currentHudTheme.textColor }}>
                 Thành tích ({puzzleType})
               </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{currentSolves.length} lượt</span>
+              <span style={{ fontSize: '0.75rem', color: currentHudTheme.subTextColor }}>{currentSolves.length} lượt</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Best Single</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#38bdf8' }}>{bestTime}s</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '10px 12px', borderRadius: '8px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.72rem', color: currentHudTheme.subTextColor }}>Best Single</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: currentHudTheme.primaryAccent }}>{bestTime}s</div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Mean</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#f8fafc' }}>{meanTime}s</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '10px 12px', borderRadius: '8px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.72rem', color: currentHudTheme.subTextColor }}>Mean</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: currentHudTheme.textColor }}>{meanTime}s</div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Current ao5</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '10px 12px', borderRadius: '8px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.72rem', color: currentHudTheme.subTextColor }}>Current ao5</div>
                 <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ao5 !== '--' ? '#4ade80' : '#94a3b8' }}>
                   {ao5 !== '--' ? `${ao5}s` : '--'}
                 </div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '10px 12px', borderRadius: '8px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Current ao12</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '10px 12px', borderRadius: '8px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.72rem', color: currentHudTheme.subTextColor }}>Current ao12</div>
                 <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ao12 !== '--' ? '#c084fc' : '#94a3b8' }}>
                   {ao12 !== '--' ? `${ao12}s` : '--'}
                 </div>
@@ -3553,8 +3662,9 @@ export default function App() {
 
           {/* Lịch sử giải */}
           <div style={{
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
+            boxShadow: currentHudTheme.cardShadow,
             borderRadius: '14px',
             padding: '16px',
             flex: 1,
@@ -3563,10 +3673,10 @@ export default function App() {
             overflow: 'hidden'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#f8fafc' }}>
+              <span style={{ fontWeight: '700', fontSize: '0.9rem', color: currentHudTheme.textColor }}>
                 Lịch sử ({puzzleType})
               </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Mới nhất</span>
+              <span style={{ fontSize: '0.75rem', color: currentHudTheme.subTextColor }}>Mới nhất</span>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -3583,8 +3693,8 @@ export default function App() {
                       flexDirection: 'column',
                       padding: '8px 10px',
                       borderRadius: '8px',
-                      background: '#111c34',
-                      border: '1px solid #192642',
+                      background: currentHudTheme.innerCardBg,
+                      border: currentHudTheme.innerCardBorder,
                       marginBottom: '8px'
                     }}
                   >
@@ -3627,8 +3737,9 @@ export default function App() {
         {/* === CỘT GIỮA: CHẾ ĐỘ CHƠI + PUZZLE TABS + SCRAMBLE + CAMERA + TIMER === */}
         {(!isMobile || mobileTab === 'timer' || gameMode === 'solo') && (
         <div style={{
-          backgroundColor: '#0d1629',
-          border: '1px solid #192642',
+          backgroundColor: currentHudTheme.cardBg,
+          border: currentHudTheme.cardBorder,
+          boxShadow: currentHudTheme.cardShadow,
           borderRadius: '16px',
           padding: isMobile ? '12px 14px' : '16px 22px',
           display: 'flex',
@@ -3643,10 +3754,10 @@ export default function App() {
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <div style={{
               display: 'flex',
-              background: '#090f1d',
+              background: currentHudTheme.innerCardBg,
               padding: '3px',
               borderRadius: '8px',
-              border: '1px solid #16223b',
+              border: currentHudTheme.innerCardBorder,
               gap: '4px',
               maxWidth: '100%',
               overflowX: 'auto',
@@ -3664,7 +3775,7 @@ export default function App() {
                       padding: '5px 12px',
                       borderRadius: '6px',
                       border: 'none',
-                      background: isSelected ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'transparent',
+                      background: isSelected ? `linear-gradient(135deg, ${currentHudTheme.primaryAccent}, #1d4ed8)` : 'transparent',
                       color: isSelected ? '#ffffff' : '#64748b',
                       fontWeight: isSelected ? '700' : '600',
                       fontSize: '0.75rem',
@@ -3686,10 +3797,10 @@ export default function App() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: '6px',
-                background: '#0a101f',
+                background: currentHudTheme.innerCardBg,
                 padding: '8px 12px',
                 borderRadius: '10px',
-                border: '1px solid #1a2a4c',
+                border: currentHudTheme.innerCardBorder,
                 maxWidth: '100%'
               }}>
                 <div style={{
@@ -3697,11 +3808,11 @@ export default function App() {
                   alignItems: 'center',
                   gap: '6px',
                   fontSize: '0.78rem',
-                  color: '#94a3b8',
+                  color: currentHudTheme.subTextColor,
                   flexWrap: 'wrap',
                   justifyContent: 'center'
                 }}>
-                  <span style={{ fontWeight: '700', color: '#cbd5e1' }}>Mục tiêu Sub:</span>
+                  <span style={{ fontWeight: '700', color: currentHudTheme.textColor }}>Mục tiêu Sub:</span>
                   {[10, 15, 20, 30].map(sec => (
                     <button
                       key={sec}
@@ -3713,9 +3824,9 @@ export default function App() {
                       style={{
                         padding: '3px 8px',
                         borderRadius: '5px',
-                        border: targetSeconds === sec ? '1.5px solid #38bdf8' : '1px solid #1e293b',
-                        background: targetSeconds === sec ? '#1e3a8a' : '#111c34',
-                        color: targetSeconds === sec ? '#ffffff' : '#94a3b8',
+                        border: targetSeconds === sec ? `1.5px solid ${currentHudTheme.primaryAccent}` : currentHudTheme.innerCardBorder,
+                        background: targetSeconds === sec ? currentHudTheme.primaryAccent : currentHudTheme.cardBg,
+                        color: targetSeconds === sec ? '#ffffff' : currentHudTheme.subTextColor,
                         fontSize: '0.74rem',
                         cursor: 'pointer',
                         fontWeight: '700',
@@ -3731,9 +3842,9 @@ export default function App() {
                     <span style={{
                       padding: '3px 9px',
                       borderRadius: '5px',
-                      border: '1.5px solid #f59e0b',
+                      border: `1.5px solid ${currentHudTheme.primaryAccent}`,
                       background: 'rgba(245, 158, 11, 0.2)',
-                      color: '#fbbf24',
+                      color: currentHudTheme.primaryAccent,
                       fontSize: '0.74rem',
                       fontWeight: '800'
                     }}>
@@ -3768,9 +3879,9 @@ export default function App() {
                         width: '90px',
                         padding: '3px 8px',
                         borderRadius: '5px',
-                        background: '#111c34',
-                        border: '1px solid #334155',
-                        color: '#f8fafc',
+                        background: currentHudTheme.cardBg,
+                        border: currentHudTheme.innerCardBorder,
+                        color: currentHudTheme.textColor,
                         fontSize: '0.74rem',
                         outline: 'none',
                         fontWeight: '600'
@@ -3781,7 +3892,7 @@ export default function App() {
                       style={{
                         padding: '3px 8px',
                         borderRadius: '5px',
-                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                        background: `linear-gradient(135deg, ${currentHudTheme.primaryAccent}, #1d4ed8)`,
                         border: 'none',
                         color: '#ffffff',
                         fontSize: '0.72rem',
@@ -3815,10 +3926,10 @@ export default function App() {
 
             <div style={{
               display: 'inline-flex',
-              background: '#090f1d',
+              background: currentHudTheme.innerCardBg,
               padding: '3px',
               borderRadius: '8px',
-              border: '1px solid #16223b',
+              border: currentHudTheme.innerCardBorder,
               gap: '4px',
               maxWidth: '100%',
               overflowX: 'auto',
@@ -3834,12 +3945,12 @@ export default function App() {
                       padding: '4px 14px',
                       borderRadius: '6px',
                       border: 'none',
-                      background: isSelected ? '#1e293b' : 'transparent',
-                      color: isSelected ? '#38bdf8' : '#64748b',
+                      background: isSelected ? currentHudTheme.cardBg : 'transparent',
+                      color: isSelected ? currentHudTheme.primaryAccent : '#64748b',
                       fontWeight: isSelected ? '800' : '600',
                       fontSize: '0.78rem',
                       cursor: 'pointer',
-                      borderBottom: isSelected ? '2px solid #38bdf8' : '2px solid transparent'
+                      borderBottom: isSelected ? `2px solid ${currentHudTheme.primaryAccent}` : '2px solid transparent'
                     }}
                   >
                     {p.name}
@@ -3852,16 +3963,16 @@ export default function App() {
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
-              background: '#080e1c',
+              background: currentHudTheme.innerCardBg,
               padding: '3px 6px',
               borderRadius: '8px',
-              border: '1px solid #16223b',
+              border: currentHudTheme.innerCardBorder,
               gap: '4px',
               maxWidth: '100%',
               overflowX: 'auto',
               WebkitOverflowScrolling: 'touch'
             }} className="no-scrollbar">
-              <span style={{ fontSize: '0.66rem', color: '#64748b', fontWeight: '700', whiteSpace: 'nowrap', padding: '0 4px' }}>
+              <span style={{ fontSize: '0.66rem', color: currentHudTheme.subTextColor, fontWeight: '700', whiteSpace: 'nowrap', padding: '0 4px' }}>
                 🎨 Loại Rubik:
               </span>
               {Object.values(CUBE_SURFACE_PROFILES).map((prof) => {
@@ -3875,9 +3986,9 @@ export default function App() {
                     style={{
                       padding: '3px 9px',
                       borderRadius: '6px',
-                      border: isSelected ? '1px solid #38bdf8' : '1px solid transparent',
-                      background: isSelected ? 'rgba(56, 189, 248, 0.16)' : 'transparent',
-                      color: isSelected ? '#38bdf8' : '#94a3b8',
+                      border: isSelected ? `1px solid ${currentHudTheme.primaryAccent}` : '1px solid transparent',
+                      background: isSelected ? (hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : 'rgba(56, 189, 248, 0.16)') : 'transparent',
+                      color: isSelected ? currentHudTheme.primaryAccent : '#94a3b8',
                       fontWeight: isSelected ? '800' : '600',
                       fontSize: '0.68rem',
                       cursor: 'pointer',
@@ -4061,7 +4172,7 @@ export default function App() {
             <div style={{
               width: '100%',
               maxWidth: upper3DExpanded ? '720px' : '640px',
-              background: 'linear-gradient(180deg, #0b1326 0%, #070c18 100%)',
+              background: currentHudTheme.innerCardBg,
               borderRadius: '14px',
               border: cameraActive
                 ? (cameraHealth.isHealthy ? (preCheckStatus.verified ? '1.5px solid #22c55e' : `1.5px solid ${currentHudTheme.color}`) : '1.5px solid #ef4444')
@@ -4872,7 +4983,9 @@ export default function App() {
                       : !preCheckStatus.verified && timerState === 'idle'
                         ? '#94a3b8'
                         : '#ffffff',
-              textShadow: timerState === 'ready' ? '0 0 45px rgba(34, 197, 94, 0.5)' : 'none',
+              textShadow: timerState === 'ready'
+                ? '0 0 45px rgba(34, 197, 94, 0.5)'
+                : (timerState === 'running' ? currentHudTheme.timerGlow : 'none'),
               transition: 'color 0.1s ease'
             }}>
               {timerState === 'inspecting' ? inspectionSeconds : formatTime(timeMs)}
@@ -5058,9 +5171,10 @@ export default function App() {
         {/* === CỘT PHẢI: BẢNG XẾP HẠNG === */}
         {gameMode !== 'solo' && (!isMobile || mobileTab === 'leaderboard') && (
         <div style={{
-          backgroundColor: '#0d1629',
+          backgroundColor: currentHudTheme.cardBg,
           width: isMobile ? '100%' : undefined,
-          border: '1px solid #192642',
+          border: currentHudTheme.cardBorder,
+          boxShadow: currentHudTheme.cardShadow,
           borderRadius: '16px',
           padding: '16px 18px',
           display: 'flex',
@@ -5077,9 +5191,9 @@ export default function App() {
                 localStorage.setItem('rubik_active_board_id', e.target.value);
               }}
               style={{
-                background: '#111c34',
-                border: '1px solid #1a2a4c',
-                color: '#f8fafc',
+                background: currentHudTheme.innerCardBg,
+                border: currentHudTheme.innerCardBorder,
+                color: currentHudTheme.textColor,
                 fontSize: '0.9rem',
                 fontWeight: '700',
                 padding: '5px 10px',
@@ -5097,7 +5211,7 @@ export default function App() {
             <button
               onClick={() => setShowNewBoardModal(true)}
               style={{
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                background: `linear-gradient(135deg, ${currentHudTheme.primaryAccent}, #1d4ed8)`,
                 border: 'none',
                 color: '#ffffff',
                 fontSize: '0.75rem',
@@ -5128,11 +5242,11 @@ export default function App() {
               <span>{cameraActive && cameraHealth.isHealthy ? '🟢 AI Cam: Tự động ghi nhận' : '🔴 Chưa Bật Cam: Không Lưu Kỷ Lục'}</span>
             </div>
 
-            <div style={{ display: 'flex', background: '#111c34', borderRadius: '4px', border: '1px solid #1e293b', padding: '2px' }}>
+            <div style={{ display: 'flex', background: currentHudTheme.innerCardBg, borderRadius: '4px', border: currentHudTheme.innerCardBorder, padding: '2px' }}>
               <button
                 onClick={() => setLeaderboardFilter('current')}
                 style={{
-                  background: leaderboardFilter === 'current' ? '#2563eb' : 'transparent',
+                  background: leaderboardFilter === 'current' ? currentHudTheme.primaryAccent : 'transparent',
                   border: 'none',
                   color: leaderboardFilter === 'current' ? '#ffffff' : '#94a3b8',
                   fontSize: '0.68rem',
@@ -5147,7 +5261,7 @@ export default function App() {
               <button
                 onClick={() => setLeaderboardFilter('all')}
                 style={{
-                  background: leaderboardFilter === 'all' ? '#2563eb' : 'transparent',
+                  background: leaderboardFilter === 'all' ? currentHudTheme.primaryAccent : 'transparent',
                   border: 'none',
                   color: leaderboardFilter === 'all' ? '#ffffff' : '#94a3b8',
                   fontSize: '0.68rem',
@@ -5220,8 +5334,8 @@ export default function App() {
               : (isKhoaAdmin ? '28px 1fr 65px 65px 22px' : '28px 1fr 68px 68px'),
             padding: '6px 8px',
             fontSize: '0.72rem',
-            color: '#64748b',
-            borderBottom: '1px solid #192642',
+            color: currentHudTheme.subTextColor,
+            borderBottom: currentHudTheme.innerCardBorder,
             fontWeight: '600'
           }}>
             <span>#</span>
@@ -5237,10 +5351,10 @@ export default function App() {
             {displayedEntries.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '36px 16px', color: '#64748b' }}>
                 <div style={{ fontSize: '2.4rem', marginBottom: '8px' }}>📹🏆</div>
-                <div style={{ color: '#f8fafc', fontWeight: '700', fontSize: '0.92rem', marginBottom: '6px' }}>
+                <div style={{ color: currentHudTheme.textColor, fontWeight: '700', fontSize: '0.92rem', marginBottom: '6px' }}>
                   Bảng Kỷ Lục AI Hoàn Toàn Sạch
                 </div>
-                <p style={{ margin: '0 auto', fontSize: '0.76rem', color: '#64748b', maxWidth: '280px', lineHeight: '1.4' }}>
+                <p style={{ margin: '0 auto', fontSize: '0.76rem', color: currentHudTheme.subTextColor, maxWidth: '280px', lineHeight: '1.4' }}>
                   Không dùng tên mẫu, không cho phép thêm tay. Hãy <strong>Bật Camera AI</strong> và giải Rubik — hệ thống sẽ tự động nhận diện và vinh danh bạn lên Top 1!
                 </p>
               </div>
@@ -5254,16 +5368,16 @@ export default function App() {
                       ? (isKhoaAdmin ? '28px 40px 1fr 62px 62px 22px' : '28px 40px 1fr 64px 64px')
                       : (isKhoaAdmin ? '28px 1fr 65px 65px 22px' : '28px 1fr 68px 68px'),
                     padding: '8px 8px',
-                    borderBottom: '1px solid #111c34',
+                    borderBottom: currentHudTheme.innerCardBorder,
                     fontSize: '0.8rem',
                     alignItems: 'center',
-                    background: index === 0 ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                    background: index === 0 ? (hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.12)' : 'rgba(37, 99, 235, 0.08)') : 'transparent',
                     borderRadius: '6px'
                   }}
                 >
                   <span style={{
                     fontWeight: '700',
-                    color: index === 0 ? '#f59e0b' : '#38bdf8'
+                    color: index === 0 ? '#f59e0b' : currentHudTheme.primaryAccent
                   }}>
                     {index + 1}
                   </span>
@@ -5357,8 +5471,8 @@ export default function App() {
         {/* === TAB RIÊNG CHO MOBILE: KHỐI 3D & CAMERA AI === */}
         {isMobile && mobileTab === '3d' && gameMode !== 'solo' && (
           <div style={{
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
             borderRadius: '16px',
             padding: '16px',
             display: 'flex',
@@ -5368,7 +5482,7 @@ export default function App() {
             width: '100%'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', color: '#38bdf8' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: currentHudTheme.primaryAccent }}>
                 🧊 Khối Rubik 3D & Camera AI
               </h3>
               <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -5505,8 +5619,8 @@ export default function App() {
           bottom: 0,
           left: 0,
           right: 0,
-          backgroundColor: '#0d1629',
-          borderTop: '1px solid #1a2a4c',
+          backgroundColor: currentHudTheme.cardBg,
+          borderTop: currentHudTheme.cardBorder,
           display: 'flex',
           justifyContent: 'space-around',
           padding: '6px 8px env(safe-area-inset-bottom, 8px) 8px',
@@ -5589,11 +5703,11 @@ export default function App() {
           <div style={{
             width: '92%',
             maxWidth: '720px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
             borderRadius: '16px',
             padding: '24px 28px',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.8)',
+            boxShadow: currentHudTheme.cardShadow,
             maxHeight: '90vh',
             overflowY: 'auto',
             position: 'relative'
@@ -5628,35 +5742,35 @@ export default function App() {
 
             {/* KPI Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
-              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Best Single ({puzzleType})</div>
-                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#38bdf8' }}>{bestTime}s</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '12px', borderRadius: '10px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.7rem', color: currentHudTheme.subTextColor }}>Best Single ({puzzleType})</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: currentHudTheme.primaryAccent }}>{bestTime}s</div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Current ao5</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '12px', borderRadius: '10px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.7rem', color: currentHudTheme.subTextColor }}>Current ao5</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: '800', color: ao5 !== '--' ? '#4ade80' : '#94a3b8' }}>
                   {ao5 !== '--' ? `${ao5}s` : '--'}
                 </div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Current ao12</div>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '12px', borderRadius: '10px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.7rem', color: currentHudTheme.subTextColor }}>Current ao12</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: '800', color: ao12 !== '--' ? '#c084fc' : '#94a3b8' }}>
                   {ao12 !== '--' ? `${ao12}s` : '--'}
                 </div>
               </div>
 
-              <div style={{ background: '#111c34', padding: '12px', borderRadius: '10px', border: '1px solid #1a2a4c' }}>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Tổng Lượt Giải</div>
-                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: '#f8fafc' }}>
+              <div style={{ background: currentHudTheme.innerCardBg, padding: '12px', borderRadius: '10px', border: currentHudTheme.innerCardBorder }}>
+                <div style={{ fontSize: '0.7rem', color: currentHudTheme.subTextColor }}>Tổng Lượt Giải</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: '800', color: currentHudTheme.textColor }}>
                   {solves.length} lượt
                 </div>
               </div>
             </div>
 
             {/* SVG Line Chart */}
-            <div style={{ background: '#111c34', padding: '16px', borderRadius: '12px', border: '1px solid #1a2a4c', marginBottom: '20px' }}>
+            <div style={{ background: currentHudTheme.innerCardBg, padding: '16px', borderRadius: '12px', border: currentHudTheme.innerCardBorder, marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#f8fafc' }}>
                   📈 Biểu Đồ Xu Hướng Thời Gian ({puzzleType})
@@ -5787,11 +5901,11 @@ export default function App() {
           <div style={{
             width: '100%',
             maxWidth: '430px',
-            backgroundColor: '#0c1424',
-            border: isGuest ? '1.5px solid rgba(244, 114, 182, 0.5)' : '1px solid #1e293b',
+            backgroundColor: currentHudTheme.cardBg,
+            border: isGuest ? `1.5px solid ${currentHudTheme.primaryAccent}` : currentHudTheme.cardBorder,
             borderRadius: '18px',
             padding: '26px 24px',
-            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(244, 114, 182, 0.15)',
+            boxShadow: `0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px ${currentHudTheme.glowColor}`,
             position: 'relative',
             maxHeight: '92vh',
             overflowY: 'auto'
@@ -6271,11 +6385,11 @@ export default function App() {
           <div style={{
             width: '94%',
             maxWidth: '680px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #f59e0b88',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
             borderRadius: '16px',
             padding: isMobile ? '18px 16px' : '24px 28px',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.85)',
+            boxShadow: currentHudTheme.cardShadow,
             maxHeight: '92vh',
             overflowY: 'auto',
             position: 'relative'
@@ -7018,11 +7132,11 @@ export default function App() {
           <div style={{
             width: '90%',
             maxWidth: '400px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #192642',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
             borderRadius: '14px',
             padding: '24px',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.6)'
+            boxShadow: currentHudTheme.cardShadow
           }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#f8fafc' }}>
               ➕ Lập Bảng Xếp Hạng Mới
@@ -7144,11 +7258,11 @@ export default function App() {
           <div style={{
             width: '92%',
             maxWidth: '440px',
-            backgroundColor: '#0d1629',
-            border: '1px solid #38bdf866',
+            backgroundColor: currentHudTheme.cardBg,
+            border: currentHudTheme.cardBorder,
             borderRadius: '16px',
             padding: '20px',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.85)',
+            boxShadow: currentHudTheme.cardShadow,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center'
