@@ -466,13 +466,16 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   // 5. PHÂN LOẠI 5 MÀU CÒN LẠI DỰA TRÊN DẢI HUE [0°..360°] & ĐỘ BÃO HÒA SATURATION TRONG HỆ HSV:
 
   // [A] MÀU VÀNG (YELLOW):
-  // Dải Hue HSV: 36° đến 80° (bao quát từ vàng đậm 42°, vàng chanh 55° đến vàng chanh huỳnh quang GAN/Moyu ở 72°..78°)
-  // Saturation HSV: S >= 0.26, Value HSV: V >= 0.38
-  // ĐẶT TRƯỚC XANH LÁ để đảm bảo màu vàng chanh huỳnh quang không bị bắt nhầm sang xanh!
-  if (h >= 36 && h <= 80) {
-    if (s >= 0.26 && v >= 0.38) {
-      return 'yellow';
-    }
+  // Dải Hue HSV: 36° đến 82° (vàng tiêu chuẩn và vàng chanh)
+  // MỞ RỘNG ĐẶC BIỆT: Nhựa vàng huỳnh quang cao cấp (GAN, Moyu, QiYi, Tornado) dưới đèn LED lạnh có thể có Hue lên đến 83°..95°.
+  // Phân biệt vật lý triệt để: Nhựa Vàng phản xạ mạnh cả Đỏ và Lục (R >= 95, R > 0.52 * G, R > 1.5 * B).
+  // Trong khi nhựa Xanh Lá hấp thụ toàn bộ tia đỏ (R rất thấp, R < 0.45 * G).
+  const isFluorescentLemonYellow =
+    h > 80 && h <= 95 && avgR >= 95 && avgR > 0.52 * avgG && avgR > 1.5 * avgB && s >= 0.24 && v >= 0.35;
+  const isStandardHsvYellow = (h >= 36 && h <= 80 && s >= 0.25 && v >= 0.35);
+
+  if (isStandardHsvYellow || isFluorescentLemonYellow) {
+    return 'yellow';
   }
 
   // [B] MÀU CAM (ORANGE):
@@ -494,10 +497,11 @@ function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTolerance 
   }
 
   // [D] MÀU XANH LÁ (GREEN):
-  // Dải Hue HSV: 81° đến 170° (dải xanh lục, tách bạch 100% với Vàng <= 80°)
-  // Saturation HSV: S >= 0.28, Value HSV: V >= 0.25
-  if (h >= 81 && h < 170) {
-    if (s >= 0.28 && v >= 0.25) {
+  // Dải Hue HSV: 88° đến 170° (dải xanh lục ngọc bích / emerald green)
+  // Chống nhầm với vàng chanh: Nhựa xanh lá thực tế luôn có kênh Đỏ thấp (avgR < 0.50 * avgG hoặc avgR < 95)
+  if (h >= 88 && h < 170) {
+    const isRealGreenPlastic = avgR < 0.50 * avgG || avgR < 95;
+    if (isRealGreenPlastic && s >= 0.26 && v >= 0.24) {
       return 'green';
     }
   }
@@ -2279,6 +2283,12 @@ export default function App() {
     facesCount: 0,
     validStickers: 0
   });
+  const model3DVerificationRef = useRef(model3DVerification);
+  useEffect(() => { model3DVerificationRef.current = model3DVerification; }, [model3DVerification]);
+  const lastCvTimeRef = useRef(0);
+  const lastScrambleAuditTimeRef = useRef(0);
+  const prevCameraHealthRef = useRef(null);
+  const prevTrackingBoxRef = useRef(null);
   const trackerStateRef = useRef({ cx: 0, cy: 0, size: 0, vx: 0, vy: 0 });
   const temporalBufferRef = useRef([]);
   const scannedFacesRef = useRef({});
@@ -2417,7 +2427,18 @@ export default function App() {
     });
     behaviorRef.current.recordSolve(finalSec);
     if (!isVipKhoa && behaviorRef.current.suspicious) revokeHumanSession(); // buộc xác minh lại ở lượt sau
-    const isRecordEligible = Boolean(isVipKhoa || (isCameraVerified && integrity.ok));
+    // Bảng Kỷ Lục AI CHỈ chấp nhận lượt giải khi:
+    // 1. Camera AI hoạt động tốt và đạt chuẩn sáng
+    // 2. Không vi phạm bot/automation
+    // 3. Khối Rubik thật biến đổi trạng thái trong lúc xoay
+    // 4. Scramble đề bài KHỚP chuẩn WCA (không xáo sai, không bật chế độ Freestyle tự do)
+    const isWcaScramblePassed = Boolean(
+      isVipKhoa ||
+      cfg.require3DCubePreCheck === false ||
+      (!scrambleRef.current && !allowFreestyleScrambleRef.current) ||
+      (scrambleAuditRef.current?.isMatch && !allowFreestyleScrambleRef.current)
+    );
+    const isRecordEligible = Boolean(isVipKhoa || (isCameraVerified && integrity.ok && isWcaScramblePassed));
 
     // Giữ mô hình 3D thêm vài giây sau khi dừng để xem kết quả
     setLinger3D(true);
@@ -2431,17 +2452,15 @@ export default function App() {
       penalty: penaltyText,
       date: new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
       moves: movesRecorded.length > 0 ? movesRecorded.join(' ') : `Camera AI (${cubeMovesSeenRef.current} nhịp xoay)`,
-      verified: true
+      verified: isRecordEligible
     };
 
-    // CHỈ LƯU VÀO LỊCH SỬ / PB / AO5 KHI ĐÃ QUA ĐỦ 3 TẦNG XÁC MINH CAMERA AI & MÔ HÌNH 3D
-    if (isRecordEligible) {
-      setSolves(prev => {
-        const updated = [newSolve, ...prev];
-        localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
-        return updated;
-      });
-    }
+    // Luôn lưu vào lịch sử giải của người chơi (với cờ verified phản ánh đúng việc có khớp chuẩn AI hay không)
+    setSolves(prev => {
+      const updated = [newSolve, ...prev];
+      localStorage.setItem('rubik_solves_hcc_clean', JSON.stringify(updated));
+      return updated;
+    });
 
     // =========================================================================
     // ANTI-CHEAT AUTOMATIC LEADERBOARD RECOGNITION (TỰ ĐỘNG NHẬN DIỆN KỶ LỤC)
@@ -2531,12 +2550,15 @@ export default function App() {
         }
       }
     } else {
-      // KHÔNG BẬT CAMERA HOẶC KHÔNG PHẢI KHỐI RUBIK THẬT -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
+      // KHÔNG BẬT CAMERA, XÁO SAI CÔNG THỨC HOẶC KHÔNG PHẢI KHỐI RUBIK THẬT -> TUYỆT ĐỐI KHÔNG ĐƯA VÀO BẢNG KỶ LỤC
+      const rejectReason = !isCameraVerified
+        ? '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
+        : !integrity.ok
+          ? `🚫 TỪ CHỐI GHI KỶ LỤC: ${integrity.reason}!`
+          : `⚠️ TỪ CHỐI GHI KỶ LỤC: Khối xáo sai Scramble đề bài hoặc đang bật chế độ Giải tự do!`;
       setLastNotice({
         type: 'warning',
-        text: !isCameraVerified
-          ? '⚠️ Lượt giải này chưa bật Camera AI nên KHÔNG được đưa vào Bảng Kỷ Lục!'
-          : `🚫 TỪ CHỐI GHI KỶ LỤC: ${integrity.reason}!`
+        text: rejectReason
       });
     }
 
@@ -2770,11 +2792,23 @@ export default function App() {
       const canvas = canvasRef.current;
 
       if (video && canvas && video.readyState === 4 && video.videoWidth > 0) {
+        const now = performance.now();
+        // KHẮC PHỤC TRIỆT ĐỂ "WEB BỊ GIẬT / LAG":
+        // Điều tiết tần số xử lý Computer Vision (CV Inference Throttling) ở ~18 FPS (mỗi 52ms)
+        // Main thread và Three.js render mượt mà 60 FPS không bị khựng đơ!
+        if (now - lastCvTimeRef.current < 52) {
+          animFrameRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+        lastCvTimeRef.current = now;
+
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         const w = video.videoWidth;
         const h = video.videoHeight;
-        canvas.width = w;
-        canvas.height = h;
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
 
         ctx.drawImage(video, 0, 0, w, h);
         const frameImg = ctx.getImageData(0, 0, w, h).data;
@@ -2808,22 +2842,37 @@ export default function App() {
         }
 
         cameraHealthRef.current = isHealthy;
-        setCameraHealth({
-          isHealthy,
-          reason: healthReason,
-          brightness: Math.round(avgBrightness),
-          contrast: Math.round(contrast)
-        });
+        const prevH = prevCameraHealthRef.current;
+        if (
+          !prevH ||
+          prevH.isHealthy !== isHealthy ||
+          Math.abs(prevH.brightness - avgBrightness) > 8 ||
+          Math.abs(prevH.contrast - contrast) > 10
+        ) {
+          const newH = {
+            isHealthy,
+            reason: healthReason,
+            brightness: Math.round(avgBrightness),
+            contrast: Math.round(contrast)
+          };
+          prevCameraHealthRef.current = newH;
+          setCameraHealth(newH);
+        }
 
         if (!isHealthy) {
-          setPreCheckStatus({
-            verified: false,
-            text: `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`,
-            isScrambled: false,
-            centerFace: null
-          });
-          setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
-          prevColorsRef.current = null;
+          const curPre = preCheckRef.current;
+          if (!curPre || curPre.verified !== false || curPre.text !== `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`) {
+            setPreCheckStatus({
+              verified: false,
+              text: `⚠️ ${healthReason}. Đã khóa AI để tránh sai lệch!`,
+              isScrambled: false,
+              centerFace: null
+            });
+          }
+          if (prevColorsRef.current !== null) {
+            setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
+            prevColorsRef.current = null;
+          }
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
         }
@@ -2890,20 +2939,32 @@ export default function App() {
         const cyPct = Math.round((smoothCy / h) * 100);
         const isMovingNow = moveSpeed >= 4.5;
 
-        setTrackingBox({
-          leftPct: Number(leftPct.toFixed(1)),
-          topPct: Number(topPct.toFixed(1)),
-          widthPct: Number(widthPct.toFixed(1)),
-          heightPct: Number(heightPct.toFixed(1)),
-          cxPct,
-          cyPct,
-          isLocked: hasCubeSignal,
-          isMoving: isMovingNow,
-          speed: Math.round(moveSpeed),
-          hitbox: bestRegion.hitbox || null,
-          spiderRays: bestRegion.spiderRays || [],
-          isSpiderLocked: Boolean(bestRegion.isSpiderLocked)
-        });
+        const prevBox = prevTrackingBoxRef.current;
+        const boxNeedsUpdate =
+          !prevBox ||
+          prevBox.isLocked !== hasCubeSignal ||
+          prevBox.isMoving !== isMovingNow ||
+          Math.abs(prevBox.leftPct - leftPct) > 1.2 ||
+          Math.abs(prevBox.topPct - topPct) > 1.2;
+
+        if (boxNeedsUpdate) {
+          const newBox = {
+            leftPct: Number(leftPct.toFixed(1)),
+            topPct: Number(topPct.toFixed(1)),
+            widthPct: Number(widthPct.toFixed(1)),
+            heightPct: Number(heightPct.toFixed(1)),
+            cxPct,
+            cyPct,
+            isLocked: hasCubeSignal,
+            isMoving: isMovingNow,
+            speed: Math.round(moveSpeed),
+            hitbox: bestRegion.hitbox || null,
+            spiderRays: bestRegion.spiderRays || [],
+            isSpiderLocked: Boolean(bestRegion.isSpiderLocked)
+          };
+          prevTrackingBoxRef.current = newBox;
+          setTrackingBox(newBox);
+        }
 
         // Bộ lọc Khử nhòe Chuyển động (3-Frame Temporal Stabilizer) giúp bắt nét màu lên Mô hình 3D ngay cả khi đang di chuyển khối
         let currentNxNColors = [...bestRegion.currentNxNColors];
@@ -2931,9 +2992,43 @@ export default function App() {
         const sharpAdjacentEdges = bestRegion.sharpAdjacentEdges;
         const gridSeamContrast = bestRegion.gridSeamContrast;
 
-        setDetectedColors(currentNxNColors);
+        // TỐI ƯU HÓA RENDER: Chỉ gọi setDetectedColors khi mảng màu thực sự có sự thay đổi
+        const colorsChanged = !prevColorsRef.current || currentNxNColors.some((c, i) => c !== prevColorsRef.current[i]);
+        if (colorsChanged) {
+          setDetectedColors(currentNxNColors);
+          prevColorsRef.current = [...currentNxNColors];
+        }
 
-        const now = performance.now();
+        // Bộ điều tiết trạng thái PreCheck & Model3D để chống giật re-render toàn component
+        const setPreCheckThrottled = (nextStatus) => {
+          const cur = preCheckRef.current;
+          if (
+            !cur ||
+            cur.verified !== nextStatus.verified ||
+            cur.isMismatch !== nextStatus.isMismatch ||
+            cur.scannedCount !== nextStatus.scannedCount ||
+            cur.text !== nextStatus.text ||
+            cur.isScrambled !== nextStatus.isScrambled ||
+            cur.centerFace !== nextStatus.centerFace
+          ) {
+            setPreCheckStatus(nextStatus);
+          }
+        };
+
+        const setModel3DThrottled = (nextModel) => {
+          const cur = model3DVerificationRef.current;
+          if (
+            !cur ||
+            cur.verified !== nextModel.verified ||
+            cur.badgeText !== nextModel.badgeText ||
+            cur.statusTitle !== nextModel.statusTitle ||
+            cur.facesCount !== nextModel.facesCount ||
+            cur.validStickers !== nextModel.validStickers
+          ) {
+            setModel3DVerification(nextModel);
+          }
+        };
+
         // Tối ưu nhận diện MẶT CHƯA GIẢI (nhiều màu lộn xộn): chỉ cần >= 65% số ô rõ nét (VD: 6/9 ô với 3x3, 3/4 ô với 2x2)
         const minStickersRequired = Math.max(3, Math.ceil(dim * dim * 0.65));
         const minVividRequired = Math.max(2, Math.floor(dim * dim * 0.33));
@@ -2944,20 +3039,20 @@ export default function App() {
           if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
             const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
             if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0) {
-              setPreCheckStatus(prev => ({
-                ...prev,
+              setPreCheckThrottled({
+                ...(preCheckRef.current || {}),
                 verified: true,
                 text: `🟢 ĐÃ KHÓA MẶT CHƯA GIẢI LÊN 3D (${dim}×${dim}) — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
-              }));
+              });
             } else {
               if (lastCubeVerifiedAtRef.current > 0) lastCubeVerifiedAtRef.current = 0;
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: false,
                 text: `🔍 Đưa mặt Rubik CHƯA GIẢI (${dim}×${dim}) vào trước camera để AI phân tích các màu xáo trộn lên 3D...`,
                 isScrambled: false,
                 centerFace: null
               });
-              setModel3DVerification({
+              setModel3DThrottled({
                 verified: false,
                 badgeText: '🔍 ĐỢI MẶT CHƯA GIẢI',
                 statusTitle: 'Đang quét tìm các mặt Rubik chưa giải...',
@@ -3012,6 +3107,7 @@ export default function App() {
         let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
         let colorOverflowDetected = false;
         let overflowColorName = '';
+        let faceChanged = false;
 
         if (isGenuineScrambledCube || isAllSameColor) {
           const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
@@ -3052,15 +3148,19 @@ export default function App() {
           const isTiltedSideFace = invalidInThisFace > Math.floor(dim * dim * 0.45);
 
           if (!isTiltedSideFace) {
-            const nextFaces = {
-              ...(scannedFacesRef.current || {}),
-              [mappedFace]: validatedFaceColors
-            };
-            scannedFacesRef.current = nextFaces;
-            updatedFacesCount = Object.keys(nextFaces).length;
-            setScannedFaces(nextFaces);
-            setCurrentActiveFace(mappedFace);
-            currentActiveFaceRef.current = mappedFace;
+            const prevFace = scannedFacesRef.current?.[mappedFace];
+            faceChanged = !prevFace || validatedFaceColors.some((c, i) => c !== prevFace[i]);
+            if (faceChanged) {
+              const nextFaces = {
+                ...(scannedFacesRef.current || {}),
+                [mappedFace]: validatedFaceColors
+              };
+              scannedFacesRef.current = nextFaces;
+              updatedFacesCount = Object.keys(nextFaces).length;
+              setScannedFaces(nextFaces);
+              setCurrentActiveFace(mappedFace);
+              currentActiveFaceRef.current = mappedFace;
+            }
           }
         }
 
@@ -3073,7 +3173,7 @@ export default function App() {
         // Phân tích & xác minh trực tiếp trên Mô hình 3D (Hiển thị rõ MẶT CHƯA GIẢI vs MẶT ĐÃ GIẢI & Cảnh báo mặt bên)
         if (isGenuineScrambledCube) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
-          setModel3DVerification({
+          setModel3DThrottled({
             verified: hasScannedAll6 || !req6Faces,
             badgeText: hasScannedAll6 ? '🟢 ĐỦ 6/6 MẶT' : `🔍 ĐÃ QUÉT ${updatedFacesCount}/6 MẶT`,
             statusTitle: colorOverflowDetected
@@ -3088,7 +3188,7 @@ export default function App() {
             validStickers: validColorsCount
           });
         } else if (isAllSameColor) {
-          setModel3DVerification({
+          setModel3DThrottled({
             verified: (hasScannedAll6 || !req6Faces) && startScrambledRef.current && cubeStateChangedRef.current,
             badgeText: '🏆 MẶT ĐÃ GIẢI (1 MÀU)',
             statusTitle: `🧊 Nhận diện mặt ${mappedFace} (${centerName}) ĐÃ GIẢI ĐỒNG MÀU (${dim}×${dim})`,
@@ -3108,13 +3208,27 @@ export default function App() {
             lastValidCubeColorsRef.current = [...currentNxNColors];
 
             // ĐỐI CHIẾU THỰC TẾ VỚI CÔNG THỨC SCRAMBLE ĐỀ BÀI (CHỐNG LỖI SCRAMBLE SAI MÀ BẢO ĐÚNG)
-            const scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim);
-            setScrambleAudit(scrambleMatch);
+            // Throttle việc so khớp Scramble để không cày CPU ở mọi frame
+            let scrambleMatch = scrambleAuditRef.current;
+            if (faceChanged || now - lastScrambleAuditTimeRef.current > 320) {
+              scrambleMatch = calculateScrambleMatch(scrambleRef.current, scannedFacesRef.current, dim);
+              lastScrambleAuditTimeRef.current = now;
+              const prevAudit = scrambleAuditRef.current;
+              if (
+                !prevAudit ||
+                prevAudit.matchRate !== scrambleMatch.matchRate ||
+                prevAudit.isMatch !== scrambleMatch.isMatch ||
+                prevAudit.isMismatch !== scrambleMatch.isMismatch ||
+                prevAudit.isPending !== scrambleMatch.isPending
+              ) {
+                setScrambleAudit(scrambleMatch);
+              }
+            }
             const isScrambleOk = scrambleMatch.isMatch || allowFreestyleScrambleRef.current || !scrambleRef.current;
 
             if (req6Faces && !hasScannedAll6) {
               // CHƯA QUÉT ĐỦ 6 MẶT -> BẮT BUỘC KHÓA ĐỒNG HỒ, YÊU CẦU QUÉT TIẾP CÁC MẶT CÒN THIẾU
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: false,
                 text: scrambleMatch.isMismatch && !allowFreestyleScrambleRef.current
                   ? `⚠️ CẢNH BÁO: SCRAMBLE ĐANG KHÁC ĐỀ BÀI (Khớp ${scrambleMatch.matchRate}%)! Đã quét ${currentScannedKeys.length}/6 mặt. Tiếp tục quét [${missingFaceKeys.join(', ')}] hoặc bấm "Giải tự do".`
@@ -3128,7 +3242,7 @@ export default function App() {
               });
             } else if (!isScrambleOk) {
               // ĐÃ QUÉT ĐỦ MẶT NHƯNG XÁO SAI CÔNG THỨC SCRAMBLE -> KHÓA KHÔNG CHO XÁC THỰC WCA, BÁO LỖI RÕ RÀNG!
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: false,
                 text: `❌ SCRAMBLE SAI ĐỀ BÀI (Chỉ khớp ${scrambleMatch.matchRate}%)! Khối trên camera không khớp công thức Scramble. Hãy bấm "Đổi Scramble" hoặc bấm "⚡ Chấp nhận để giải tự do"!`,
                 isScrambled: true,
@@ -3138,7 +3252,7 @@ export default function App() {
                 scrambleMatchRate: scrambleMatch.matchRate,
                 isMismatch: true
               });
-              setModel3DVerification({
+              setModel3DThrottled({
                 verified: false,
                 badgeText: `❌ SAI SCRAMBLE (${scrambleMatch.matchRate}%)`,
                 statusTitle: `⚠️ Khối xáo thực tế KHÔNG KHỚP công thức Scramble đề bài!`,
@@ -3154,7 +3268,7 @@ export default function App() {
               const matchNotice = allowFreestyleScrambleRef.current
                 ? '⚡ ĐÃ DUYỆT CHẾ ĐỘ GIẢI TỰ DO (Freestyle Scramble)'
                 : `🟢 ĐÃ XÁC MINH KHỚP 100% SCRAMBLE WCA (${scrambleMatch.matchRate}%)`;
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: true,
                 text: `${matchNotice} — Sẵn sàng bấm giờ giải!`,
                 isScrambled: true,
@@ -3169,13 +3283,13 @@ export default function App() {
             validCubeStreakRef.current = 0;
             const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
             if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0 && (!req6Faces || hasScannedAll6)) {
-              setPreCheckStatus(prev => ({
-                ...prev,
+              setPreCheckThrottled({
+                ...(preCheckRef.current || {}),
                 verified: true,
                 text: `🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TRÊN 3D — Sẵn sàng bấm giờ (còn ${Math.ceil(remainValidMs / 1000)}s)`
-              }));
+              });
             } else if (currentScannedKeys.length > 0 && currentScannedKeys.length < 6) {
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: false,
                 text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/6 MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay tiếp các mặt còn thiếu: [${missingFaceKeys.join(', ')}] trước Camera`,
                 isScrambled: false,
@@ -3184,7 +3298,7 @@ export default function App() {
                 missingFaces: missingFaceKeys
               });
             } else if (lastCubeVerifiedAtRef.current === 0 || now - lastCubeVerifiedAtRef.current > 25000) {
-              setPreCheckStatus({
+              setPreCheckThrottled({
                 verified: false,
                 text: `🔍 Đưa khối Rubik (${dim}×${dim}) vào trước Camera và xoay đủ 6 mặt để AI phân tích lên Mô hình 3D...`,
                 isScrambled: false,
@@ -4862,9 +4976,11 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
+                          setAllowFreestyleScramble(true);
+                          allowFreestyleScrambleRef.current = true;
                           setPreCheckStatus({
                             verified: true,
-                            text: '⚡ Đã mở khóa giải nhanh (Bỏ qua quét đủ 6 mặt) — Sẵn sàng bấm giờ!',
+                            text: '⚡ Đã mở khóa giải nhanh (Chế độ tự do / Không tính Bảng kỷ lục AI) — Sẵn sàng bấm giờ!',
                             isScrambled: true,
                             centerFace: 'Mở khóa nhanh'
                           });
