@@ -1915,6 +1915,37 @@ export default function App() {
     playAppSound('click');
   }, [playAppSound]);
 
+  // GÁN TRỰC TIẾP MÀU TÂM CHO Ô SỐ 5 (KHI KHÔNG QUÉT ĐƯỢC HOẶC MUỐN ĐỊNH DANH MẶT NHANH)
+  const handleSetCenterColor = useCallback((targetColor) => {
+    const centerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
+    setDetectedColors(prev => {
+      const next = [...prev];
+      next[centerIdx] = targetColor;
+      manualStickerOverridesRef.current[centerIdx] = targetColor;
+
+      const faceCodeMap = { white: 'U', yellow: 'D', red: 'R', orange: 'L', green: 'F', blue: 'B' };
+      const currentFace = faceCodeMap[targetColor] || 'U';
+
+      const cleaned = next.map(c => (c !== 'invalid' ? c : targetColor));
+      const newFaces = {
+        ...(scannedFacesRef.current || {}),
+        [currentFace]: cleaned
+      };
+      scannedFacesRef.current = newFaces;
+      setScannedFaces(newFaces);
+      setCurrentActiveFace(currentFace);
+      currentActiveFaceRef.current = currentFace;
+
+      return next;
+    });
+    playAppSound('click');
+    const colorName = COLOR_DEFINITIONS[targetColor]?.name || targetColor;
+    setLastNotice({
+      type: 'success',
+      text: `🎯 Đã chỉ định Ô số 5 (tâm) là màu ${colorName} → Xác định Mặt ${targetColor.toUpperCase()} thành công!`
+    });
+  }, [currentDim, playAppSound]);
+
   // HƯỚNG DẪN TRỰC QUAN THỨ TỰ 6 MẶT (U -> R -> F -> D -> L -> B)
   const FACE_SCAN_ORDER = useMemo(() => [
     { key: 'U', name: 'Trên', colorKey: 'white', colorName: 'Trắng', bg: '#f8fafc', textColor: '#0f172a', nextTip: '👉 Xoay sang phải 90° để quét mặt Đỏ (R)' },
@@ -3981,9 +4012,12 @@ export default function App() {
         const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
         const rawCenterColor = currentNxNColors[centerIdx];
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
-        const effectiveCenterColor = rawCenterColor !== 'invalid' ? rawCenterColor : (validColorsOnly[0] || 'green');
-        const centerDef = COLOR_DEFINITIONS[effectiveCenterColor];
-        const centerName = centerDef ? centerDef.name : 'Hỗn hợp';
+        const manualCenter = manualStickerOverridesRef.current[centerIdx];
+        const effectiveCenterColor = (manualCenter && RUBIK_COLOR_CYCLE.includes(manualCenter))
+          ? manualCenter
+          : (rawCenterColor !== 'invalid' ? rawCenterColor : null);
+        const centerDef = effectiveCenterColor ? COLOR_DEFINITIONS[effectiveCenterColor] : null;
+        const centerName = centerDef ? centerDef.name : 'Chưa rõ (lóa sáng)';
         const uniqueColorsCount = new Set(validColorsOnly).size;
         const isAllSameColor =
           hasCubeSignal &&
@@ -3991,6 +4025,7 @@ export default function App() {
           !bestRegion.isMostlySkinOrWood &&
           validColorsCount >= Math.ceil(dim * dim * 0.88) &&
           uniqueColorsCount === 1 &&
+          effectiveCenterColor &&
           (effectiveCenterColor !== 'white' || gridSeamContrast >= 5.0);
 
         // NHẬN DIỆN MỌI MẶT CHƯA GIẢI (2 màu trở lên: từ mặt mới xáo trộn 3-6 màu đến mặt đang giải dở 2 màu)
@@ -4014,13 +4049,13 @@ export default function App() {
           green: 'F',
           blue: 'B'
         };
-        const mappedFace = faceCodeMap[effectiveCenterColor] || 'F';
+        const mappedFace = effectiveCenterColor ? faceCodeMap[effectiveCenterColor] : null;
         let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
         let colorOverflowDetected = false;
         let overflowColorName = '';
         let faceChanged = false;
 
-        if (isGenuineScrambledCube || isAllSameColor) {
+        if (mappedFace && (isGenuineScrambledCube || isAllSameColor)) {
           const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
           // TUYỆT ĐỐI không điền màu tâm vào các ô invalid, giữ nguyên 'invalid' để báo cho người dùng biết ô chưa quét được
           const cleanedFaceColors = currentNxNColors.map((col, idx) =>
@@ -4101,7 +4136,28 @@ export default function App() {
 
         // XÁC ĐỊNH DUY NHẤT 1 TRẠNG THÁI HIỂN THỊ MÔ HÌNH 3D (TRIỆT TIÊU TOÀN BỘ HIỆN TƯỢNG GỌI 2 LẦN GÂY NHÁY)
         let resolvedModel3D = null;
-        if (isGenuineScrambledCube || isAllSameColor) {
+        if (!mappedFace) {
+          resolvedModel3D = {
+            verified: false,
+            badgeText: '⚠️ Ô 5 CHƯA RÕ',
+            statusTitle: '⚠️ Chưa nhận diện được Ô số 5 (Tâm)',
+            detailText: 'Bấm vào ô số 5 trên khung ngắm hoặc chọn màu tâm bên dưới để xác định mặt này!',
+            facesCount: updatedFacesCount,
+            validStickers: validColorsCount
+          };
+          if (cameraActive && (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting')) {
+            setPreCheckThrottled({
+              verified: false,
+              text: '⚠️ Ô SỐ 5 CHƯA RÕ MÀU (DO LÓA SÁNG): Bấm vào ô số 5 trên khung ngắm hoặc chọn màu tâm bên dưới để AI nhận diện!',
+              isScrambled: false,
+              centerFace: null,
+              scannedCount: currentScannedKeys.length,
+              missingFaces: missingFaceKeys,
+              scrambleMatchRate: scrambleMatch.matchRate,
+              isMismatch: false
+            });
+          }
+        } else if (isGenuineScrambledCube || isAllSameColor) {
           const stateLabel = uniqueColorsCount >= 3 ? 'MẶT CHƯA GIẢI (XÁO TRỘN)' : 'MẶT CHƯA GIẢI XONG (2 MÀU)';
           if (hasScannedTargetFaces) {
             resolvedModel3D = {
@@ -5419,20 +5475,13 @@ export default function App() {
               const isStep2Ready = solveStep === 'step2_ready_solve' && timerState === 'idle';
               const isStep3Active = solveStep === 'step3_completed';
 
-              const nextTargetFaceKey = FACE_SCAN_ORDER.find(f => !scannedFaces[f.key])?.key || null;
-              const currentRotationTip = !nextTargetFaceKey
+              const scannedKeys = Object.keys(scannedFaces);
+              const missingFaces = FACE_SCAN_ORDER.filter(f => !scannedFaces[f.key]);
+              const currentRotationTip = scannedCount >= targetFaceCount
                 ? '🎉 ĐÃ QUÉT ĐỦ 6/6 MẶT! Bấm "Xác nhận đúng & Mở khóa giải" hoặc Space để giải.'
-                : nextTargetFaceKey === 'U'
-                  ? '🎯 Bước 1: Đặt mặt Trắng (U) lên trên hướng vào Camera để quét'
-                  : nextTargetFaceKey === 'R'
-                    ? '👉 Bước 2: Xoay khối sang phải 90° để quét mặt Đỏ (R)'
-                    : nextTargetFaceKey === 'F'
-                      ? '👉 Bước 3: Xoay khối sang trái 90° để quét mặt Xanh lá (F)'
-                      : nextTargetFaceKey === 'D'
-                        ? '👉 Bước 4: Lật khối lên để quét mặt Vàng (D)'
-                        : nextTargetFaceKey === 'L'
-                          ? '👉 Bước 5: Xoay khối sang phải để quét mặt Cam (L)'
-                          : '👉 Bước 6: Xoay khối ra sau để quét mặt Xanh dương (B)';
+                : scannedCount === 0
+                  ? '🎯 Tự do đưa BẤT KỲ MẶT NÀO vào khung ngắm — AI tự nhận diện qua màu Ô số 5 (tâm)!'
+                  : `👉 Đã quét ${scannedCount}/${targetFaceCount} mặt. Còn thiếu: [${missingFaces.map(f => f.colorName).join(', ')}] — Đưa tiếp mặt còn thiếu vào ngắm!`;
 
               return (
                 <div style={{
@@ -5518,35 +5567,81 @@ export default function App() {
                           <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', margin: '4px 0 6px 0' }}>
                             {FACE_SCAN_ORDER.map(face => {
                               const isScanned = Boolean(scannedFaces[face.key]);
-                              const isNext = !isScanned && face.key === nextTargetFaceKey;
                               return (
-                                <span
+                                <button
                                   key={face.key}
-                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? 'Đã lưu' : isNext ? 'Cần quét tiếp theo' : 'Chưa quét'}`}
+                                  type="button"
+                                  onClick={() => handleSetCenterColor(face.colorKey)}
+                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? '✓ Đã quét xong' : 'Bấm để gán tâm ô 5 màu này nếu Camera bị lóa đèn'}`}
                                   style={{
                                     fontSize: '0.58rem',
                                     padding: '2px 4px',
                                     borderRadius: '4px',
                                     fontWeight: '800',
+                                    cursor: 'pointer',
                                     background: isScanned
                                       ? '#15803d'
-                                      : isNext
-                                        ? 'rgba(56, 189, 248, 0.3)'
-                                        : 'rgba(255, 255, 255, 0.05)',
+                                      : 'rgba(255, 255, 255, 0.05)',
                                     border: isScanned
                                       ? '1px solid #4ade80'
-                                      : isNext
-                                        ? '1.5px solid #38bdf8'
-                                        : '1px solid rgba(255, 255, 255, 0.1)',
-                                    color: isScanned ? '#ffffff' : isNext ? '#38bdf8' : '#64748b',
-                                    boxShadow: isNext ? '0 0 8px rgba(56, 189, 248, 0.45)' : 'none'
+                                      : '1px solid rgba(255, 255, 255, 0.1)',
+                                    color: isScanned ? '#ffffff' : '#94a3b8',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px'
                                   }}
                                 >
-                                  {isScanned ? '✓' : isNext ? '👉' : '○'} {face.key} ({face.colorName})
-                                </span>
+                                  <span>{isScanned ? '✓' : '○'}</span>
+                                  <span>{face.key} ({face.colorName})</span>
+                                </button>
                               );
                             })}
                           </div>
+
+                          {/* THANH CHỌN MÀU TÂM Ô SỐ 5 NHANH NẾU KHÔNG QUÉT ĐƯỢC */}
+                          <div style={{
+                            margin: '4px 0 6px 0',
+                            padding: '3px 6px',
+                            borderRadius: '6px',
+                            background: 'rgba(15, 23, 42, 0.75)',
+                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '4px'
+                          }}>
+                            <span style={{ fontSize: '0.58rem', color: '#38bdf8', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                              🎯 Chọn Ô 5 (Tâm):
+                            </span>
+                            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {RUBIK_COLOR_CYCLE.map(cKey => {
+                                const def = COLOR_DEFINITIONS[cKey];
+                                const isSelected = detectedColors[4] === cKey;
+                                return (
+                                  <button
+                                    key={cKey}
+                                    type="button"
+                                    onClick={() => handleSetCenterColor(cKey)}
+                                    title={`Đặt Ô 5 là màu ${def?.name || cKey} (Xác định mặt ${cKey.toUpperCase()})`}
+                                    style={{
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      border: isSelected ? '1.5px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.25)',
+                                      background: def?.bg || '#334155',
+                                      color: cKey === 'white' || cKey === 'yellow' ? '#0f172a' : '#ffffff',
+                                      fontSize: '0.56rem',
+                                      fontWeight: '900',
+                                      cursor: 'pointer',
+                                      boxShadow: isSelected ? '0 0 6px #38bdf8' : 'none'
+                                    }}
+                                  >
+                                    {def?.name || cKey}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
                           <div style={{
                             fontSize: '0.62rem',
                             color: '#38bdf8',
@@ -6503,25 +6598,44 @@ export default function App() {
                         <div style={{ position: 'absolute', bottom: '-3px', left: '-3px', width: '8px', height: '8px', borderBottom: `2.5px solid ${currentHudTheme.bracketColor}`, borderLeft: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
                         <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '8px', height: '8px', borderBottom: `2.5px solid ${currentHudTheme.bracketColor}`, borderRight: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
 
-                        {detectedColors.map((colorKey, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              border: '0.5px solid rgba(255,255,255,0.22)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            <span style={{
-                              width: '6px',
-                              height: '6px',
-                              borderRadius: '50%',
-                              backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent',
-                              border: colorKey !== 'invalid' ? '1px solid #000' : 'none'
-                            }} />
-                          </div>
-                        ))}
+                        {detectedColors.map((colorKey, idx) => {
+                          const centerStickerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
+                          const isCenter = idx === centerStickerIdx;
+                          const isInvalidCenter = isCenter && (colorKey === 'invalid');
+                          return (
+                            <div
+                              key={idx}
+                              onClick={isCenter ? () => handleCycleStickerColor(idx) : undefined}
+                              title={isCenter ? `Ô số 5 (Tâm): ${colorKey !== 'invalid' ? COLOR_DEFINITIONS[colorKey]?.name : 'Chưa rõ'} — Bấm để đổi màu tâm!` : undefined}
+                              style={{
+                                border: isCenter ? '1.5px solid #38bdf8' : '0.5px solid rgba(255,255,255,0.22)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: isCenter ? 'pointer' : 'default',
+                                pointerEvents: isCenter ? 'auto' : 'none',
+                                background: isCenter ? 'rgba(56, 189, 248, 0.16)' : 'transparent',
+                                boxShadow: isCenter ? 'inset 0 0 6px rgba(56, 189, 248, 0.45)' : 'none'
+                              }}
+                            >
+                              <span style={{
+                                width: isCenter ? '10px' : '6px',
+                                height: isCenter ? '10px' : '6px',
+                                borderRadius: '50%',
+                                backgroundColor: COLOR_DEFINITIONS[colorKey]?.bg || 'transparent',
+                                border: colorKey !== 'invalid' ? '1px solid #000' : '1.5px dashed #f59e0b',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.5rem',
+                                color: '#f59e0b',
+                                fontWeight: '900'
+                              }}>
+                                {isInvalidCenter ? '?' : ''}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {/* Huy hiệu trạng thái Hitbox góc trên trái */}
@@ -6923,7 +7037,6 @@ export default function App() {
                   display: 'grid',
                   gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                   gridTemplateRows: `repeat(${currentDim}, 1fr)`,
-                  gridTemplateRows: `repeat(${currentDim}, 1fr)`,
                   border: preCheckStatus.verified
                     ? '2px solid #22c55e'
                     : trackingBox.isLocked
@@ -6943,6 +7056,9 @@ export default function App() {
                   <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderRight: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
 
                   {detectedColors.map((colorKey, idx) => {
+                    const centerStickerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
+                    const isCenter = idx === centerStickerIdx;
+                    const isInvalidCenter = isCenter && (colorKey === 'invalid');
                     const colorDef = COLOR_DEFINITIONS[colorKey] || { name: '?', bg: 'transparent' };
                     const viName =
                       colorKey === 'white' ? 'Trắng' :
@@ -6955,26 +7071,30 @@ export default function App() {
                     return (
                       <div
                         key={idx}
+                        onClick={isCenter ? () => handleCycleStickerColor(idx) : undefined}
+                        title={isCenter ? 'Ô số 5 (Tâm): Bấm để đổi màu tâm nếu Camera bị lóa đèn' : undefined}
                         style={{
                           position: 'relative',
-                          border: '1px solid rgba(255, 255, 255, 0.35)',
+                          border: isCenter ? '1.5px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.35)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          backgroundColor: colorKey !== 'invalid' ? `${colorDef.bg}35` : 'transparent'
+                          backgroundColor: colorKey !== 'invalid' ? `${colorDef.bg}35` : (isCenter ? 'rgba(56, 189, 248, 0.2)' : 'transparent'),
+                          cursor: isCenter ? 'pointer' : 'default',
+                          pointerEvents: isCenter ? 'auto' : 'none'
                         }}
                       >
-                        {/* Khung cắt trung tâm 36% (le = 35% trong Python OpenCV) */}
+                        {/* Khung cắt trung tâm 36% */}
                         <div style={{
                           position: 'absolute',
                           width: '38%',
                           height: '38%',
-                          border: '1px solid rgba(0, 255, 255, 0.75)',
+                          border: isCenter ? '1.5px solid #38bdf8' : '1px solid rgba(0, 255, 255, 0.75)',
                           borderRadius: '2px',
                           pointerEvents: 'none'
                         }} />
 
-                        {/* Tên màu hiển thị trực quan hệt như cv2.putText trong Python */}
+                        {/* Tên màu hiển thị trực quan */}
                         {colorKey !== 'invalid' ? (
                           <span style={{
                             fontSize: '0.62rem',
@@ -6989,9 +7109,19 @@ export default function App() {
                           }}>
                             {viName}
                           </span>
-                        ) : (
-                          <span style={{ fontSize: '0.55rem', color: '#64748b' }}>?</span>
-                        )}
+                        ) : isCenter ? (
+                          <span style={{
+                            fontSize: '0.65rem',
+                            fontWeight: '900',
+                            color: '#f59e0b',
+                            zIndex: 2,
+                            background: 'rgba(0, 0, 0, 0.75)',
+                            padding: '1px 4px',
+                            borderRadius: '3px'
+                          }}>
+                            ?
+                          </span>
+                        ) : null}
                       </div>
                     );
                   })}
