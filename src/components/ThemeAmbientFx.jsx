@@ -138,6 +138,43 @@ function buildLightningPath(x1, y1, x2, y2, displace, out = []) {
   return out;
 }
 
+/**
+ * Vẽ ngôi sao 4 cánh lấp lánh sắc nét (Dải Ngân Hà)
+ */
+function drawStarGlint(ctx, radius, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -radius * 1.45);
+  ctx.quadraticCurveTo(radius * 0.22, -radius * 0.22, radius * 1.45, 0);
+  ctx.quadraticCurveTo(radius * 0.22, radius * 0.22, 0, radius * 1.45);
+  ctx.quadraticCurveTo(-radius * 0.22, radius * 0.22, -radius * 1.45, 0);
+  ctx.quadraticCurveTo(-radius * 0.22, -radius * 0.22, 0, -radius * 1.45);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Vẽ ngọn lửa giọt nước uốn lượn (Hỏa Ngục Phượng Hoàng)
+ */
+function drawFlameTongue(ctx, size, tilt, colorOuter, colorInner) {
+  ctx.save();
+  ctx.rotate(tilt);
+  ctx.fillStyle = colorOuter;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 1.6);
+  ctx.bezierCurveTo(size * 0.9, -size * 0.4, size * 0.85, size * 0.9, 0, size * 1.1);
+  ctx.bezierCurveTo(-size * 0.85, size * 0.9, -size * 0.9, -size * 0.4, 0, -size * 1.6);
+  ctx.fill();
+
+  ctx.fillStyle = colorInner;
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.85);
+  ctx.bezierCurveTo(size * 0.42, -size * 0.1, size * 0.42, size * 0.55, 0, size * 0.72);
+  ctx.bezierCurveTo(-size * 0.42, size * 0.55, -size * 0.42, -size * 0.1, 0, -size * 0.85);
+  ctx.fill();
+  ctx.restore();
+}
+
 function strokeSegments(ctx, segments, color, width) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -253,14 +290,15 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         });
       }
     } else if (hudThemeKey === 'galaxy') {
-      const palette = ['#c084fc', '#818cf8', '#38bdf8', '#f472b6', '#f8fafc'];
-      for (let i = 0; i < 72; i++) {
+      const palette = ['#c084fc', '#818cf8', '#38bdf8', '#f472b6', '#ffffff'];
+      for (let i = 0; i < 64; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.25,
-          vy: (Math.random() - 0.5) * 0.25,
-          r: 0.9 + Math.random() * 2.4,
+          vx: (Math.random() - 0.5) * 0.22,
+          vy: (Math.random() - 0.5) * 0.22,
+          r: 2.2 + Math.random() * 4.4,
+          rot: Math.random() * Math.PI,
           phase: Math.random() * Math.PI * 2,
           twinkle: 1.5 + Math.random() * 2.5,
           color: palette[i % palette.length],
@@ -268,17 +306,18 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         });
       }
     } else if (hudThemeKey === 'inferno') {
-      const embers = ['#f97316', '#ef4444', '#facc15', '#fb923c'];
-      for (let i = 0; i < 55; i++) {
+      const outer = ['#ef4444', '#f97316', '#ea580c'];
+      for (let i = 0; i < 42; i++) {
         ambient.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.8,
-          vy: -(0.9 + Math.random() * 2.2),
-          size: 1.8 + Math.random() * 3.8,
+          vx: (Math.random() - 0.5) * 0.65,
+          vy: -(1.2 + Math.random() * 2.4),
+          size: 4 + Math.random() * 6.5,
           phase: Math.random() * Math.PI * 2,
-          alpha: 0.45 + Math.random() * 0.55,
-          color: embers[i % embers.length]
+          alpha: 0.48 + Math.random() * 0.42,
+          cOuter: outer[i % outer.length],
+          cInner: i % 2 === 0 ? '#fef08a' : '#fdba74'
         });
       }
     } else if (hudThemeKey === 'matrix') {
@@ -295,21 +334,23 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
         });
       }
     } else if (hudThemeKey === 'aurora') {
-      const hues = ['#34d399', '#2dd4bf', '#38bdf8', '#a78bfa'];
-      for (let i = 0; i < 38; i++) {
+      // Các cột tia cực quang dựng đứng uốn lượn toàn màn hình (không dùng hạt tròn)
+      const curtainColors = ['#34d399', '#2dd4bf', '#38bdf8', '#a78bfa', '#f472b6'];
+      for (let i = 0; i < 16; i++) {
         ambient.push({
-          x: Math.random() * width,
-          y: Math.random() * height,
-          vx: (Math.random() - 0.5) * 0.45,
-          vy: -0.25 - Math.random() * 0.5,
-          size: 2 + Math.random() * 3.6,
-          phase: Math.random() * Math.PI * 2,
-          color: hues[i % hues.length]
+          xRatio: (i + 0.5) / 16,
+          width: 48 + Math.random() * 65,
+          heightRatio: 0.52 + Math.random() * 0.34,
+          phase: i * 0.55,
+          speed: 0.6 + Math.random() * 0.8,
+          color: curtainColors[i % curtainColors.length]
         });
       }
     }
 
     const meteors = [];
+    const auroraFlashes = [];
+    const matrixScans = [];
 
     const spawnStormBolt = (targetX, targetY, isBig = false) => {
       const startX = targetX + (Math.random() - 0.5) * (isBig ? 180 : 240);
@@ -419,53 +460,45 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           } else if (hudThemeKey === 'galaxy') {
             const c = Math.random() > 0.5 ? '#c084fc' : '#38bdf8';
             particles.push({
-              x: x + (Math.random() - 0.5) * 8,
-              y: y + (Math.random() - 0.5) * 8,
+              x: x + (Math.random() - 0.5) * 10,
+              y: y + (Math.random() - 0.5) * 10,
               vx: (Math.random() - 0.5) * 1.4,
               vy: (Math.random() - 0.5) * 1.4,
-              size: 1.4 + Math.random() * 2.2,
+              size: 3 + Math.random() * 4.5,
+              rot: Math.random() * Math.PI,
+              rotSpeed: (Math.random() - 0.5) * 0.08,
               alpha: 0.95,
-              gravity: 0,
               color: c,
-              kind: 'spark'
+              kind: 'star'
             });
           } else if (hudThemeKey === 'inferno') {
             particles.push({
-              x: x + (Math.random() - 0.5) * 10,
+              x: x + (Math.random() - 0.5) * 12,
               y: y + (Math.random() - 0.5) * 6,
-              vx: (Math.random() - 0.5) * 1.8,
-              vy: -1.4 - Math.random() * 1.8,
-              size: 1.8 + Math.random() * 2.8,
+              vx: (Math.random() - 0.5) * 1.4,
+              vy: -1.8 - Math.random() * 2.2,
+              size: 4 + Math.random() * 4.5,
+              tilt: (Math.random() - 0.5) * 0.35,
               alpha: 1,
-              gravity: -0.07,
-              color: Math.random() > 0.35 ? '#f97316' : '#facc15',
-              kind: 'spark'
+              cOuter: Math.random() > 0.4 ? '#f97316' : '#ef4444',
+              cInner: '#fef08a',
+              kind: 'flame'
             });
           } else if (hudThemeKey === 'matrix') {
+            const codeChars = '01ABCDEFアイウネシ';
             particles.push({
-              x,
-              y,
-              vx: (Math.random() - 0.5) * 1.2,
-              vy: 1.2 + Math.random() * 2.2,
-              size: 1.4 + Math.random() * 1.8,
+              x: x + (Math.random() - 0.5) * 14,
+              y: y + (Math.random() - 0.5) * 8,
+              vx: (Math.random() - 0.5) * 0.9,
+              vy: 1.6 + Math.random() * 2.4,
+              size: 13,
+              char: codeChars[Math.floor(Math.random() * codeChars.length)],
               alpha: 0.95,
-              gravity: 0.04,
-              color: Math.random() > 0.3 ? '#4ade80' : '#dcfce7',
-              kind: 'spark'
-            });
-          } else if (hudThemeKey === 'aurora') {
-            particles.push({
-              x: x + (Math.random() - 0.5) * 10,
-              y: y + (Math.random() - 0.5) * 10,
-              vx: (Math.random() - 0.5) * 1.2,
-              vy: -0.6 - Math.random() * 0.9,
-              size: 1.8 + Math.random() * 2.4,
-              alpha: 0.9,
-              gravity: -0.015,
-              color: Math.random() > 0.5 ? '#34d399' : '#a78bfa',
-              kind: 'spark'
+              color: Math.random() > 0.3 ? '#4ade80' : '#ffffff',
+              kind: 'glyph'
             });
           }
+          // Aurora sử dụng dải lụa quang phổ (trailPoints) trong render thay vì hạt tròn
         }
       }
     };
@@ -530,81 +563,67 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           });
         }
       } else if (hudThemeKey === 'galaxy') {
-        shockwaves.push({ x, y, r: 6, maxR: 170, alpha: 0.95, color: '#c084fc', color2: '#38bdf8' });
-        meteors.push({ x: Math.max(0, x - 240), y: Math.max(0, y - 160), vx: 13, vy: 8.5, len: 110, alpha: 1, color: '#e9d5ff' });
-        for (let i = 0; i < 24; i++) {
-          const ang = (Math.PI * 2 * i) / 24;
-          const spd = 2 + Math.random() * 4.4;
+        meteors.push({ x: Math.max(0, x - 260), y: Math.max(0, y - 160), vx: 13.5, vy: 8.5, len: 135, alpha: 1, color: '#e9d5ff' });
+        meteors.push({ x: Math.min(width, x + 260), y: Math.max(0, y - 140), vx: -12.5, vy: 8, len: 115, alpha: 1, color: '#38bdf8' });
+        for (let i = 0; i < 18; i++) {
+          const ang = (Math.PI * 2 * i) / 18;
+          const spd = 2.2 + Math.random() * 4.2;
           particles.push({
             x,
             y,
             vx: Math.cos(ang) * spd,
             vy: Math.sin(ang) * spd,
-            size: 1.6 + Math.random() * 2.5,
+            size: 3.8 + Math.random() * 5.2,
+            rot: ang,
+            rotSpeed: 0.12,
             alpha: 1,
-            gravity: 0,
             color: i % 3 === 0 ? '#f472b6' : (i % 2 === 0 ? '#a78bfa' : '#38bdf8'),
-            kind: 'spark'
+            kind: 'star'
           });
         }
       } else if (hudThemeKey === 'inferno') {
-        shockwaves.push({ x, y, r: 8, maxR: 155, alpha: 0.95, color: '#f97316', color2: '#facc15' });
-        for (let i = 0; i < 26; i++) {
-          const ang = (Math.PI * 2 * i) / 26;
-          const spd = 2.2 + Math.random() * 4.6;
+        for (let i = 0; i < 22; i++) {
+          const spread = (Math.random() - 0.5) * 6.5;
           particles.push({
-            x,
+            x: x + (Math.random() - 0.5) * 26,
             y,
-            vx: Math.cos(ang) * spd,
-            vy: Math.sin(ang) * spd - 1.8,
-            size: 2.2 + Math.random() * 3.2,
+            vx: spread,
+            vy: -(2.8 + Math.random() * 5.4),
+            size: 5.5 + Math.random() * 7.5,
+            tilt: spread * 0.08,
             alpha: 1,
-            gravity: -0.09,
-            color: i % 3 === 0 ? '#ef4444' : (i % 2 === 0 ? '#f97316' : '#facc15'),
-            kind: 'spark'
+            cOuter: i % 2 === 0 ? '#f97316' : '#ef4444',
+            cInner: '#fef08a',
+            kind: 'flame'
           });
         }
       } else if (hudThemeKey === 'matrix') {
-        shockwaves.push({ x, y, r: 8, maxR: 190, alpha: 0.95, color: '#22c55e', color2: '#a7f3d0' });
+        matrixScans.push({ x, y, life: 1 });
         for (const d of ambient) {
           const colX = d.colIndex * 24 + 12;
-          if (Math.abs(colX - x) < 95) {
+          if (Math.abs(colX - x) < 110) {
             d.y = y;
-            d.speed = 6.2;
+            d.speed = 6.8;
           }
         }
-        for (let i = 0; i < 20; i++) {
-          const ang = (Math.PI * 2 * i) / 20;
-          const spd = 2 + Math.random() * 4;
+        const burstChars = '01X9Fアイウカキ';
+        for (let i = 0; i < 18; i++) {
+          const ang = (Math.PI * 2 * i) / 18;
+          const spd = 2.2 + Math.random() * 3.8;
           particles.push({
             x,
             y,
             vx: Math.cos(ang) * spd,
             vy: Math.sin(ang) * spd,
-            size: 1.6 + Math.random() * 2,
+            size: 14,
+            char: burstChars[i % burstChars.length],
             alpha: 1,
-            gravity: 0.05,
-            color: i % 2 === 0 ? '#4ade80' : '#dcfce7',
-            kind: 'spark'
+            color: i % 2 === 0 ? '#4ade80' : '#ffffff',
+            kind: 'glyph'
           });
         }
       } else if (hudThemeKey === 'aurora') {
-        shockwaves.push({ x, y, r: 8, maxR: 165, alpha: 0.9, color: '#34d399', color2: '#a78bfa' });
-        for (let i = 0; i < 22; i++) {
-          const ang = (Math.PI * 2 * i) / 22;
-          const spd = 1.6 + Math.random() * 3.4;
-          particles.push({
-            x,
-            y,
-            vx: Math.cos(ang) * spd,
-            vy: Math.sin(ang) * spd - 0.6,
-            size: 2.2 + Math.random() * 2.6,
-            alpha: 1,
-            gravity: -0.02,
-            color: i % 3 === 0 ? '#34d399' : (i % 2 === 0 ? '#2dd4bf' : '#a78bfa'),
-            kind: 'spark'
-          });
-        }
+        auroraFlashes.push({ x, spread: 12, maxSpread: 260, alpha: 0.95 });
       }
     };
 
@@ -906,7 +925,7 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
       }
 
       // ---------------------------------------------------------
-      // THEME 5: GALAXY (Ngân hà sao lấp lánh, sao băng & lực hấp dẫn con trỏ)
+      // THEME 5: GALAXY (Ngân hà sao 4 cánh lấp lánh, hành tinh có vòng & xoáy hố đen)
       // ---------------------------------------------------------
       if (hudThemeKey === 'galaxy') {
         if (Math.random() < 0.015 && meteors.length < 4) {
@@ -915,112 +934,117 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             y: Math.random() * height * 0.3,
             vx: 11 + Math.random() * 5,
             vy: 6 + Math.random() * 4,
-            len: 90 + Math.random() * 60,
+            len: 95 + Math.random() * 65,
             alpha: 1,
             color: Math.random() > 0.5 ? '#c084fc' : '#38bdf8'
           });
         }
-        if (pointer.active) {
-          const halo = ctx.createRadialGradient(pointer.x, pointer.y, 4, pointer.x, pointer.y, 130);
-          halo.addColorStop(0, 'rgba(192, 132, 252, 0.16)');
-          halo.addColorStop(0.5, 'rgba(56, 189, 248, 0.08)');
-          halo.addColorStop(1, 'rgba(192, 132, 252, 0)');
-          ctx.fillStyle = halo;
-          ctx.beginPath();
-          ctx.arc(pointer.x, pointer.y, 130, 0, Math.PI * 2);
-          ctx.fill();
-        }
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
+        // Vòng xoáy hố đen hấp dẫn quanh con trỏ
+        if (pointer.active) {
+          for (let ring = 0; ring < 3; ring++) {
+            ctx.strokeStyle = ring % 2 === 0 ? 'rgba(192, 132, 252, 0.32)' : 'rgba(56, 189, 248, 0.25)';
+            ctx.lineWidth = 1.6;
+            const rOrb = 22 + ring * 16;
+            const aStart = time * (2.2 - ring * 0.4) + ring * 1.1;
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, rOrb, aStart, aStart + Math.PI * 1.25);
+            ctx.stroke();
+          }
+        }
+        // Sao 4 cánh xoay lấp lánh bị hút nhẹ quanh hố đen
         for (const s of ambient) {
           if (pointer.active) {
             const dx = pointer.x - s.x;
             const dy = pointer.y - s.y;
             const dist = Math.hypot(dx, dy);
-            if (dist > 12 && dist < 170) {
-              s.vx += (dx / dist) * 0.03 * s.depth;
-              s.vy += (dy / dist) * 0.03 * s.depth;
+            if (dist > 14 && dist < 190) {
+              // Hút + xoay tiếp tuyến (spiral orbit)
+              s.vx += ((dx / dist) * 0.028 - (dy / dist) * 0.022) * s.depth;
+              s.vy += ((dy / dist) * 0.028 + (dx / dist) * 0.022) * s.depth;
             }
           }
           s.vx *= 0.99;
           s.vy *= 0.99;
+          s.rot += 0.012;
           s.x = (s.x + s.vx + width) % width;
           s.y = (s.y + s.vy + height) % height;
-          const glow = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(time * s.twinkle + s.phase));
+          const glow = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * s.twinkle + s.phase));
+          ctx.save();
           ctx.globalAlpha = glow;
-          ctx.fillStyle = s.color;
+          ctx.translate(s.x, s.y);
+          ctx.rotate(s.rot);
           ctx.shadowColor = s.color;
           ctx.shadowBlur = 10;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-          ctx.fill();
+          drawStarGlint(ctx, s.r, s.color);
+          ctx.restore();
         }
         for (let i = meteors.length - 1; i >= 0; i--) {
           const m = meteors[i];
           m.x += m.vx;
           m.y += m.vy;
-          m.alpha -= 0.022;
-          const tailGrad = ctx.createLinearGradient(m.x, m.y, m.x - m.len, m.y - m.len * 0.55);
+          m.alpha -= 0.02;
+          const tailGrad = ctx.createLinearGradient(m.x, m.y, m.x - m.len, m.y - m.len * (m.vy / (Math.abs(m.vx) + 0.1)));
           tailGrad.addColorStop(0, `rgba(255,255,255,${Math.max(0, m.alpha)})`);
           tailGrad.addColorStop(1, 'rgba(192,132,252,0)');
           ctx.strokeStyle = tailGrad;
-          ctx.lineWidth = 2.4;
+          ctx.lineWidth = 2.6;
           ctx.beginPath();
           ctx.moveTo(m.x, m.y);
-          ctx.lineTo(m.x - m.len, m.y - m.len * 0.55);
+          ctx.lineTo(m.x - m.len * Math.sign(m.vx), m.y - m.len * 0.55);
           ctx.stroke();
-          if (m.alpha <= 0 || m.x > width + 150 || m.y > height + 150) meteors.splice(i, 1);
+          if (m.alpha <= 0 || m.x < -160 || m.x > width + 160 || m.y > height + 160) meteors.splice(i, 1);
         }
         ctx.restore();
       }
 
       // ---------------------------------------------------------
-      // THEME 6: INFERNO (Tàn lửa bốc lên, nhiệt xoáy quanh con trỏ)
+      // THEME 6: INFERNO (Ngọn lửa giọt nước bốc từ dung nham đáy màn hình)
       // ---------------------------------------------------------
       if (hudThemeKey === 'inferno') {
-        if (pointer.active) {
-          const fireGlow = ctx.createRadialGradient(pointer.x, pointer.y, 4, pointer.x, pointer.y, 115);
-          fireGlow.addColorStop(0, 'rgba(250, 204, 21, 0.16)');
-          fireGlow.addColorStop(0.45, 'rgba(249, 115, 22, 0.1)');
-          fireGlow.addColorStop(1, 'rgba(239, 68, 68, 0)');
-          ctx.fillStyle = fireGlow;
-          ctx.beginPath();
-          ctx.arc(pointer.x, pointer.y, 115, 0, Math.PI * 2);
-          ctx.fill();
-        }
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        for (const e of ambient) {
-          e.x += e.vx + Math.sin(time * 2.5 + e.phase) * 0.55;
-          e.y += e.vy;
+        // Vệt dung nham rực ở mép đáy màn hình
+        const lavaGrad = ctx.createLinearGradient(0, height - 95, 0, height);
+        lavaGrad.addColorStop(0, 'rgba(239, 68, 68, 0)');
+        lavaGrad.addColorStop(0.65, 'rgba(234, 88, 12, 0.14)');
+        lavaGrad.addColorStop(1, 'rgba(250, 204, 21, 0.24)');
+        ctx.fillStyle = lavaGrad;
+        ctx.fillRect(0, height - 95, width, 95);
+
+        for (const f of ambient) {
+          const sway = Math.sin(time * 3.5 + f.phase);
+          f.x += f.vx + sway * 0.65;
+          f.y += f.vy;
           if (pointer.active) {
-            const dx = e.x - pointer.x;
-            const dy = e.y - pointer.y;
+            const dx = f.x - pointer.x;
+            const dy = f.y - pointer.y;
             const dist = Math.hypot(dx, dy);
-            if (dist > 1 && dist < 130) {
-              e.x += (dx / dist) * 1.4;
-              e.y -= 1.2;
+            if (dist > 1 && dist < 135) {
+              f.x += (dx / dist) * 1.8;
+              f.y -= 1.6;
             }
           }
-          if (e.y < -20) {
-            e.y = height + 15;
-            e.x = Math.random() * width;
+          if (f.y < -25) {
+            f.y = height + 15;
+            f.x = Math.random() * width;
           }
-          if (e.x < -15) e.x = width + 15;
-          if (e.x > width + 15) e.x = -15;
-          ctx.globalAlpha = e.alpha * (0.65 + 0.35 * Math.sin(time * 6 + e.phase));
-          ctx.fillStyle = e.color;
-          ctx.shadowColor = e.color;
-          ctx.shadowBlur = 12;
-          ctx.beginPath();
-          ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-          ctx.fill();
+          if (f.x < -20) f.x = width + 20;
+          if (f.x > width + 20) f.x = -20;
+          ctx.save();
+          ctx.globalAlpha = f.alpha * (0.72 + 0.28 * Math.sin(time * 7 + f.phase));
+          ctx.translate(f.x, f.y);
+          ctx.shadowColor = f.cOuter;
+          ctx.shadowBlur = 10;
+          drawFlameTongue(ctx, f.size, sway * 0.22, f.cOuter, f.cInner);
+          ctx.restore();
         }
         ctx.restore();
       }
 
       // ---------------------------------------------------------
-      // THEME 7: MATRIX (Mưa mã số xanh phát sáng & giải mã quanh con trỏ)
+      // THEME 7: MATRIX (Mưa mã số xanh + Tia quét chữ thập Cyber khi click)
       // ---------------------------------------------------------
       if (hudThemeKey === 'matrix') {
         ctx.save();
@@ -1049,53 +1073,75 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
             ctx.fillText(ch, xPos, cy);
           }
         }
+        for (let i = matrixScans.length - 1; i >= 0; i--) {
+          const sc = matrixScans[i];
+          sc.life -= 0.035;
+          ctx.strokeStyle = `rgba(74, 222, 128, ${Math.max(0, sc.life * 0.75)})`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(0, sc.y);
+          ctx.lineTo(width, sc.y);
+          ctx.moveTo(sc.x, 0);
+          ctx.lineTo(sc.x, height);
+          ctx.stroke();
+          if (sc.life <= 0) matrixScans.splice(i, 1);
+        }
         ctx.restore();
       }
 
       // ---------------------------------------------------------
-      // THEME 8: AURORA (Dải lụa cực quang Bắc Cực + đom đóm băng)
+      // THEME 8: AURORA (Màn rèm cực quang dựng đứng + dải lụa quang phổ con trỏ)
       // ---------------------------------------------------------
       if (hudThemeKey === 'aurora') {
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        const ribbons = [
-          { yBase: height * 0.18, amp: 36, speed: 0.9, c1: 'rgba(52, 211, 153, 0.16)', c2: 'rgba(167, 139, 250, 0.12)' },
-          { yBase: height * 0.28, amp: 44, speed: 1.3, c1: 'rgba(45, 212, 191, 0.14)', c2: 'rgba(56, 189, 248, 0.11)' }
-        ];
-        for (let rIdx = 0; rIdx < ribbons.length; rIdx++) {
-          const rb = ribbons[rIdx];
-          const grad = ctx.createLinearGradient(0, rb.yBase - 60, width, rb.yBase + 60);
-          grad.addColorStop(0, rb.c1);
-          grad.addColorStop(0.5, rb.c2);
-          grad.addColorStop(1, rb.c1);
-          ctx.strokeStyle = grad;
-          ctx.lineWidth = 42;
-          ctx.lineCap = 'round';
+        // 16 dải màn rèm cực quang rủ từ đỉnh xuống giữa nền (không dùng đốm tròn)
+        for (const c of ambient) {
+          const baseX = c.xRatio * width + Math.sin(time * c.speed + c.phase) * 34;
+          const swayPull = pointer.active ? (pointer.x - baseX) * Math.exp(-Math.abs(pointer.x - baseX) / 240) * 0.16 : 0;
+          const cx = baseX + swayPull;
+          const hBeam = height * c.heightRatio;
+          const grad = ctx.createLinearGradient(cx, 0, cx + 18, hBeam);
+          grad.addColorStop(0, `${c.color}00`);
+          grad.addColorStop(0.28, `${c.color}36`);
+          grad.addColorStop(0.62, `${c.color}18`);
+          grad.addColorStop(1, `${c.color}00`);
+          ctx.fillStyle = grad;
           ctx.beginPath();
-          for (let sx = 0; sx <= width; sx += 48) {
-            const ptrBoost = pointer.active ? Math.exp(-Math.abs(sx - pointer.x) / 220) * (pointer.y - rb.yBase) * 0.14 : 0;
-            const sy = rb.yBase + Math.sin(sx * 0.0045 + time * rb.speed + rIdx) * rb.amp + ptrBoost;
-            if (sx === 0) ctx.moveTo(sx, sy);
-            else ctx.lineTo(sx, sy);
-          }
-          ctx.stroke();
-        }
-        for (const f of ambient) {
-          f.x += f.vx + Math.sin(time * 1.4 + f.phase) * 0.35;
-          f.y += f.vy;
-          if (f.y < -15) {
-            f.y = height + 15;
-            f.x = Math.random() * width;
-          }
-          if (f.x < -15) f.x = width + 15;
-          if (f.x > width + 15) f.x = -15;
-          ctx.globalAlpha = 0.4 + 0.5 * (0.5 + 0.5 * Math.sin(time * 2.8 + f.phase));
-          ctx.fillStyle = f.color;
-          ctx.shadowColor = f.color;
-          ctx.shadowBlur = 12;
-          ctx.beginPath();
-          ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+          ctx.moveTo(cx - c.width * 0.5, 0);
+          ctx.lineTo(cx + c.width * 0.5, 0);
+          ctx.quadraticCurveTo(cx + c.width * 0.75 + swayPull * 0.4, hBeam * 0.55, cx + c.width * 0.2, hBeam);
+          ctx.lineTo(cx - c.width * 0.3, hBeam);
+          ctx.quadraticCurveTo(cx - c.width * 0.65 + swayPull * 0.4, hBeam * 0.55, cx - c.width * 0.5, 0);
           ctx.fill();
+        }
+        // Dải lụa quang phổ uốn theo chuột
+        if (trailPoints.length >= 2) {
+          for (let i = 1; i < trailPoints.length; i++) {
+            const p0 = trailPoints[i - 1];
+            const p1 = trailPoints[i];
+            const hue = (time * 90 + i * 18) % 360;
+            ctx.strokeStyle = `hsla(${150 + (hue % 130)}, 88%, 68%, ${p1.life * 0.48})`;
+            ctx.lineWidth = p1.life * 9;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+          }
+        }
+        // Sóng màn cực quang quét ngang khi click
+        for (let i = auroraFlashes.length - 1; i >= 0; i--) {
+          const af = auroraFlashes[i];
+          af.spread += (af.maxSpread - af.spread) * 0.14;
+          af.alpha *= 0.92;
+          const fGrad = ctx.createLinearGradient(af.x - af.spread, 0, af.x + af.spread, 0);
+          fGrad.addColorStop(0, 'rgba(52, 211, 153, 0)');
+          fGrad.addColorStop(0.5, `rgba(167, 139, 250, ${af.alpha * 0.24})`);
+          fGrad.addColorStop(1, 'rgba(52, 211, 153, 0)');
+          ctx.fillStyle = fGrad;
+          ctx.fillRect(af.x - af.spread, 0, af.spread * 2, height * 0.85);
+          if (af.alpha < 0.03) auroraFlashes.splice(i, 1);
         }
         ctx.restore();
       }
@@ -1171,6 +1217,37 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           ctx.translate(p.x, p.y);
           ctx.rotate(p.rot);
           drawCrystalSnowflake(ctx, p.size, p.color);
+          ctx.restore();
+        } else if (p.kind === 'star') {
+          p.rot += p.rotSpeed;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = 10;
+          drawStarGlint(ctx, p.size, p.color);
+          ctx.restore();
+        } else if (p.kind === 'flame') {
+          p.vy -= 0.06;
+          p.size *= 0.985;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+          ctx.shadowColor = p.cOuter;
+          ctx.shadowBlur = 10;
+          drawFlameTongue(ctx, p.size, p.tilt || 0, p.cOuter, p.cInner);
+          ctx.restore();
+        } else if (p.kind === 'glyph') {
+          p.vy += 0.04;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.fillStyle = p.color;
+          ctx.font = `bold ${p.size || 13}px monospace`;
+          ctx.fillText(p.char || '1', p.x, p.y);
           ctx.restore();
         } else {
           p.vy += p.gravity || 0.1;

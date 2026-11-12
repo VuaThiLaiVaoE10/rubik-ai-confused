@@ -3465,10 +3465,10 @@ export default function App() {
                   cyber: 'Lưới nhện neon & xung đẩy cơ khí',
                   thunder: 'Sét fractal giật theo vị trí click',
                   frost: 'Bông tuyết rơi & rạn băng pha lê',
-                  galaxy: 'Ngân hà, sao băng & lực hút chuột',
-                  inferno: 'Tàn lửa bốc lên & cầu lửa bùng nổ',
-                  matrix: 'Mưa mã xanh hacker giải mã theo chuột',
-                  aurora: 'Dải lụa cực quang & đom đóm băng'
+                  galaxy: 'Sao 4 cánh, sao băng & xoáy hố đen',
+                  inferno: 'Ngọn lửa Phượng Hoàng & dung nham',
+                  matrix: 'Mưa mã hacker & tia quét chữ thập',
+                  aurora: 'Màn rèm cực quang & dải lụa quang phổ'
                 }[themeItem.id] || '';
                 return (
                   <button
