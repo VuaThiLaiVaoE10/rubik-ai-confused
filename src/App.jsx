@@ -1228,21 +1228,21 @@ export default function App() {
       inspectionDurationSec: 15,
       requireCameraToSolve: true,
       require3DCubePreCheck: true,
-      requireAll6FacesPreCheck: false,
-      requiredPreCheckFaces: 3, // 3: Xác minh 3 mặt (Mặc định - Nhanh gọn cho Cuber) | 6: Bắt buộc đủ 6 mặt (Bản gốc nâng cao của Admin Khoa)
+      requireAll6FacesPreCheck: true,
+      requiredPreCheckFaces: 6, // Mặc định quét đủ 6/6 mặt (U, R, F, D, L, B) theo yêu cầu người dùng
       requireCubeMoveDuringSolve: true,
       autoStopWhenSolved: true,
       adminVipBypass: true
     };
     try {
       const saved = localStorage.getItem('rubik_admin_settings');
-      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v3');
+      const migrated = localStorage.getItem('rubik_faces_mode_migrated_v6');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (!migrated) {
-          localStorage.setItem('rubik_faces_mode_migrated_v3', '1');
-          parsed.requiredPreCheckFaces = 3;
-          parsed.requireAll6FacesPreCheck = false;
+          localStorage.setItem('rubik_faces_mode_migrated_v6', '1');
+          parsed.requiredPreCheckFaces = 6;
+          parsed.requireAll6FacesPreCheck = true;
           localStorage.setItem('rubik_admin_settings', JSON.stringify(parsed));
         }
         return { ...defaults, ...parsed };
@@ -3600,57 +3600,101 @@ export default function App() {
         }
 
         const dim = currentDim;
-        const bestRegion = locateDynamicRubikBox(
-          frameImg,
-          w,
-          h,
-          dim,
-          trackerStateRef.current,
-          surfaceProfileRef.current
-        );
-        const startX = bestRegion.startX;
-        const startY = bestRegion.startY;
-        const boxSize = bestRegion.boxSize;
-        const foundCx = startX + boxSize / 2;
-        const foundCy = startY + boxSize / 2;
+        const isStep1Check = solveStepRef.current === 'step1_check_scb';
 
-        // Cập nhật bộ bám đuổi chuyển động (Kalman/EMA Smoothing) để khung lưới tự động chạy theo khối Rubik
-        const prevTr = trackerStateRef.current;
-        const hasCubeSignal =
-          Boolean(bestRegion.isGeometricallyVerifiedCube) &&
-          !bestRegion.isMostlySkinOrWood &&
-          bestRegion.score > 25 &&
-          bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.65) &&
-          bestRegion.vividColorsCount >= 2;
-        let smoothCx = w / 2;
-        let smoothCy = h / 2;
-        let smoothSize = Math.min(w, h) * 0.50;
-        let moveSpeed = 0;
+        let bestRegion;
+        let smoothCx, smoothCy, smoothSize, moveSpeed = 0;
+        let hasCubeSignal = false;
 
-        if (hasCubeSignal) {
-          if (prevTr.cx > 0) {
-            const rawVx = foundCx - prevTr.cx;
-            const rawVy = foundCy - prevTr.cy;
-            moveSpeed = Math.hypot(rawVx, rawVy);
-            smoothCx = prevTr.cx + rawVx * 0.48;
-            smoothCy = prevTr.cy + rawVy * 0.48;
-            smoothSize = prevTr.size + (boxSize - prevTr.size) * 0.42;
-            trackerStateRef.current = {
-              cx: smoothCx,
-              cy: smoothCy,
-              size: smoothSize,
-              vx: rawVx * 0.6,
-              vy: rawVy * 0.6
-            };
-          } else {
-            smoothCx = foundCx;
-            smoothCy = foundCy;
-            smoothSize = boxSize;
-            trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
-          }
+        if (isStep1Check) {
+          // =========================================================================
+          // BƯỚC 1 (KIỂM TRA / NHẬN DIỆN 6/6 MẶT):
+          // KHUNG NHẬN DIỆN CỐ ĐỊNH Ở CHÍNH GIỮA (theo chuẩn Python OpenCV quet_rubik_6_mat.py)
+          // Giúp người dùng đưa từng mặt vào ngắm quét chính xác, không bị trôi lệch!
+          // =========================================================================
+          const minSide = Math.min(w, h);
+          smoothSize = Math.max(160, Math.min(minSide * 0.54, 280));
+          smoothCx = w / 2;
+          smoothCy = h / 2;
+          const startX = Math.round(smoothCx - smoothSize / 2);
+          const startY = Math.round(smoothCy - smoothSize / 2);
+
+          bestRegion = evaluateRubikGridCandidate(
+            frameImg,
+            w,
+            h,
+            dim,
+            startX,
+            startY,
+            smoothSize,
+            0,
+            surfaceProfileRef.current
+          );
+
+          hasCubeSignal =
+            Boolean(bestRegion.isGeometricallyVerifiedCube) &&
+            !bestRegion.isMostlySkinOrWood &&
+            bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.65) &&
+            bestRegion.vividColorsCount >= 2;
+
+          trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
         } else {
-          // Khi không có khối Rubik thật, reset tracker và đặt lại vị trí trung tâm
-          trackerStateRef.current = { cx: 0, cy: 0, size: 0, vx: 0, vy: 0 };
+          // =========================================================================
+          // BƯỚC 2 (KHI GIẢI):
+          // TỰ DO DI CHUYỂN NHẬN DIỆN (Dynamic Multi-Scale Object Tracking)
+          // Tự động bám đuổi khối Rubik theo tay người chơi ở mọi góc độ
+          // =========================================================================
+          bestRegion = locateDynamicRubikBox(
+            frameImg,
+            w,
+            h,
+            dim,
+            trackerStateRef.current,
+            surfaceProfileRef.current
+          );
+          const startX = bestRegion.startX;
+          const startY = bestRegion.startY;
+          const boxSize = bestRegion.boxSize;
+          const foundCx = startX + boxSize / 2;
+          const foundCy = startY + boxSize / 2;
+
+          const prevTr = trackerStateRef.current;
+          hasCubeSignal =
+            Boolean(bestRegion.isGeometricallyVerifiedCube) &&
+            !bestRegion.isMostlySkinOrWood &&
+            bestRegion.score > 25 &&
+            bestRegion.validColorsCount >= Math.ceil(dim * dim * 0.65) &&
+            bestRegion.vividColorsCount >= 2;
+
+          smoothCx = w / 2;
+          smoothCy = h / 2;
+          smoothSize = Math.min(w, h) * 0.50;
+
+          if (hasCubeSignal) {
+            if (prevTr.cx > 0) {
+              const rawVx = foundCx - prevTr.cx;
+              const rawVy = foundCy - prevTr.cy;
+              moveSpeed = Math.hypot(rawVx, rawVy);
+              smoothCx = prevTr.cx + rawVx * 0.48;
+              smoothCy = prevTr.cy + rawVy * 0.48;
+              smoothSize = prevTr.size + (boxSize - prevTr.size) * 0.42;
+              trackerStateRef.current = {
+                cx: smoothCx,
+                cy: smoothCy,
+                size: smoothSize,
+                vx: rawVx * 0.6,
+                vy: rawVy * 0.6
+              };
+            } else {
+              smoothCx = foundCx;
+              smoothCy = foundCy;
+              smoothSize = boxSize;
+              trackerStateRef.current = { cx: smoothCx, cy: smoothCy, size: smoothSize, vx: 0, vy: 0 };
+            }
+          } else {
+            // Khi không có khối Rubik thật, reset tracker và đặt lại vị trí trung tâm
+            trackerStateRef.current = { cx: 0, cy: 0, size: 0, vx: 0, vy: 0 };
+          }
         }
 
         const leftPct = Math.max(4, Math.min(92, ((smoothCx - smoothSize / 2) / w) * 100));
@@ -3922,7 +3966,7 @@ export default function App() {
         const all6FaceKeys = ['U', 'D', 'F', 'B', 'L', 'R'];
         const currentScannedKeys = Object.keys(scannedFacesRef.current || {});
         const missingFaceKeys = all6FaceKeys.filter(f => !currentScannedKeys.includes(f));
-        const targetFaceCount = (adminSettingsRef.current?.requiredPreCheckFaces === 6 || adminSettingsRef.current?.requireAll6FacesPreCheck === true) ? 6 : 3;
+        const targetFaceCount = adminSettingsRef.current?.requiredPreCheckFaces === 3 ? 3 : 6;
         const hasScannedTargetFaces = currentScannedKeys.length >= targetFaceCount;
         const reqPreCheck = adminSettingsRef.current?.require3DCubePreCheck !== false;
 
@@ -5010,7 +5054,7 @@ export default function App() {
                 3. Hoàn thành
             ========================================================================= */}
             {(() => {
-              const targetFaceCount = (adminSettings.requiredPreCheckFaces === 6 || adminSettings.requireAll6FacesPreCheck === true) ? 6 : 3;
+              const targetFaceCount = adminSettings.requiredPreCheckFaces === 3 ? 3 : 6;
               const scannedCount = Object.keys(scannedFaces).length;
               const isStep1Done = Boolean(preCheckStatus.verified || solveStep === 'step2_ready_solve' || solveStep === 'step3_completed');
               const isStep1Error = Boolean(scrambleAudit.isMismatch && !allowFreestyleScramble && solveStep === 'step1_check_scb');
@@ -5040,7 +5084,7 @@ export default function App() {
                   }}>
                     <span style={{ fontSize: '0.72rem', fontWeight: '800', color: currentHudTheme.color, display: 'flex', alignItems: 'center', gap: '5px' }}>
                       <span>🎯</span>
-                      <span>QUY TRÌNH 3 BƯỚC GIẢI ({targetFaceCount === 6 ? 'Chế độ 6 mặt Admin Khoa' : 'Chế độ 3 mặt Nhanh'})</span>
+                      <span>QUY TRÌNH 3 BƯỚC GIẢI ({targetFaceCount === 6 ? 'Chế độ quét 6/6 mặt chuẩn' : 'Chế độ 3 mặt Nhanh'})</span>
                     </span>
                     <span style={{ fontSize: '0.64rem', color: isStep3Active ? '#facc15' : isStep2Active ? '#4ade80' : isStep1Done ? '#38bdf8' : '#94a3b8' }}>
                       {isStep3Active ? '🎉 Đã hoàn thành lượt giải!' : isStep2Active ? '⚡ Đang trong lượt giải...' : isStep2Ready ? '🟢 Đã mở khóa — Sẵn sàng bấm giờ!' : '🔍 Đang kiểm tra Scramble...'}
@@ -5898,13 +5942,15 @@ export default function App() {
                       </svg>
 
                       {/* KHUNG HITBOX RUBIK CHUẨN XÁC VỚI 4 GÓC TACTICAL BRACKETS */}
+                      {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
                       <div style={{
                         position: 'absolute',
-                        top: `${trackingBox.topPct}%`,
-                        left: `${trackingBox.leftPct}%`,
+                        top: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.topPct}%`,
+                        left: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.leftPct}%`,
+                        transform: solveStep === 'step1_check_scb' ? 'translate(-50%, -50%)' : 'none',
                         width: `${trackingBox.widthPct}%`,
                         height: `${trackingBox.heightPct}%`,
-                        transition: 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
+                        transition: solveStep === 'step1_check_scb' ? 'none' : 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                         display: 'grid',
                         gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                         gridTemplateRows: `repeat(${currentDim}, 1fr)`,
@@ -5967,9 +6013,13 @@ export default function App() {
                       }}>
                         <span>{trackingBox.isLocked ? '🎯' : (hudThemeKey === 'sakura' ? '🌸' : hudThemeKey === 'cyber' ? '🕸️' : hudThemeKey === 'thunder' ? '⚡' : '💎')}</span>
                         <span>
-                          {trackingBox.isLocked
-                            ? `HITBOX: KHÓA (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
-                            : `${hudThemeKey === 'sakura' ? 'SAKURA' : hudThemeKey === 'cyber' ? 'MẠNG NHỆN' : hudThemeKey === 'thunder' ? 'LÔI THẦN' : 'BĂNG TUYẾT'}: QUÉT RADAR`}
+                          {solveStep === 'step1_check_scb'
+                            ? (trackingBox.isLocked
+                                ? '🎯 ĐÃ BẮT MẶT (CỐ ĐỊNH TRUNG TÂM)'
+                                : `${hudThemeKey === 'sakura' ? '🌸 SAKURA' : hudThemeKey === 'cyber' ? '🕸️ MẠNG NHỆN' : hudThemeKey === 'thunder' ? '⚡ LÔI THẦN' : '💎 BĂNG TUYẾT'}: QUÉT TRUNG TÂM (6 MẶT)`)
+                            : (trackingBox.isLocked
+                                ? `🎯 KHÓA THEO KHỐI (${trackingBox.cxPct}%, ${trackingBox.cyPct}%)`
+                                : `${hudThemeKey === 'sakura' ? '🌸 SAKURA' : hudThemeKey === 'cyber' ? '🕸️ MẠNG NHỆN' : hudThemeKey === 'thunder' ? '⚡ LÔI THẦN' : '💎 BĂNG TUYẾT'}: TỰ DO BÁM ĐUỔI`)}
                         </span>
                       </div>
 
@@ -6268,13 +6318,15 @@ export default function App() {
                 </svg>
 
                 {/* KHUNG HITBOX RUBIK */}
+                {/* BƯỚC 1: CỐ ĐỊNH Ở GIỮA ĐỂ QUÉT 6 MẶT | BƯỚC 2: TỰ DO DI CHUYỂN BÁM ĐUỔI KHI GIẢI */}
                 <div style={{
                   position: 'absolute',
-                  top: `${trackingBox.topPct}%`,
-                  left: `${trackingBox.leftPct}%`,
+                  top: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.topPct}%`,
+                  left: solveStep === 'step1_check_scb' ? '50%' : `${trackingBox.leftPct}%`,
+                  transform: solveStep === 'step1_check_scb' ? 'translate(-50%, -50%)' : 'none',
                   width: `${trackingBox.widthPct}%`,
                   height: `${trackingBox.heightPct}%`,
-                  transition: 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
+                  transition: solveStep === 'step1_check_scb' ? 'none' : 'top 0.07s linear, left 0.07s linear, width 0.07s linear, height 0.07s linear',
                   display: 'grid',
                   gridTemplateColumns: `repeat(${currentDim}, 1fr)`,
                   gridTemplateRows: `repeat(${currentDim}, 1fr)`,
