@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rubik-ai-arena-v2';
+const CACHE_NAME = 'rubik-ai-arena-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -29,8 +29,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(req, clone));
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone));
+          }
           return res;
         })
         .catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
