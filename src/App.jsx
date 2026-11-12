@@ -3345,9 +3345,183 @@ export default function App() {
         </div>
       )}
 
-      {/* Hiệu ứng cánh hoa anh đào bay lượn toàn màn hình Web khi bật theme Hoa Anh Đào */}
-      {/* HIỆU ỨNG ĐỘNG TOÀN MÀN HÌNH THEO THEME (SAKURA / CYBER SPIDER / THUNDER / FROST) */}
+      {/* HIỆU ỨNG ĐỘNG TOÀN MÀN HÌNH THEO THEME */}
       <ThemeAmbientFx isFxEnabled={isFxEnabled} hudThemeKey={hudThemeKey} />
+
+      {/* MODAL CHỌN THEME DẠNG LƯỚI RỘNG RÃI (NẰM NGOÀI HEADER ĐỂ KHÔNG BỊ CẮT TRÊN MỌI MÀN HÌNH) */}
+      {showThemeMenu && (
+        <div
+          onClick={() => setShowThemeMenu(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.72)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 10050,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '640px',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              background: 'rgba(10, 15, 28, 0.96)',
+              border: `1.5px solid ${currentHudTheme.color}`,
+              borderRadius: '16px',
+              padding: isMobile ? '16px' : '22px',
+              boxShadow: `0 24px 60px rgba(0, 0, 0, 0.78), 0 0 28px ${currentHudTheme.glowColor}`,
+              color: '#f8fafc'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', gap: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: isMobile ? '1rem' : '1.15rem', fontWeight: '800', color: '#f8fafc' }}>
+                  🎨 Kho Giao Diện &amp; Hiệu Ứng Tương Tác
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '0.76rem', color: '#94a3b8' }}>
+                  Chọn phong cách toàn trang web hoặc tắt hoàn toàn để về mặc định tối giản
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowThemeMenu(false)}
+                aria-label="Đóng bảng chọn theme"
+                style={{
+                  background: 'rgba(148, 163, 184, 0.14)',
+                  border: '1px solid #475569',
+                  borderRadius: '8px',
+                  color: '#e2e8f0',
+                  padding: '6px 11px',
+                  fontSize: '0.82rem',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕ Đóng
+              </button>
+            </div>
+
+            {/* Thẻ Tắt Theme nổi bật tách riêng phía trên */}
+            {(() => {
+              const offTheme = HUD_THEMES.off;
+              const isOffActive = hudThemeKey === 'off';
+              return (
+                <button
+                  type="button"
+                  onClick={() => selectHudTheme('off')}
+                  style={{
+                    width: '100%',
+                    marginBottom: '12px',
+                    padding: '11px 14px',
+                    borderRadius: '11px',
+                    border: isOffActive ? '2px solid #94a3b8' : '1px solid rgba(148, 163, 184, 0.3)',
+                    background: isOffActive ? 'rgba(148, 163, 184, 0.16)' : 'rgba(15, 23, 42, 0.75)',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    textAlign: 'left',
+                    transition: 'all 0.16s ease'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>{offTheme.icon}</span>
+                    <span>
+                      <div style={{ fontWeight: '800', fontSize: '0.88rem' }}>{offTheme.name}</div>
+                      <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>Tắt toàn bộ hiệu ứng Canvas nền (0% GPU/CPU) — Nền tối WCA tiêu chuẩn</div>
+                    </span>
+                  </span>
+                  <span style={{
+                    fontSize: '0.74rem',
+                    fontWeight: '800',
+                    padding: '3px 9px',
+                    borderRadius: '999px',
+                    background: isOffActive ? '#475569' : 'rgba(255,255,255,0.06)',
+                    color: isOffActive ? '#ffffff' : '#94a3b8'
+                  }}>
+                    {isOffActive ? '✓ Đang dùng' : 'Chọn tắt'}
+                  </span>
+                </button>
+              );
+            })()}
+
+            {/* Lưới 8 Theme tương tác */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+              gap: '10px'
+            }}>
+              {Object.values(HUD_THEMES).filter((t) => t.id !== 'off').map((themeItem) => {
+                const isActive = hudThemeKey === themeItem.id;
+                const fxHint = {
+                  sakura: 'Cánh hoa rơi 3D & dải lụa gió',
+                  cyber: 'Lưới nhện neon & xung đẩy cơ khí',
+                  thunder: 'Sét fractal giật theo vị trí click',
+                  frost: 'Bông tuyết rơi & rạn băng pha lê',
+                  galaxy: 'Ngân hà, sao băng & lực hút chuột',
+                  inferno: 'Tàn lửa bốc lên & cầu lửa bùng nổ',
+                  matrix: 'Mưa mã xanh hacker giải mã theo chuột',
+                  aurora: 'Dải lụa cực quang & đom đóm băng'
+                }[themeItem.id] || '';
+                return (
+                  <button
+                    key={themeItem.id}
+                    type="button"
+                    onClick={() => selectHudTheme(themeItem.id)}
+                    style={{
+                      padding: '11px 12px',
+                      borderRadius: '12px',
+                      border: isActive ? `2px solid ${themeItem.color}` : '1px solid rgba(148, 163, 184, 0.25)',
+                      background: isActive ? themeItem.innerCardBg : 'rgba(15, 23, 42, 0.72)',
+                      boxShadow: isActive ? `0 0 18px ${themeItem.glowColor}` : 'none',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '6px',
+                      transition: 'all 0.16s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                      <span style={{ fontSize: '1.2rem' }}>{themeItem.icon}</span>
+                      <span style={{
+                        width: '11px',
+                        height: '11px',
+                        borderRadius: '50%',
+                        background: `linear-gradient(135deg, ${themeItem.primaryAccent}, ${themeItem.secondaryAccent})`,
+                        boxShadow: `0 0 10px ${themeItem.color}`
+                      }} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: '800', fontSize: '0.84rem', color: isActive ? themeItem.color : '#f8fafc' }}>
+                        {themeItem.name.replace(/^[^\s]+\s/, '')}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '2px', lineHeight: '1.3' }}>
+                        {fxHint}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: '0.68rem',
+                      fontWeight: '800',
+                      color: isActive ? themeItem.color : '#64748b'
+                    }}>
+                      {isActive ? '✓ Đang kích hoạt' : 'Bấm để áp dụng →'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ==========================================
           HEADER BAR: AUTH + DASHBOARD (HIỂN THỊ ĐẦY ĐỦ & CUỘN MƯỢT TRÊN ĐIỆN THOẠI)
@@ -3441,12 +3615,12 @@ export default function App() {
             </button>
           )}
 
-          {/* BỘ CHỌN THEME ĐẦY ĐỦ + NÚT TẮT THEME NHANH */}
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* NÚT MỞ KHO CHỌN THEME (MỞ MODAL RỘNG RÃI) + NÚT TẮT THEME NHANH */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               type="button"
-              onClick={() => setShowThemeMenu((prev) => !prev)}
-              title="Mở danh sách chọn Theme (9 phong cách: Mặc định Tắt Theme + 8 Theme tương tác)"
+              onClick={() => setShowThemeMenu(true)}
+              title="Mở bảng chọn 9 giao diện & hiệu ứng tương tác"
               style={{
                 padding: isMobile ? '5px 8px' : '6px 12px',
                 borderRadius: '6px',
@@ -3464,7 +3638,7 @@ export default function App() {
               }}
             >
               <span>{currentHudTheme.shortName}</span>
-              <span style={{ fontSize: '0.65rem' }}>{showThemeMenu ? '▴' : '▾'}</span>
+              <span style={{ fontSize: '0.68rem', opacity: 0.9 }}>▾</span>
             </button>
 
             <button
@@ -3488,77 +3662,6 @@ export default function App() {
             >
               <span>{hudThemeKey === 'off' ? '🎨 Bật Theme' : '🚫 Tắt Theme'}</span>
             </button>
-
-            {showThemeMenu && (
-              <>
-                <div
-                  onClick={() => setShowThemeMenu(false)}
-                  style={{ position: 'fixed', inset: 0, zIndex: 9990 }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    right: 0,
-                    width: isMobile ? '220px' : '252px',
-                    background: 'rgba(10, 15, 28, 0.96)',
-                    backdropFilter: 'blur(14px)',
-                    border: `1.5px solid ${currentHudTheme.color}`,
-                    borderRadius: '12px',
-                    padding: '8px',
-                    boxShadow: '0 18px 40px rgba(0, 0, 0, 0.65)',
-                    zIndex: 9995,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
-                  }}
-                >
-                  <div style={{ fontSize: '0.68rem', fontWeight: '800', color: '#94a3b8', padding: '2px 8px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Chọn Giao Diện &amp; VFX
-                  </div>
-                  {Object.values(HUD_THEMES).map((themeItem) => {
-                    const isActive = hudThemeKey === themeItem.id;
-                    return (
-                      <button
-                        key={themeItem.id}
-                        type="button"
-                        onClick={() => selectHudTheme(themeItem.id)}
-                        style={{
-                          width: '100%',
-                          padding: '7px 10px',
-                          borderRadius: '8px',
-                          border: isActive ? `1px solid ${themeItem.color}` : '1px solid transparent',
-                          background: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                          color: isActive ? themeItem.color : '#e2e8f0',
-                          fontWeight: isActive ? '800' : '600',
-                          fontSize: '0.78rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          textAlign: 'left',
-                          transition: 'background 0.15s ease'
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span
-                            style={{
-                              width: '9px',
-                              height: '9px',
-                              borderRadius: '50%',
-                              background: themeItem.color,
-                              boxShadow: themeItem.id === 'off' ? 'none' : `0 0 8px ${themeItem.color}`
-                            }}
-                          />
-                          <span>{themeItem.name}</span>
-                        </span>
-                        {isActive && <span style={{ fontSize: '0.72rem' }}>✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
           </div>
 
           {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) */}
