@@ -9,6 +9,14 @@ if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
     console.warn('[Anti-Crash Shield] Đã cô lập Promise rejection:', event.reason);
   });
+
+  // Đăng ký PWA Service Worker để hỗ trợ cài đặt App & chơi Offline
+  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      const swUrl = `${import.meta.env.BASE_URL}sw.js`;
+      navigator.serviceWorker.register(swUrl).catch(() => {});
+    });
+  }
 }
 
 createRoot(document.getElementById('root')).render(

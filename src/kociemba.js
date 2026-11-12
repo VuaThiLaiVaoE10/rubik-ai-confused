@@ -159,4 +159,59 @@ export function getMoveExplanationVi(move) {
   return `Xoay mặt ${faceName} 90° theo chiều kim đồng hồ`;
 }
 
+// ==========================================
+// WEB WORKER ASYNC DISPATCHER (KHÔNG BLOCK MAIN THREAD)
+// ==========================================
+let kociembaWorkerInstance = null;
+let workerMsgSeq = 0;
+const pendingWorkerJobs = new Map();
+
+function runKociembaInWorker(action, payload, syncFallbackFn) {
+  if (typeof Worker === 'undefined') {
+    return Promise.resolve(syncFallbackFn(payload));
+  }
+  try {
+    if (!kociembaWorkerInstance) {
+      kociembaWorkerInstance = new Worker(
+        new URL('./workers/kociemba.worker.js', import.meta.url),
+        { type: 'module' }
+      );
+      kociembaWorkerInstance.onmessage = (e) => {
+        const { id, ok, result, error } = e.data || {};
+        const job = pendingWorkerJobs.get(id);
+        if (!job) return;
+        pendingWorkerJobs.delete(id);
+        if (ok) job.resolve(result);
+        else job.reject(new Error(error || 'Kociemba worker failed'));
+      };
+      kociembaWorkerInstance.onerror = () => {
+        for (const job of pendingWorkerJobs.values()) {
+          job.reject(new Error('Kociemba worker crashed'));
+        }
+        pendingWorkerJobs.clear();
+        kociembaWorkerInstance = null;
+      };
+    }
+
+    const id = ++workerMsgSeq;
+    return new Promise((resolve) => {
+      pendingWorkerJobs.set(id, {
+        resolve,
+        reject: () => resolve(syncFallbackFn(payload))
+      });
+      kociembaWorkerInstance.postMessage({ id, action, payload });
+    });
+  } catch {
+    return Promise.resolve(syncFallbackFn(payload));
+  }
+}
+
+export function solveWithKociembaAsync(scrambleStr) {
+  return runKociembaInWorker('solveScramble', scrambleStr, solveWithKociemba);
+}
+
+export function solveScannedFacesAsync(scannedFaces) {
+  return runKociembaInWorker('solveScanned', scannedFaces, solveScannedFacesWithKociemba);
+}
+
 export default Cube;

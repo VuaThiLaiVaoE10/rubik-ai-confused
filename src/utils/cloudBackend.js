@@ -443,3 +443,28 @@ export async function clearCloudBoardAdmin(boardId = 'board_1') {
     return { ok: false };
   }
 }
+
+/**
+ * Tính toán điểm ELO chuẩn quốc tế cho chế độ Solo 1v1
+ */
+export function calculateEloDelta(ratingA, ratingB, scoreA, kFactor = 32) {
+  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+  const deltaA = Math.round(kFactor * (scoreA - expectedA));
+  return {
+    deltaA,
+    newRatingA: Math.max(100, ratingA + deltaA),
+    deltaB: -deltaA,
+    newRatingB: Math.max(100, ratingB - deltaA)
+  };
+}
+
+/**
+ * Phân hạng Rank Tier theo điểm ELO
+ */
+export function getRankTier(elo = 1000) {
+  if (elo >= 2200) return { id: 'grandmaster', label: '👑 Đại Kiện Tướng WCA', color: '#facc15' };
+  if (elo >= 1800) return { id: 'master', label: '💎 Cao Thủ Kim Cương', color: '#38bdf8' };
+  if (elo >= 1400) return { id: 'pro', label: '🥇 Bạch Kim Speedcuber', color: '#a855f7' };
+  if (elo >= 1100) return { id: 'skilled', label: '🥈 Vàng Phong Trào', color: '#4ade80' };
+  return { id: 'rookie', label: '🥉 Tân Binh', color: '#94a3b8' };
+}
