@@ -938,6 +938,21 @@ export default function App() {
     currentActiveFaceRef.current = nextTarget;
     const targetCount = adminSettingsRef.current?.requiredPreCheckFaces === 6 ? 6 : 3;
 
+    if (curDim % 2 === 0 && currentKeys.length < targetCount) {
+      const nextGuide = EVEN_CUBE_ROTATION_GUIDES[nextTarget];
+      const nextModelState = {
+        verified: adminSettingsRef.current?.require3DCubePreCheck === false,
+        badgeText: `🔄 XOAY SANG ${nextTarget}`,
+        statusTitle: `🧩 Khối ${curDim}×${curDim} (WCA) — Đang quét ${nextGuide?.short || nextTarget}`,
+        detailText: `🔄 Đã khóa ${mappedFace} • ${nextGuide?.turnTip || `Xoay sang ${nextTarget}`} • Đã lưu: ${currentKeys.join(', ')}`,
+        facesCount: currentKeys.length,
+        validStickers: validCount
+      };
+      model3DVerificationRef.current = nextModelState;
+      lastModel3DChangeTimeRef.current = performance.now();
+      setModel3DVerification(nextModelState);
+    }
+
     if (currentKeys.length >= targetCount) {
       setPreCheckStatus(prev => ({
         ...prev,
@@ -3351,16 +3366,20 @@ export default function App() {
               validStickers: validColorsCount
             };
           } else if (isEvenCube) {
-            const rotGuide = EVEN_CUBE_ROTATION_GUIDES[mappedFace];
-            const evenTip = evenWaitingNextTurn
-              ? `🔄 Đã khóa ${lastEvenCapturedRef.current?.face} • ${rotGuide?.turnTip || `Xoay sang ${mappedFace}`}`
+            const displayEvenFace = scannedFacesRef.current?.[mappedFace]
+              ? getNextScanTargetFace(scannedFacesRef.current, evenOrder)
+              : mappedFace;
+            const isEvenPostCapture = evenWaitingNextTurn || Boolean(scannedFacesRef.current?.[mappedFace]);
+            const rotGuide = EVEN_CUBE_ROTATION_GUIDES[displayEvenFace];
+            const evenTip = isEvenPostCapture
+              ? `🔄 Đã khóa ${lastEvenCapturedRef.current?.face || mappedFace} • ${rotGuide?.turnTip || `Xoay sang ${displayEvenFace}`}`
               : (evenHoldPct > 0
-                  ? `⏳ Đang giữ mặt ${mappedFace} ổn định — Tự lưu sau ~1s hoặc bấm [C]`
-                  : (rotGuide?.turnTip || `Đưa mặt ${mappedFace} vào khung ngắm`));
+                  ? `⏳ Đang giữ mặt ${displayEvenFace} ổn định — Tự lưu sau ~1s hoặc bấm [C]`
+                  : (rotGuide?.turnTip || `Đưa mặt ${displayEvenFace} vào khung ngắm`));
             resolvedModel3D = {
               verified: !reqPreCheck,
-              badgeText: evenWaitingNextTurn ? `🔄 XOAY SANG ${mappedFace}` : `📐 MẶT ${mappedFace} (${updatedFacesCount}/${targetFaceCount})`,
-              statusTitle: `🧩 Khối ${dim}×${dim} (WCA) — Đang quét ${rotGuide?.short || mappedFace}`,
+              badgeText: isEvenPostCapture ? `🔄 XOAY SANG ${displayEvenFace}` : `📐 MẶT ${displayEvenFace} (${updatedFacesCount}/${targetFaceCount})`,
+              statusTitle: `🧩 Khối ${dim}×${dim} (WCA) — Đang quét ${rotGuide?.short || displayEvenFace}`,
               detailText: `${evenTip} • Đã lưu: ${currentScannedKeys.join(', ') || 'Chưa có'}`,
               facesCount: updatedFacesCount,
               validStickers: validColorsCount
@@ -3388,17 +3407,23 @@ export default function App() {
             lastValidCubeColorsRef.current = [...currentNxNColors];
 
             if (reqPreCheck && !hasScannedTargetFaces) {
+              const displayEvenPreFace = isEvenCube
+                ? (scannedFacesRef.current?.[mappedFace]
+                    ? getNextScanTargetFace(scannedFacesRef.current, evenOrder)
+                    : mappedFace)
+                : mappedFace;
+              const isEvenPrePost = isEvenCube && (evenWaitingNextTurn || Boolean(scannedFacesRef.current?.[mappedFace]));
               const evenGuideText = isEvenCube
-                ? (evenWaitingNextTurn
-                    ? `🔄 Đã lưu mặt ${lastEvenCapturedRef.current?.face} (${currentScannedKeys.length}/${targetFaceCount}) — ${EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip || ''}`
-                    : `📐 Khối ${dim}×${dim} • Mặt ${mappedFace} (${currentScannedKeys.length}/${targetFaceCount}): ${evenHoldPct > 0 ? 'Giữ yên ~1s để tự chốt (hoặc bấm [C])' : EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip}`)
+                ? (isEvenPrePost
+                    ? `🔄 Đã lưu mặt ${lastEvenCapturedRef.current?.face || mappedFace} (${currentScannedKeys.length}/${targetFaceCount}) — ${EVEN_CUBE_ROTATION_GUIDES[displayEvenPreFace]?.turnTip || ''}`
+                    : `📐 Khối ${dim}×${dim} • Mặt ${displayEvenPreFace} (${currentScannedKeys.length}/${targetFaceCount}): ${evenHoldPct > 0 ? 'Giữ yên ~1s để tự chốt (hoặc bấm [C])' : EVEN_CUBE_ROTATION_GUIDES[displayEvenPreFace]?.turnTip}`)
                 : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`;
               // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> HƯỚNG DẪN QUÉT TIẾP
               setPreCheckThrottled({
                 verified: false,
                 text: evenGuideText,
                 isScrambled: true,
-                centerFace: `${mappedFace} (${centerName})`,
+                centerFace: `${isEvenCube ? displayEvenPreFace : mappedFace} (${isEvenCube ? (EVEN_CUBE_ROTATION_GUIDES[displayEvenPreFace]?.short || centerName) : centerName})`,
                 scannedCount: currentScannedKeys.length,
                 missingFaces: missingFaceKeys,
                 scrambleMatchRate: scrambleMatch.matchRate,
