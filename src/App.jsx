@@ -482,6 +482,30 @@ export default function App() {
   // Chẩn đoán & Benchmark Nhận Diện AI (Nút Test trực tiếp trong Bảng Admin của Khoa)
   const [adminVisionReport, setAdminVisionReport] = useState(null);
 
+  // Điều hướng UI tinh gọn (Progressive Disclosure: gom menu Công cụ, Loại bề mặt, Tabs Admin)
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const toolsMenuRef = useRef(null);
+  const [showSurfacePicker, setShowSurfacePicker] = useState(false);
+  const [adminPanelTab, setAdminPanelTab] = useState('records'); // 'records' | 'rules' | 'vision' | 'cloud'
+
+  useEffect(() => {
+    if (!showToolsMenu) return undefined;
+    const closeMenus = (e) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target)) {
+        setShowToolsMenu(false);
+      }
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setShowToolsMenu(false);
+    };
+    window.addEventListener('pointerdown', closeMenus);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('pointerdown', closeMenus);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [showToolsMenu]);
+
   // Thông báo nhận diện kỷ lục AI thời gian thực (Toast Banner)
   const [lastNotice, setLastNotice] = useState(null);
 
@@ -3563,6 +3587,51 @@ export default function App() {
               </button>
             </div>
 
+            {/* Thanh bật/tắt nhanh Hiệu ứng FX & Âm thanh ngay trong Kho Giao Diện */}
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap',
+              marginBottom: '12px'
+            }}>
+              <button
+                type="button"
+                onClick={toggleFxEnabled}
+                style={{
+                  flex: 1,
+                  minWidth: '140px',
+                  padding: '8px 12px',
+                  borderRadius: '9px',
+                  border: isFxEnabled ? `1.5px solid ${currentHudTheme.color}` : '1px solid #334155',
+                  background: isFxEnabled ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.75)',
+                  color: isFxEnabled ? currentHudTheme.color : '#94a3b8',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                {isFxEnabled ? '✨ Hiệu ứng nền: ĐANG BẬT' : '💤 Hiệu ứng nền: ĐANG TẮT'}
+              </button>
+              <button
+                type="button"
+                onClick={toggleSoundMute}
+                style={{
+                  flex: 1,
+                  minWidth: '140px',
+                  padding: '8px 12px',
+                  borderRadius: '9px',
+                  border: soundMutedState ? '1px solid #334155' : '1.5px solid #38bdf8',
+                  background: soundMutedState ? 'rgba(15, 23, 42, 0.75)' : 'rgba(56, 189, 248, 0.14)',
+                  color: soundMutedState ? '#94a3b8' : '#7dd3fc',
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                {soundMutedState ? '🔇 Âm thanh: ĐANG TẮT' : '🔊 Âm thanh: ĐANG BẬT'}
+              </button>
+            </div>
+
             {/* Thẻ Tắt Theme nổi bật tách riêng phía trên */}
             {(() => {
               const offTheme = HUD_THEMES.off;
@@ -3720,128 +3789,237 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right header: Shield + Dashboard + Camera + Tài Khoản (Cho phép cuộn ngang & tự xuống dòng trên điện thoại) */}
+        {/* Right header: Thanh công cụ tinh gọn (Camera, Công cụ AI ▾, Giao diện, Âm thanh, Tài khoản) */}
         <div
-          className="no-scrollbar"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: isMobile ? '6px' : '10px',
+            gap: isMobile ? '6px' : '8px',
             flexWrap: 'wrap',
             justifyContent: 'flex-end',
-            maxWidth: '100%',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            touchAction: 'pan-x pan-y'
+            maxWidth: '100%'
           }}
         >
-          {/* NÚT WAF & ANTI-BOT: CHỈ HIỂN THỊ KHI ĐĂNG NHẬP ADMIN KHOA */}
-          {isKhoaAdmin && !isMobile && (
+          {/* 1. BẬT / TẮT CAMERA CHÍNH */}
+          <button
+            onClick={toggleCamera}
+            style={{
+              padding: isMobile ? '5px 9px' : '6px 12px',
+              borderRadius: '7px',
+              border: cameraActive
+                ? (cameraHealth.isHealthy ? '1.5px solid #22c55e' : '1.5px solid #ef4444')
+                : '1.5px solid #38bdf866',
+              background: cameraActive
+                ? (cameraHealth.isHealthy ? 'rgba(20, 83, 45, 0.45)' : 'rgba(127, 29, 29, 0.4)')
+                : 'linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(37, 99, 235, 0.2))',
+              color: cameraActive
+                ? (cameraHealth.isHealthy ? '#4ade80' : '#f87171')
+                : '#7dd3fc',
+              fontWeight: '700',
+              fontSize: isMobile ? '0.74rem' : '0.78rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
+          >
+            <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
+            <span>{cameraActive ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') : 'Bật Cam'}</span>
+          </button>
+
+          {cameraActive && (
             <button
-              type="button"
-              onClick={() => setShowHumanCheck(true)}
-              title="Bấm để xem Khiên Bảo Vệ Smart Anti-Bot & Tường lửa WAF (Độc quyền Admin Khoa)"
+              onClick={flipCamera}
+              title="Đổi giữa Camera Trước và Camera Sau"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '5px 10px',
-                borderRadius: '6px',
-                background: 'rgba(16, 185, 129, 0.1)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                color: '#34d399',
-                fontSize: '0.72rem',
+                padding: isMobile ? '5px 8px' : '6px 9px',
+                borderRadius: '7px',
+                border: '1px solid #334155',
+                background: '#1e293b',
+                color: '#38bdf8',
                 fontWeight: '700',
+                fontSize: '0.76rem',
                 cursor: 'pointer'
               }}
             >
-              <span>🛡️</span>
-              <span>WAF & Anti-Bot</span>
-              {getSecurityStats().totalBlocked > 0 && (
-                <span style={{
-                  background: '#ef4444',
-                  color: '#fff',
-                  borderRadius: '10px',
-                  padding: '0 5px',
-                  fontSize: '0.66rem'
-                }}>
-                  Đã chặn {getSecurityStats().totalBlocked}
-                </span>
-              )}
+              🔄
             </button>
           )}
 
-          {/* NÚT MỞ KHO CHỌN THEME (MỞ MODAL RỘNG RÃI) + NÚT TẮT THEME NHANH */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* 2. MENU GOM CÔNG CỤ AI & CHẾ ĐỘ (OpenCV, Kociemba, Zen, Admin Dashboard/WAF) */}
+          <div ref={toolsMenuRef} style={{ position: 'relative' }}>
             <button
               type="button"
-              onClick={() => setShowThemeMenu(true)}
-              title="Mở bảng chọn 9 giao diện & hiệu ứng tương tác"
+              onClick={() => setShowToolsMenu((prev) => !prev)}
+              aria-expanded={showToolsMenu}
+              title="Mở menu Công cụ AI (Quét 6 Mặt OpenCV, Kociemba, Zen Mode...)"
               style={{
-                padding: isMobile ? '5px 8px' : '6px 12px',
-                borderRadius: '6px',
-                border: `1.5px solid ${currentHudTheme.color}`,
-                background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : currentHudTheme.innerCardBg,
-                color: currentHudTheme.color,
-                fontWeight: '800',
-                fontSize: isMobile ? '0.74rem' : '0.8rem',
+                padding: isMobile ? '5px 9px' : '6px 12px',
+                borderRadius: '7px',
+                border: showToolsMenu ? '1.5px solid #06b6d4' : '1px solid #334155',
+                background: showToolsMenu ? 'rgba(6, 182, 212, 0.2)' : 'rgba(15, 23, 42, 0.8)',
+                color: '#e2e8f0',
+                fontWeight: '700',
+                fontSize: isMobile ? '0.74rem' : '0.78rem',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                boxShadow: hudThemeKey === 'off' ? 'none' : `0 0 14px ${currentHudTheme.glowColor}`,
-                transition: 'all 0.2s ease'
+                gap: '5px'
               }}
             >
-              <span>{currentHudTheme.shortName}</span>
-              <span style={{ fontSize: '0.68rem', opacity: 0.9 }}>▾</span>
+              <span>🧰</span>
+              <span>Công cụ AI</span>
+              <span style={{ fontSize: '0.68rem', opacity: 0.8 }}>▾</span>
             </button>
 
-            <button
-              type="button"
-              onClick={toggleThemeOff}
-              title={hudThemeKey === 'off' ? 'Bấm để bật lại Theme gần nhất' : 'Bấm để TẮT Theme về giao diện WCA Mặc định tối giản'}
-              style={{
-                padding: isMobile ? '5px 8px' : '6px 11px',
-                borderRadius: '6px',
-                border: hudThemeKey === 'off' ? '1.5px solid #38bdf8' : '1px solid #64748b',
-                background: hudThemeKey === 'off' ? 'rgba(56, 189, 248, 0.16)' : 'rgba(15, 23, 42, 0.72)',
-                color: hudThemeKey === 'off' ? '#38bdf8' : '#cbd5e1',
-                fontWeight: '800',
-                fontSize: isMobile ? '0.72rem' : '0.76rem',
-                cursor: 'pointer',
+            {showToolsMenu && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                minWidth: '235px',
+                background: 'rgba(10, 15, 28, 0.98)',
+                border: '1.5px solid #334155',
+                borderRadius: '10px',
+                padding: '6px',
+                boxShadow: '0 16px 40px rgba(0, 0, 0, 0.72)',
+                zIndex: 9500,
                 display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              <span>{hudThemeKey === 'off' ? '🎨 Bật Theme' : '🚫 Tắt Theme'}</span>
-            </button>
+                flexDirection: 'column',
+                gap: '4px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowToolsMenu(false);
+                    setShowOpenCvScannerModal(true);
+                    if (!cameraActive) setCameraActive(true);
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    background: 'rgba(6, 182, 212, 0.14)',
+                    color: '#67e8f9',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📸 Quét 6 Mặt OpenCV &amp; Kociemba
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowToolsMenu(false);
+                    setShowKociembaModal(true);
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    color: '#4ade80',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ Bộ Giải Kociemba (≤ 20 bước)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowToolsMenu(false);
+                    toggleZenMode();
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    background: isZenMode ? 'rgba(56, 189, 248, 0.18)' : 'transparent',
+                    color: isZenMode ? '#38bdf8' : '#cbd5e1',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🧘 {isZenMode ? 'Thoát Chế Độ Tập Trung (Zen)' : 'Chế Độ Tập Trung (Zen Mode)'}
+                </button>
+                {isKhoaAdmin && (
+                  <>
+                    <div style={{ height: '1px', background: '#1e293b', margin: '2px 0' }} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowToolsMenu(false);
+                        setShowDashboardModal(true);
+                      }}
+                      style={{
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#38bdf8',
+                        fontSize: '0.76rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      📊 Dashboard Thống kê (Admin)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowToolsMenu(false);
+                        setShowHumanCheck(true);
+                      }}
+                      style={{
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#34d399',
+                        fontSize: '0.76rem',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🛡️ Khiên WAF &amp; Anti-Bot {getSecurityStats().totalBlocked > 0 ? `(Chặn ${getSecurityStats().totalBlocked})` : ''}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* GIAO DIỆN BẬT / TẮT HIỆU ỨNG (FX TOGGLE) + TẮT/BẬT ÂM THANH */}
+          {/* 3. GIAO DIỆN (GỒM THEME + FX) & NÚT TẮT NHANH ÂM THANH */}
           <button
             type="button"
-            onClick={toggleFxEnabled}
-            title={isFxEnabled ? 'Bấm để TẮT toàn bộ hiệu ứng hoa đào, mạng nhện, sấm sét, băng tuyết (giúp nhẹ máy)' : 'Bấm để BẬT lại các hiệu ứng đồ họa sống động'}
+            onClick={() => setShowThemeMenu(true)}
+            title="Chọn Giao diện Theme, bật/tắt Hiệu ứng FX và Âm thanh"
             style={{
-              padding: isMobile ? '5px 8px' : '6px 12px',
-              borderRadius: '6px',
-              border: isFxEnabled ? `1.5px solid ${currentHudTheme.color}` : '1px solid #475569',
-              background: isFxEnabled ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.75)',
-              color: isFxEnabled ? currentHudTheme.color : '#94a3b8',
+              padding: isMobile ? '5px 8px' : '6px 11px',
+              borderRadius: '7px',
+              border: `1.5px solid ${currentHudTheme.color}`,
+              background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.2)' : currentHudTheme.innerCardBg,
+              color: currentHudTheme.color,
               fontWeight: '800',
               fontSize: isMobile ? '0.74rem' : '0.78rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
-              transition: 'all 0.2s ease',
-              boxShadow: isFxEnabled ? `0 0 10px ${currentHudTheme.glowColor}` : 'none'
+              boxShadow: hudThemeKey === 'off' ? 'none' : `0 0 12px ${currentHudTheme.glowColor}`
             }}
           >
-            <span>{isFxEnabled ? '✨ FX: Bật' : '💤 FX: Tắt'}</span>
+            <span>{currentHudTheme.shortName}</span>
+            <span style={{ fontSize: '0.66rem', opacity: 0.85 }}>▾</span>
           </button>
 
           <button
@@ -3849,192 +4027,38 @@ export default function App() {
             onClick={toggleSoundMute}
             title={soundMutedState ? 'Bấm để BẬT lại âm thanh Timer & AI' : 'Bấm để TẮT âm thanh'}
             style={{
-              padding: isMobile ? '5px 8px' : '6px 10px',
-              borderRadius: '6px',
+              padding: isMobile ? '5px 7px' : '6px 9px',
+              borderRadius: '7px',
               border: soundMutedState ? '1px solid #475569' : '1px solid rgba(56, 189, 248, 0.45)',
               background: soundMutedState ? 'rgba(15, 23, 42, 0.75)' : 'rgba(56, 189, 248, 0.12)',
               color: soundMutedState ? '#94a3b8' : '#7dd3fc',
               fontWeight: '800',
-              fontSize: isMobile ? '0.74rem' : '0.78rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            <span>{soundMutedState ? '🔇' : '🔊'}</span>
-          </button>
-
-          {/* NÚT BỘ GIẢI KOCIEMBA */}
-          <button
-            type="button"
-            onClick={() => setShowKociembaModal(true)}
-            style={{
-              padding: isMobile ? '5px 8px' : '6px 13px',
-              borderRadius: '6px',
-              border: '1px solid #16a34a66',
-              background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.15))',
-              color: '#4ade80',
-              fontWeight: '700',
-              fontSize: isMobile ? '0.74rem' : '0.8rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 0 10px rgba(34, 197, 94, 0.2)'
-            }}
-            title="Mở bộ giải Kociemba Two-Phase Algorithm tối ưu (≤ 20 bước)"
-          >
-            <span>⚡</span>
-            <span>Kociemba</span>
-          </button>
-
-          {/* NÚT QUÉT 6 MẶT OPENCV & KOCIEMBA (THEO quet_rubik_6_mat.py) */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowOpenCvScannerModal(true);
-              if (!cameraActive) setCameraActive(true);
-            }}
-            style={{
-              padding: isMobile ? '5px 8px' : '6px 13px',
-              borderRadius: '6px',
-              border: '1.5px solid #06b6d4',
-              background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(14, 116, 144, 0.35))',
-              color: '#67e8f9',
-              fontWeight: '800',
-              fontSize: isMobile ? '0.74rem' : '0.8rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 0 14px rgba(6, 182, 212, 0.45)'
-            }}
-            title="Mở máy quét 6 mặt Rubik chuẩn OpenCV HSV & Giải Kociemba tối ưu (~20 bước)"
-          >
-            <span>📸</span>
-            <span>Quét 6 Mặt OpenCV</span>
-          </button>
-
-          {/* NÚT CHẾ ĐỘ TẬP TRUNG / ZEN MODE */}
-          <button
-            type="button"
-            onClick={toggleZenMode}
-            style={{
-              padding: isMobile ? '5px 8px' : '6px 13px',
-              borderRadius: '6px',
-              border: isZenMode ? '1.5px solid #38bdf8' : '1px solid #475569',
-              background: isZenMode ? 'rgba(56, 189, 248, 0.25)' : currentHudTheme.innerCardBg,
-              color: isZenMode ? '#38bdf8' : '#cbd5e1',
-              fontWeight: '800',
-              fontSize: isMobile ? '0.74rem' : '0.8rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: isZenMode ? '0 0 14px rgba(56, 189, 248, 0.4)' : 'none'
-            }}
-            title={isZenMode ? 'Tắt Chế độ Tập Trung (Esc)' : 'Bật Chế độ Tập Trung (Zen Mode) — Tối giản toàn diện 1 màn hình'}
-          >
-            <span>🧘</span>
-            <span>{isZenMode ? 'Thoát Zen' : 'Zen Mode'}</span>
-          </button>
-
-          {/* NÚT MỞ DASHBOARD: CHỈ HIỂN THỊ KHI ĐĂNG NHẬP ADMIN KHOA */}
-          {isKhoaAdmin && (
-            <button
-              onClick={() => setShowDashboardModal(true)}
-              style={{
-                padding: '6px 13px',
-                borderRadius: '6px',
-                border: '1px solid #38bdf844',
-                background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(37, 99, 235, 0.2))',
-                color: '#38bdf8',
-                fontWeight: '700',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-              title="Mở Bảng Điều Khiển Dashboard (Độc quyền Admin Khoa)"
-            >
-              <span>📊</span>
-              <span>Dashboard</span>
-            </button>
-          )}
-
-          {/* Camera Button */}
-          <button
-            onClick={toggleCamera}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: cameraActive 
-                ? (cameraHealth.isHealthy ? '1px solid #22c55e' : '1px solid #ef4444') 
-                : '1px solid #334155',
-              background: cameraActive 
-                ? (cameraHealth.isHealthy ? '#14532d55' : '#7f1d1d44') 
-                : '#1e293b',
-              color: cameraActive 
-                ? (cameraHealth.isHealthy ? '#4ade80' : '#f87171') 
-                : '#94a3b8',
-              fontWeight: '600',
               fontSize: '0.78rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
+              cursor: 'pointer'
             }}
           >
-            <span>{cameraActive ? (cameraHealth.isHealthy ? '🟢' : '🔴') : '📷'}</span>
-            <span>{cameraActive ? (cameraHealth.isHealthy ? 'Tắt Cam' : 'Lỗi Cam') : 'Bật Cam'}</span>
+            {soundMutedState ? '🔇' : '🔊'}
           </button>
 
-          {/* NUT DOI CAMERA TRUOC/SAU (CHO MOBILE/TABLET) */}
-          {cameraActive && (
-            <button
-              onClick={flipCamera}
-              title="Đổi giữa Camera Trước và Camera Sau"
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #334155',
-                background: '#1e293b',
-                color: '#38bdf8',
-                fontWeight: '600',
-                fontSize: '0.78rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <span>🔄</span>
-              <span>{cameraFacingMode === 'user' ? 'Cam Sau' : 'Cam Trước'}</span>
-            </button>
-          )}
-
-          {/* CHỈ HIỂN THỊ QUẢN TRỊ KHI LÀ GMAIL KHOA: khoa.tt2611758@sis.hust.edu.vn */}
+          {/* 4. QUẢN TRỊ KHOA (NẾU LÀ ADMIN) + TÀI KHOẢN */}
           {isKhoaAdmin ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button
                 onClick={handleOpenKhoaAdminPanel}
-                title="Mở Trung Tâm Quản Trị Độc Quyền của Khoa (Chỉnh sửa tự do mọi thứ)"
+                title="Mở Trung Tâm Quản Trị Độc Quyền của Khoa"
                 style={{
                   background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                   border: '1px solid #fbbf24',
                   color: '#ffffff',
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '0.78rem',
+                  padding: '6px 11px',
+                  borderRadius: '7px',
+                  fontSize: '0.76rem',
                   fontWeight: '700',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px',
-                  boxShadow: '0 2px 10px rgba(245, 158, 11, 0.45)'
+                  boxShadow: '0 2px 10px rgba(245, 158, 11, 0.4)'
                 }}
               >
                 <span>👑</span>
@@ -4043,26 +4067,25 @@ export default function App() {
 
               <div
                 onClick={() => setShowAuthModal(true)}
-                title="Bấm để quản lý tài khoản hoặc Đăng xuất"
+                title="Quản lý tài khoản hoặc Đăng xuất"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '5px',
                   background: '#111c34',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
+                  padding: '5px 9px',
+                  borderRadius: '7px',
                   border: '1px solid #f59e0b',
                   cursor: 'pointer'
                 }}
               >
-                <span style={{ fontSize: '0.8rem' }}>👑</span>
-                <span style={{ fontSize: '0.78rem', color: '#fbbf24', fontWeight: '700' }}>
+                <span style={{ fontSize: '0.78rem' }}>👑</span>
+                <span style={{ fontSize: '0.76rem', color: '#fbbf24', fontWeight: '700' }}>
                   {currentUser.name}
                 </span>
               </div>
             </div>
           ) : (
-            /* NGƯỜI DÙNG THÔNG THƯỜNG — HOÀN TOÀN KHÔNG THẤY MỤC ADMIN NÀO */
             <div
               onClick={() => setShowAuthModal(true)}
               title="Bấm để đăng nhập tài khoản của bạn"
@@ -4071,8 +4094,8 @@ export default function App() {
                 alignItems: 'center',
                 gap: '6px',
                 background: '#111c34',
-                padding: '6px 12px',
-                borderRadius: '6px',
+                padding: '6px 11px',
+                borderRadius: '7px',
                 border: '1px solid #1a2a4c',
                 cursor: 'pointer'
               }}
@@ -4429,83 +4452,106 @@ export default function App() {
               </div>
             )}
 
-            <div style={{
-              display: 'inline-flex',
-              background: currentHudTheme.innerCardBg,
-              padding: '3px',
-              borderRadius: '8px',
-              border: currentHudTheme.innerCardBorder,
-              gap: '4px',
-              maxWidth: '100%',
-              overflowX: 'auto',
-              WebkitOverflowScrolling: 'touch'
-            }} className="no-scrollbar">
-              {Object.values(PUZZLE_CONFIGS).map((p) => {
-                const isSelected = puzzleType === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => handleSelectPuzzle(p.id)}
-                    style={{
-                      padding: '4px 14px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: isSelected ? currentHudTheme.cardBg : 'transparent',
-                      color: isSelected ? currentHudTheme.primaryAccent : '#64748b',
-                      fontWeight: isSelected ? '800' : '600',
-                      fontSize: '0.78rem',
-                      cursor: 'pointer',
-                      borderBottom: isSelected ? `2px solid ${currentHudTheme.primaryAccent}` : '2px solid transparent'
-                    }}
-                  >
-                    {p.name}
-                  </button>
-                );
-              })}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', maxWidth: '100%' }}>
+              <div style={{
+                display: 'inline-flex',
+                background: currentHudTheme.innerCardBg,
+                padding: '3px',
+                borderRadius: '8px',
+                border: currentHudTheme.innerCardBorder,
+                gap: '4px',
+                maxWidth: '100%',
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch'
+              }} className="no-scrollbar">
+                {Object.values(PUZZLE_CONFIGS).map((p) => {
+                  const isSelected = puzzleType === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => handleSelectPuzzle(p.id)}
+                      style={{
+                        padding: '4px 12px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: isSelected ? currentHudTheme.cardBg : 'transparent',
+                        color: isSelected ? currentHudTheme.primaryAccent : '#64748b',
+                        fontWeight: isSelected ? '800' : '600',
+                        fontSize: '0.78rem',
+                        cursor: 'pointer',
+                        borderBottom: isSelected ? `2px solid ${currentHudTheme.primaryAccent}` : '2px solid transparent'
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Nút thu gọn chọn Bề mặt Rubik (UV / Nhám / Viền Đen / Pastel) */}
+              <button
+                type="button"
+                onClick={() => setShowSurfacePicker((prev) => !prev)}
+                title="Chọn chất liệu bề mặt Rubik để tối ưu AI Camera"
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  border: showSurfacePicker ? `1px solid ${currentHudTheme.primaryAccent}` : currentHudTheme.innerCardBorder,
+                  background: currentHudTheme.innerCardBg,
+                  color: surfaceProfile !== 'auto' ? currentHudTheme.primaryAccent : currentHudTheme.subTextColor,
+                  fontSize: '0.72rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                🎨 {CUBE_SURFACE_PROFILES[surfaceProfile]?.shortLabel || 'Tự động'} {showSurfacePicker ? '▴' : '▾'}
+              </button>
             </div>
 
-            {/* BỘ CHỌN CHẾ ĐỘ MẮT THẦN AI THEO DÒNG RUBIK (UV / NHÁM / VIỀN ĐEN & CARBON / PASTEL) */}
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              background: currentHudTheme.innerCardBg,
-              padding: '3px 6px',
-              borderRadius: '8px',
-              border: currentHudTheme.innerCardBorder,
-              gap: '4px',
-              maxWidth: '100%',
-              overflowX: 'auto',
-              WebkitOverflowScrolling: 'touch'
-            }} className="no-scrollbar">
-              <span style={{ fontSize: '0.66rem', color: currentHudTheme.subTextColor, fontWeight: '700', whiteSpace: 'nowrap', padding: '0 4px' }}>
-                🎨 Loại Rubik:
-              </span>
-              {Object.values(CUBE_SURFACE_PROFILES).map((prof) => {
-                const isSelected = surfaceProfile === prof.id;
-                return (
-                  <button
-                    key={prof.id}
-                    type="button"
-                    onClick={() => handleSelectSurfaceProfile(prof.id)}
-                    title={prof.desc}
-                    style={{
-                      padding: '3px 9px',
-                      borderRadius: '6px',
-                      border: isSelected ? `1px solid ${currentHudTheme.primaryAccent}` : '1px solid transparent',
-                      background: isSelected ? (hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : 'rgba(56, 189, 248, 0.16)') : 'transparent',
-                      color: isSelected ? currentHudTheme.primaryAccent : '#94a3b8',
-                      fontWeight: isSelected ? '800' : '600',
-                      fontSize: '0.68rem',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    {prof.shortLabel}
-                  </button>
-                );
-              })}
-            </div>
+            {/* BỘ CHỌN CHẤT LIỆU BỀ MẶT RUBIK (CHỈ XỔ RA KHI BẤM CHỌN) */}
+            {showSurfacePicker && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                background: currentHudTheme.innerCardBg,
+                padding: '4px 8px',
+                borderRadius: '8px',
+                border: `1px solid ${currentHudTheme.primaryAccent}44`,
+                gap: '4px',
+                maxWidth: '100%',
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch'
+              }} className="no-scrollbar">
+                {Object.values(CUBE_SURFACE_PROFILES).map((prof) => {
+                  const isSelected = surfaceProfile === prof.id;
+                  return (
+                    <button
+                      key={prof.id}
+                      type="button"
+                      onClick={() => {
+                        handleSelectSurfaceProfile(prof.id);
+                        setShowSurfacePicker(false);
+                      }}
+                      title={prof.desc}
+                      style={{
+                        padding: '3px 9px',
+                        borderRadius: '6px',
+                        border: isSelected ? `1px solid ${currentHudTheme.primaryAccent}` : '1px solid transparent',
+                        background: isSelected ? (hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.22)' : 'rgba(56, 189, 248, 0.16)') : 'transparent',
+                        color: isSelected ? currentHudTheme.primaryAccent : '#94a3b8',
+                        fontWeight: isSelected ? '800' : '600',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {prof.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* THÔNG BÁO NHẬN DIỆN KỶ LỤC AI THỜI GIAN THỰC */}
             {lastNotice && (
@@ -4541,12 +4587,7 @@ export default function App() {
               </div>
             )}
 
-            {/* =========================================================================
-                QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
-                1. Kiểm tra Scramble
-                2. Xác nhận đúng & Mở khóa giải
-                3. Hoàn thành
-            ========================================================================= */}
+            {/* THANH TIẾN TRÌNH 3 BƯỚC TINH GỌN (THAY THẾ KHỐI 3 THẺ LỚN) */}
             {(() => {
               const targetFaceCount = adminSettings.requiredPreCheckFaces === 3 ? 3 : 6;
               const scannedCount = Object.keys(scannedFaces).length;
@@ -4556,387 +4597,141 @@ export default function App() {
               const isStep2Ready = solveStep === 'step2_ready_solve' && timerState === 'idle';
               const isStep3Active = solveStep === 'step3_completed';
 
-              const scannedKeys = Object.keys(scannedFaces);
-              const missingFaces = FACE_SCAN_ORDER.filter(f => !scannedFaces[f.key]);
-              const currentRotationTip = scannedCount >= targetFaceCount
-                ? '🎉 ĐÃ QUÉT ĐỦ 6/6 MẶT! Bấm "Xác nhận đúng & Mở khóa giải" hoặc Space để giải.'
-                : scannedCount === 0
-                  ? '🎯 Tự do đưa BẤT KỲ MẶT NÀO vào khung ngắm — AI tự nhận diện qua màu Ô số 5 (tâm)!'
-                  : `👉 Đã quét ${scannedCount}/${targetFaceCount} mặt. Còn thiếu: [${missingFaces.map(f => f.colorName).join(', ')}] — Đưa tiếp mặt còn thiếu vào ngắm!`;
-
               return (
-                <div style={{
-                  width: '100%',
-                  maxWidth: '780px',
-                  margin: '4px auto 10px auto',
-                  padding: '8px 12px',
-                  borderRadius: '12px',
-                  background: 'rgba(9, 15, 29, 0.75)',
-                  border: `1px solid ${currentHudTheme.color}35`,
-                  boxShadow: `0 4px 20px ${currentHudTheme.glowColor}`,
-                  backdropFilter: 'blur(8px)'
-                }}>
+                <div style={{ width: '100%', maxWidth: '720px', margin: '2px auto 6px auto' }}>
                   <div style={{
+                    padding: '6px 12px',
+                    borderRadius: '10px',
+                    background: 'rgba(9, 15, 29, 0.72)',
+                    border: `1px solid ${currentHudTheme.color}30`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    marginBottom: '6px',
-                    paddingBottom: '4px',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+                    flexWrap: 'wrap',
+                    gap: '8px'
                   }}>
-                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: currentHudTheme.color, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <span>🎯</span>
-                      <span>QUY TRÌNH 3 BƯỚC GIẢI ({targetFaceCount === 6 ? 'Chế độ quét 6/6 mặt chuẩn' : 'Chế độ 3 mặt Nhanh'})</span>
-                    </span>
-                    <span style={{ fontSize: '0.64rem', color: isStep3Active ? '#facc15' : isStep2Active ? '#4ade80' : isStep1Done ? '#38bdf8' : '#94a3b8' }}>
-                      {isStep3Active ? '🎉 Đã hoàn thành lượt giải!' : isStep2Active ? '⚡ Đang trong lượt giải...' : isStep2Ready ? '🟢 Đã mở khóa — Sẵn sàng bấm giờ!' : '🔍 Đang kiểm tra Scramble...'}
-                    </span>
-                  </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '0.72rem', fontWeight: '700' }}>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        background: isStep1Error ? 'rgba(239, 68, 68, 0.2)' : (isStep1Done ? 'rgba(34, 197, 94, 0.16)' : 'rgba(56, 189, 248, 0.16)'),
+                        color: isStep1Error ? '#f87171' : (isStep1Done ? '#4ade80' : '#38bdf8'),
+                        border: `1px solid ${isStep1Error ? '#ef444466' : (isStep1Done ? '#22c55e66' : '#38bdf866')}`
+                      }}>
+                        {isStep1Error ? '❌ Lệch Scramble' : isStep1Done ? '✓ 1. Đã kiểm tra' : `1. Kiểm tra (${scannedCount}/${targetFaceCount})`}
+                      </span>
+                      <span style={{ color: '#475569' }}>➔</span>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        background: (isStep2Ready || isStep2Active) ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
+                        color: (isStep2Ready || isStep2Active) ? '#4ade80' : (isStep3Active ? '#94a3b8' : '#64748b'),
+                        border: (isStep2Ready || isStep2Active) ? '1px solid #22c55e66' : '1px solid transparent'
+                      }}>
+                        {isStep3Active ? '✓ 2. Đã giải' : (isStep2Active ? '⚡ 2. Đang giải' : '2. Mở khóa giải')}
+                      </span>
+                      <span style={{ color: '#475569' }}>➔</span>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        background: isStep3Active ? 'rgba(234, 179, 8, 0.18)' : 'transparent',
+                        color: isStep3Active ? '#facc15' : '#64748b',
+                        border: isStep3Active ? '1px solid #eab30866' : '1px solid transparent'
+                      }}>
+                        {isStep3Active ? `🏆 ${(timeMs / 1000).toFixed(2)}s` : '3. Hoàn thành'}
+                      </span>
+                    </div>
 
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
-                    gap: isMobile ? '6px' : '8px'
-                  }}>
-                    {/* BƯỚC 1: KIỂM TRA SCRAMBLE */}
-                    <div style={{
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      background: isStep1Error
-                        ? 'rgba(239, 68, 68, 0.15)'
-                        : (solveStep === 'step1_check_scb'
-                          ? 'rgba(56, 189, 248, 0.16)'
-                          : 'rgba(34, 197, 94, 0.14)'),
-                      border: isStep1Error
-                        ? '1.5px solid #ef4444'
-                        : (solveStep === 'step1_check_scb'
-                          ? `1.5px solid #38bdf8`
-                          : '1.5px solid #22c55e'),
-                      boxShadow: solveStep === 'step1_check_scb' ? '0 0 10px rgba(56, 189, 248, 0.3)' : (isStep1Done ? '0 0 8px rgba(34, 197, 94, 0.2)' : 'none'),
-                      transition: 'all 0.25s ease'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: '800',
-                          color: isStep1Error ? '#f87171' : (solveStep === 'step1_check_scb' ? '#38bdf8' : '#4ade80')
-                        }}>
-                          1. Kiểm tra Scramble
-                        </span>
-                        <span style={{
-                          fontSize: '0.62rem',
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          fontWeight: '700',
-                          background: isStep1Error ? '#ef4444' : (solveStep === 'step1_check_scb' ? '#0284c7' : '#22c55e'),
-                          color: '#ffffff'
-                        }}>
-                          {isStep1Error ? '❌ Sai' : (solveStep === 'step1_check_scb' ? `${scannedCount}/${targetFaceCount}` : '✓ Đã khớp')}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.66rem', color: isStep1Error ? '#fca5a5' : (solveStep === 'step1_check_scb' ? '#cbd5e1' : '#86efac'), lineHeight: '1.3' }}>
-                        {isStep1Error
-                          ? `Lệch Scramble (khớp ${scrambleAudit.matchRate}%)`
-                          : (solveStep === 'step1_check_scb'
-                            ? `Quét ${scannedCount}/${targetFaceCount} mặt trước Camera`
-                            : `Khớp ${scrambleAudit.matchRate || 100}% chuẩn WCA`)}
-                      </div>
-
-                      {/* DẢI 6 MẶT VÀ HƯỚNG DẪN XOAY KHỐI TRỰC QUAN */}
-                      {solveStep === 'step1_check_scb' && (
-                        <>
-                          {/* DẢI TIẾN ĐỘ 6 MẶT — AI TỰ ĐỘNG NHẬN DIỆN MẶT QUA Ô SỐ 5 (TÂM) */}
-                          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', margin: '4px 0 6px 0' }}>
-                            {FACE_SCAN_ORDER.map(face => {
-                              const isScanned = Boolean(scannedFaces[face.key]);
-                              return (
-                                <div
-                                  key={face.key}
-                                  title={`Mặt ${face.key} (${face.name} - ${face.colorName}): ${isScanned ? '✓ Đã quét xong' : 'Đang chờ quét'}`}
-                                  style={{
-                                    fontSize: '0.58rem',
-                                    padding: '2px 5px',
-                                    borderRadius: '4px',
-                                    fontWeight: '800',
-                                    background: isScanned
-                                      ? '#15803d'
-                                      : 'rgba(255, 255, 255, 0.05)',
-                                    border: isScanned
-                                      ? '1px solid #4ade80'
-                                      : '1px solid rgba(255, 255, 255, 0.1)',
-                                    color: isScanned ? '#ffffff' : '#94a3b8',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '2px'
-                                  }}
-                                >
-                                  <span>{isScanned ? '✓' : '○'}</span>
-                                  <span>{face.key} ({face.colorName})</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          <div style={{
-                            fontSize: '0.62rem',
-                            color: '#38bdf8',
+                    {solveStep === 'step1_check_scb' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'inline-flex', gap: '3px', alignItems: 'center' }} title="Tiến độ các mặt U R F D L B (đưa từng mặt vào Camera)">
+                          {FACE_SCAN_ORDER.map((face) => {
+                            const ok = Boolean(scannedFaces[face.key]);
+                            return (
+                              <span
+                                key={face.key}
+                                title={`Mặt ${face.key} (${face.colorName})`}
+                                style={{
+                                  fontSize: '0.62rem',
+                                  fontWeight: '800',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: ok ? '#15803d' : 'rgba(255,255,255,0.06)',
+                                  color: ok ? '#ffffff' : '#64748b',
+                                  border: ok ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.08)'
+                                }}
+                              >
+                                {face.key}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
+                          title="Đổi nhanh chế độ quét 3 mặt hoặc 6 mặt"
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            background: 'rgba(15, 23, 42, 0.85)',
+                            border: '1px solid #334155',
+                            color: '#94a3b8',
+                            fontSize: '0.66rem',
                             fontWeight: '700',
-                            background: 'rgba(56, 189, 248, 0.1)',
-                            padding: '3px 6px',
-                            borderRadius: '4px',
-                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                            marginBottom: '6px',
-                            lineHeight: '1.3'
-                          }}>
-                            {currentRotationTip}
-                          </div>
-                        </>
-                      )}
-
-                      {solveStep === 'step1_check_scb' && (
-                        <div style={{ display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            onClick={confirmScrambleAndReady}
-                            title="Xác nhận khối Rubik đã xáo đúng và chuyển sang bước 2 để giải"
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                              border: '1.5px solid #4ade80',
-                              color: '#ffffff',
-                              fontSize: '0.72rem',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              flex: 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '5px',
-                              boxShadow: '0 2px 8px rgba(34, 197, 94, 0.35)'
-                            }}
-                          >
-                            <span>✅ Xác nhận đúng & Mở khóa giải</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleFaceVerificationMode(targetFaceCount === 6 ? 3 : 6)}
-                            title={targetFaceCount === 6 ? 'Đang ở chế độ quét đủ 6 mặt chuẩn. Bấm để chuyển sang 3 mặt nhanh.' : 'Đang ở chế độ 3 mặt. Bấm để chuyển sang đủ 6/6 mặt chuẩn.'}
-                            style={{
-                              padding: '5px 9px',
-                              borderRadius: '6px',
-                              background: 'rgba(15, 23, 42, 0.85)',
-                              border: targetFaceCount === 6 ? '1.5px solid #38bdf8' : '1px solid #475569',
-                              color: targetFaceCount === 6 ? '#38bdf8' : '#94a3b8',
-                              fontSize: '0.64rem',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}
-                          >
-                            {targetFaceCount === 6 ? '🛡️ 6/6 Mặt' : '⚡ 3 Mặt'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* BƯỚC 2: XÁC NHẬN ĐÚNG & MỞ KHÓA GIẢI */}
-                    <div style={{
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      background: isStep2Active
-                        ? 'rgba(34, 197, 94, 0.22)'
-                        : isStep2Ready
-                          ? 'rgba(56, 189, 248, 0.16)'
-                          : 'rgba(15, 23, 42, 0.45)',
-                      border: isStep2Active
-                        ? '1.5px solid #22c55e'
-                        : isStep2Ready
-                          ? '1.5px solid #38bdf8'
-                          : '1px dashed #334155',
-                      boxShadow: isStep2Active ? '0 0 12px rgba(34, 197, 94, 0.35)' : isStep2Ready ? '0 0 10px rgba(56, 189, 248, 0.25)' : 'none',
-                      transition: 'all 0.25s ease'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: '800',
-                          color: isStep2Active ? '#4ade80' : isStep2Ready ? '#38bdf8' : (isStep3Active ? '#94a3b8' : '#64748b')
-                        }}>
-                          2. Xác nhận đúng & Mở khóa giải
-                        </span>
-                        <span style={{
-                          fontSize: '0.62rem',
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          fontWeight: '700',
-                          background: isStep2Active ? '#16a34a' : isStep2Ready ? '#0284c7' : (isStep3Active ? '#334155' : '#334155'),
-                          color: isStep1Done ? '#ffffff' : '#94a3b8'
-                        }}>
-                          {timerState === 'running'
-                            ? '⚡ Đang giải'
-                            : timerState === 'ready'
-                              ? '● Sẵn sàng'
-                              : timerState === 'inspecting'
-                                ? '⏱️ WCA'
-                                : isStep2Ready
-                                  ? '🟢 Mở khóa'
-                                  : isStep3Active
-                                    ? '✓ Xong'
-                                    : '🔒 Chờ B1'}
-                        </span>
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {targetFaceCount === 6 ? '🛡️ 6 Mặt' : '⚡ 3 Mặt'}
+                        </button>
                       </div>
-                      <div style={{ fontSize: '0.66rem', color: isStep2Active ? '#86efac' : isStep2Ready ? '#7dd3fc' : '#64748b', lineHeight: '1.3' }}>
-                        {timerState === 'running'
-                          ? `Đang xoay (${cubeMovesSeenRef.current || trackedMoves.length} nhịp)`
-                          : timerState === 'inspecting'
-                            ? `Quan sát (${inspectionSeconds}s)`
-                            : timerState === 'ready'
-                              ? 'Thả tay để bắt đầu giải!'
-                              : isStep2Ready
-                                ? (isMobile ? 'Chạm giữ để giải' : 'Giữ Space để giải')
-                                : isStep3Active
-                                  ? `Đã giải xong (${(timeMs / 1000).toFixed(2)}s)`
-                                  : 'Cần xác nhận bước 1'}
-                      </div>
-
-                      {/* BỘ ĐIỀU KHIỂN BƯỚC GIẢI KOCIEMBA TRỰC QUAN NGAY TẠI BƯỚC 2 */}
-                      {(isStep2Ready || isStep2Active) && activeKociembaResult?.success && activeMovesList.length > 0 && (
-                        <div style={{
-                          marginTop: '6px',
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          background: 'rgba(6, 26, 17, 0.9)',
-                          border: '1px solid rgba(34, 197, 94, 0.35)'
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                            <span style={{ fontSize: '0.64rem', fontWeight: '800', color: '#4ade80' }}>
-                              ⚡ Kociemba ({activeMovesList.length}b)
-                            </span>
-                            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>
-                              Bước {kociembaCurrentStep + 1}/{activeMovesList.length}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                            <span style={{
-                              fontSize: '1.15rem',
-                              fontWeight: '900',
-                              color: '#22c55e',
-                              fontFamily: 'monospace',
-                              padding: '1px 6px',
-                              background: 'rgba(34, 197, 94, 0.15)',
-                              borderRadius: '4px',
-                              border: '1px solid #22c55e'
-                            }}>
-                              {activeMovesList[kociembaCurrentStep] || '...'}
-                            </span>
-                            <span style={{ fontSize: '0.64rem', color: '#cbd5e1', lineHeight: '1.2' }}>
-                              {getMoveExplanationVi(activeMovesList[kociembaCurrentStep])}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
-                            <button type="button" onClick={() => setKociembaCurrentStep(0)} title="Về bước đầu" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>⏮</button>
-                            <button type="button" onClick={() => setKociembaCurrentStep(p => Math.max(0, p - 1))} title="Bước trước" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>◀</button>
-                            <button type="button" onClick={() => setKociembaIsPlaying(p => !p)} title="Tự động chạy từng bước" style={{ padding: '2px 7px', borderRadius: '4px', background: kociembaIsPlaying ? '#f59e0b' : '#16a34a', border: '1px solid #22c55e', color: '#fff', fontSize: '0.58rem', fontWeight: '800', cursor: 'pointer' }}>
-                              {kociembaIsPlaying ? '⏸ Dừng' : '▶️ Tự chạy'}
-                            </button>
-                            <button type="button" onClick={() => setKociembaCurrentStep(p => Math.min(activeMovesList.length - 1, p + 1))} title="Bước tiếp" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>▶</button>
-                            <button type="button" onClick={() => setKociembaCurrentStep(activeMovesList.length - 1)} title="Đến bước cuối" style={{ padding: '2px 5px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.58rem', cursor: 'pointer' }}>⏭</button>
-                          </div>
-                        </div>
-                      )}
-
-                      {isStep2Ready && (!activeKociembaResult?.success || activeMovesList.length === 0) && (
-                        <div style={{ marginTop: '6px' }}>
-                          <button
-                            type="button"
-                            onClick={() => setShowKociembaModal(true)}
-                            title="Mở hướng dẫn giải tối ưu Kociemba từng bước"
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '5px',
-                              background: 'linear-gradient(135deg, #0284c7, #2563eb)',
-                              border: '1px solid #38bdf8',
-                              color: '#ffffff',
-                              fontSize: '0.64rem',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              width: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <span>⚡ Xem Kociemba (~20b)</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* BƯỚC 3: HOÀN THÀNH */}
-                    <div style={{
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      background: isStep3Active
-                        ? 'rgba(234, 179, 8, 0.18)'
-                        : 'rgba(15, 23, 42, 0.45)',
-                      border: isStep3Active
-                        ? '1.5px solid #eab308'
-                        : '1px dashed #334155',
-                      boxShadow: isStep3Active ? '0 0 12px rgba(234, 179, 8, 0.35)' : 'none',
-                      transition: 'all 0.25s ease'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          fontWeight: '800',
-                          color: isStep3Active ? '#facc15' : '#64748b'
-                        }}>
-                          3. Hoàn thành
-                        </span>
-                        <span style={{
-                          fontSize: '0.62rem',
-                          padding: '1px 6px',
-                          borderRadius: '6px',
-                          fontWeight: '700',
-                          background: isStep3Active ? '#ca8a04' : '#334155',
-                          color: isStep3Active ? '#ffffff' : '#94a3b8'
-                        }}>
-                          {isStep3Active ? '🏆 Xong' : '○ Chờ'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.66rem', color: isStep3Active ? '#fef08a' : '#64748b', lineHeight: '1.3' }}>
-                        {isStep3Active
-                          ? `Thành tích: ${(timeMs / 1000).toFixed(2)}s ${solves[0]?.verified ? '(✓ AI)' : ''}`
-                          : 'Dừng đồng hồ để hoàn thành'}
-                      </div>
-                      {isStep3Active && (
-                        <div style={{ marginTop: '6px' }}>
-                          <button
-                            type="button"
-                            onClick={startNextSolveRound}
-                            title="Tạo Scramble mới và bắt đầu lượt tiếp theo"
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '5px',
-                              background: '#2563eb',
-                              border: '1px solid #60a5fa',
-                              color: '#ffffff',
-                              fontSize: '0.64rem',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              width: '100%'
-                            }}
-                          >
-                            🔄 Lượt mới (Space)
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
+
+                  {/* Trình phát từng bước Kociemba gọn gàng (Chỉ hiện ở Bước 2 khi đã có nghiệm từ máy quét) */}
+                  {(isStep2Ready || isStep2Active) && activeKociembaResult?.success && activeMovesList.length > 0 && (
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '6px 10px',
+                      borderRadius: '8px',
+                      background: 'rgba(6, 26, 17, 0.9)',
+                      border: '1px solid rgba(34, 197, 94, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#4ade80' }}>
+                          ⚡ Kociemba ({kociembaCurrentStep + 1}/{activeMovesList.length}):
+                        </span>
+                        <span style={{
+                          fontSize: '0.96rem',
+                          fontWeight: '900',
+                          color: '#22c55e',
+                          fontFamily: 'monospace',
+                          padding: '1px 7px',
+                          background: 'rgba(34, 197, 94, 0.15)',
+                          borderRadius: '4px',
+                          border: '1px solid #22c55e'
+                        }}>
+                          {activeMovesList[kociembaCurrentStep] || '...'}
+                        </span>
+                        <span style={{ fontSize: '0.68rem', color: '#cbd5e1' }}>
+                          {getMoveExplanationVi(activeMovesList[kociembaCurrentStep])}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button type="button" onClick={() => setKociembaCurrentStep(0)} title="Về bước đầu" style={{ padding: '2px 6px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.64rem', cursor: 'pointer' }}>⏮</button>
+                        <button type="button" onClick={() => setKociembaCurrentStep(p => Math.max(0, p - 1))} title="Bước trước" style={{ padding: '2px 6px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.64rem', cursor: 'pointer' }}>◀</button>
+                        <button type="button" onClick={() => setKociembaIsPlaying(p => !p)} title="Tự động chạy từng bước" style={{ padding: '2px 8px', borderRadius: '4px', background: kociembaIsPlaying ? '#f59e0b' : '#16a34a', border: '1px solid #22c55e', color: '#fff', fontSize: '0.64rem', fontWeight: '800', cursor: 'pointer' }}>
+                          {kociembaIsPlaying ? '⏸ Dừng' : '▶️ Tự chạy'}
+                        </button>
+                        <button type="button" onClick={() => setKociembaCurrentStep(p => Math.min(activeMovesList.length - 1, p + 1))} title="Bước tiếp" style={{ padding: '2px 6px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.64rem', cursor: 'pointer' }}>▶</button>
+                        <button type="button" onClick={() => setKociembaCurrentStep(activeMovesList.length - 1)} title="Đến bước cuối" style={{ padding: '2px 6px', borderRadius: '4px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.64rem', cursor: 'pointer' }}>⏭</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -5008,6 +4803,25 @@ export default function App() {
                         🔄 Đổi
                       </button>
                     )}
+                    {!isSolving && puzzleType === '3x3' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowKociembaModal(true)}
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '999px',
+                          background: 'rgba(2, 132, 199, 0.2)',
+                          border: '1px solid rgba(56, 189, 248, 0.45)',
+                          color: '#7dd3fc',
+                          fontSize: '0.68rem',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                        title="Xem nghiệm giải tối ưu Kociemba Two-Phase"
+                      >
+                        ⚡ Kociemba {kociembaOptimal?.success ? `(${kociembaOptimal.moveCount}b)` : ''}
+                      </button>
+                    )}
                     {!isSolving && (
                       <button
                         type="button"
@@ -5058,64 +4872,6 @@ export default function App() {
                       scramble
                     )}
                   </div>
-
-                  {/* THANH NGHIỆM GIẢI TỐI ƯU KOCIEMBA (CHO DÒNG 3x3) */}
-                  {puzzleType === '3x3' && (
-                    <div style={{
-                      marginTop: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      background: 'rgba(9, 15, 29, 0.85)',
-                      border: '1px solid rgba(56, 189, 248, 0.35)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      gap: '6px',
-                      boxShadow: '0 2px 10px rgba(0, 0, 0, 0.35)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '0.85rem' }}>⚡</span>
-                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#38bdf8' }}>
-                          Kociemba Two-Phase:
-                        </span>
-                        <span style={{
-                          fontSize: '0.72rem',
-                          fontFamily: 'monospace',
-                          color: '#4ade80',
-                          fontWeight: '800',
-                          background: 'rgba(34, 197, 94, 0.16)',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid #22c55e55'
-                        }}>
-                          {kociembaOptimal?.success ? `${kociembaOptimal.moveCount} bước tối ưu` : 'Đang tính...'}
-                        </span>
-                        {kociembaOptimal?.success && (
-                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>
-                            ({kociembaOptimal.solution.slice(0, 28)}...)
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowKociembaModal(true)}
-                        style={{
-                          padding: '3px 10px',
-                          borderRadius: '5px',
-                          background: 'linear-gradient(135deg, #0284c7, #2563eb)',
-                          border: 'none',
-                          color: '#ffffff',
-                          fontSize: '0.7rem',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(2, 132, 199, 0.35)'
-                        }}
-                      >
-                        👁 Xem nghiệm Kociemba
-                      </button>
-                    </div>
-                  )}
 
                   {/* THANH KIỂM TOÁN ĐỐI CHIẾU SCRAMBLE THỰC TẾ QUA CAMERA (CHỈ HIỆN KHI ĐANG Ở BƯỚC 1) */}
                   {cameraActive && solveStep === 'step1_check_scb' && !scrambleAudit.isPending && (
@@ -6096,175 +5852,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-          ) : solveStep === 'step2_ready_solve' ? (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 14px',
-              borderRadius: '10px',
-              background: 'rgba(34, 197, 94, 0.15)',
-              border: '1.5px solid rgba(34, 197, 94, 0.45)',
-              color: '#86efac',
-              fontSize: '0.76rem',
-              fontWeight: '700',
-              maxWidth: '620px',
-              width: '100%',
-              flexWrap: 'wrap',
-              gap: '8px'
-            }}>
-              <div>
-                🟢 <strong>BƯỚC 2: ĐÃ XÁC NHẬN SCB ĐÚNG!</strong> Đồng hồ đã mở khóa hoàn toàn — Giữ phím Space (hoặc chạm giữ) để bắt đầu giải ngay.
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  type="button"
-                  onClick={toggleCamera}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    background: 'rgba(15, 23, 42, 0.7)',
-                    border: '1px solid #4ade80',
-                    color: '#ffffff',
-                    fontSize: '0.7rem',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  📷 Bật thêm Camera nếu muốn
-                </button>
-              </div>
-            </div>
-          ) : solveStep === 'step3_completed' ? (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 14px',
-              borderRadius: '10px',
-              background: 'rgba(234, 179, 8, 0.15)',
-              border: '1.5px solid rgba(234, 179, 8, 0.45)',
-              color: '#fef08a',
-              fontSize: '0.76rem',
-              fontWeight: '700',
-              maxWidth: '620px',
-              width: '100%',
-              flexWrap: 'wrap',
-              gap: '8px'
-            }}>
-              <div>
-                🎉 <strong>BƯỚC 3: HOÀN THÀNH LƯỢT GIẢI!</strong> Thành tích: {(timeMs / 1000).toFixed(2)}s. Bấm Space hoặc nút "Lượt mới" để sang lượt tiếp theo.
-              </div>
-              <button
-                type="button"
-                onClick={startNextSolveRound}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: '6px',
-                  background: '#2563eb',
-                  border: '1px solid #60a5fa',
-                  color: '#ffffff',
-                  fontSize: '0.72rem',
-                  fontWeight: '800',
-                  cursor: 'pointer'
-                }}
-              >
-                🔄 Lượt Mới
-              </button>
-            </div>
-          ) : (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 14px',
-              borderRadius: '10px',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1.5px solid rgba(239, 68, 68, 0.45)',
-              color: '#fca5a5',
-              fontSize: '0.76rem',
-              fontWeight: '700',
-              maxWidth: '620px',
-              width: '100%',
-              flexWrap: 'wrap',
-              gap: '8px'
-            }}>
-              <div>
-                🔍 <strong>BƯỚC 1: KIỂM TRA SCRAMBLE</strong> — Quét khối trước Camera hoặc bấm xác nhận để mở khóa giải:
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={confirmScrambleAndReady}
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                    border: '1.5px solid #4ade80',
-                    color: '#ffffff',
-                    fontSize: '0.74rem',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    boxShadow: '0 4px 14px rgba(34, 197, 94, 0.35)'
-                  }}
-                >
-                  <span>✅ Xác nhận đúng & Mở khóa giải</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleCamera}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    background: 'rgba(15, 23, 42, 0.7)',
-                    border: '1px solid #475569',
-                    color: '#cbd5e1',
-                    fontSize: '0.72rem',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <span>📷 Bật Cam AI</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* NÚT ĐIỀU HƯỚNG NHANH: LƯỚT XUỐNG ĐỒNG HỒ */}
-          <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 8px 0', width: '100%' }}>
-            <button
-              type="button"
-              onClick={() => {
-                const timerEl = document.getElementById('rubik-main-timer-section');
-                if (timerEl) {
-                  timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-              }}
-              title="Bấm để lướt nhanh xuống vùng Đồng hồ bấm giờ & Bàn tay"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '5px 14px',
-                borderRadius: '20px',
-                background: 'rgba(15, 23, 42, 0.85)',
-                border: `1.5px solid ${currentHudTheme.color}88`,
-                color: '#f8fafc',
-                fontSize: '0.74rem',
-                fontWeight: '700',
-                cursor: 'pointer',
-                boxShadow: `0 2px 10px ${currentHudTheme.glowColor}`,
-                transition: 'all 0.2s ease',
-                backdropFilter: 'blur(6px)'
-              }}
-            >
-              <span>⬇️ Lướt xuống Đồng hồ bấm giờ</span>
-            </button>
-          </div>
+          ) : null}
 
           {/* Center-Middle: GIANT TIMER & SPEEDCUBING TOUCHPAD */}
           <div
@@ -6355,7 +5943,7 @@ export default function App() {
               )}
             </div>
 
-            {/* BƯỚC 1: NÚT XÁC NHẬN NHANH ĐỂ MỞ KHÓA GIẢI */}
+            {/* BƯỚC 1: TỐI ĐA 2 NÚT HÀNH ĐỘNG CHÍNH RÕ RÀNG */}
             {timerState === 'idle' && solveStep === 'step1_check_scb' && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
@@ -6363,62 +5951,63 @@ export default function App() {
                   onClick={confirmScrambleAndReady}
                   style={{
                     padding: '10px 18px',
-                    borderRadius: '12px',
+                    borderRadius: '11px',
                     background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                    border: '2px solid #4ade80',
+                    border: '1.5px solid #4ade80',
                     color: '#ffffff',
-                    fontSize: '0.86rem',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 18px rgba(34, 197, 94, 0.4)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <span>✅ Xác nhận đúng & Mở khóa giải</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowOpenCvScannerModal(true);
-                    if (!cameraActive) setCameraActive(true);
-                  }}
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: '12px',
-                    background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(14, 116, 144, 0.45))',
-                    border: '1.8px solid #06b6d4',
-                    color: '#67e8f9',
                     fontSize: '0.84rem',
                     fontWeight: '800',
                     cursor: 'pointer',
-                    boxShadow: '0 4px 18px rgba(6, 182, 212, 0.4)',
+                    boxShadow: '0 4px 16px rgba(34, 197, 94, 0.35)',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px'
                   }}
-                  title="Quét 6 mặt Rubik chuẩn OpenCV HSV & Tự động tìm chuỗi giải Kociemba tối ưu"
                 >
-                  <span>📸 Quét 6 Mặt OpenCV & Kociemba</span>
+                  <span>✅ Xác nhận &amp; Mở khóa giải</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleFaceVerificationMode(adminSettings.requiredPreCheckFaces === 6 ? 3 : 6)}
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: '12px',
-                    background: 'rgba(15, 23, 42, 0.85)',
-                    border: '1.5px solid #475569',
-                    color: '#cbd5e1',
-                    fontSize: '0.78rem',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <span>{adminSettings.requiredPreCheckFaces === 6 ? '🛡️ Chế độ 6 Mặt (Admin)' : '⚡ Chế độ 3 Mặt (Nhanh)'}</span>
-                  <span style={{ fontSize: '0.7rem', color: '#38bdf8', marginLeft: '4px' }}>[Đổi]</span>
-                </button>
+                {cameraActive ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowOpenCvScannerModal(true)}
+                    style={{
+                      padding: '10px 16px',
+                      borderRadius: '11px',
+                      background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.28), rgba(14, 116, 144, 0.38))',
+                      border: '1.5px solid #06b6d4',
+                      color: '#67e8f9',
+                      fontSize: '0.82rem',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    title="Quét 6 mặt Rubik chuẩn OpenCV HSV & Tự động tìm chuỗi giải Kociemba tối ưu"
+                  >
+                    <span>📸 Quét 6 Mặt OpenCV</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    style={{
+                      padding: '10px 16px',
+                      borderRadius: '11px',
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      border: '1.5px solid #38bdf866',
+                      color: '#7dd3fc',
+                      fontSize: '0.82rem',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>📷 Bật Camera AI</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -6469,34 +6058,8 @@ export default function App() {
               </div>
             )}
 
-            {/* NÚT MỞ KHÓA CAMERA HOẶC BÀN ĐẶT TAY SPEEDCUBING */}
-            {!cameraActive && timerState === 'idle' ? (
-              <button
-                type="button"
-                onClick={toggleCamera}
-                style={{
-                  marginTop: '14px',
-                  width: '100%',
-                  maxWidth: '350px',
-                  padding: '15px 16px',
-                  borderRadius: '14px',
-                  background: 'linear-gradient(135deg, #16a34a, #15803d)',
-                  border: '2px solid #4ade80',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  color: '#ffffff',
-                  fontWeight: '800',
-                  fontSize: '0.88rem',
-                  cursor: 'pointer',
-                  boxShadow: '0 6px 24px rgba(34, 197, 94, 0.35)'
-                }}
-              >
-                <span style={{ fontSize: '1.25rem' }}>📷</span>
-                <span>BẬT CAMERA AI ĐỂ MỞ KHÓA ĐỒNG HỒ</span>
-              </button>
-            ) : isMobile ? (
+            {/* BÀN ĐẶT TAY SPEEDCUBING TRÊN MOBILE */}
+            {cameraActive && timerState === 'idle' && isMobile ? (
               <div
                 style={{
                   marginTop: '14px',
@@ -6606,33 +6169,6 @@ export default function App() {
           <div style={{ textAlign: 'center', color: '#475569', fontSize: '0.78rem', lineHeight: 1.5 }}>
             <div>📱 <strong>Mobile:</strong> Chạm giữ màn hình chờ xanh lá → Thả tay để giải → Chạm để dừng</div>
             <div>💻 <strong>Desktop:</strong> Giữ phím Space chờ xanh lá → Thả tay để giải → Bấm phím bất kỳ để dừng</div>
-          </div>
-
-          {/* NÚT ĐIỀU HƯỚNG NHANH: LƯỚT LÊN CAMERA & 3D */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
-            <button
-              type="button"
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              title="Bấm để lướt lên xem Camera & Mô hình 3D"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '5px 14px',
-                borderRadius: '20px',
-                background: 'rgba(15, 23, 42, 0.85)',
-                border: `1.5px solid ${currentHudTheme.color}88`,
-                color: '#f8fafc',
-                fontSize: '0.74rem',
-                fontWeight: '700',
-                cursor: 'pointer',
-                boxShadow: `0 2px 10px ${currentHudTheme.glowColor}`,
-                transition: 'all 0.2s ease',
-                backdropFilter: 'blur(6px)'
-              }}
-            >
-              <span>⬆️ Lướt lên xem Camera & 3D</span>
-            </button>
           </div>
             </>
           )}
@@ -8758,6 +8294,40 @@ export default function App() {
               </div>
             </div>
 
+            {/* 4 TAB CHIA NHÓM RÕ RÀNG TRONG BẢNG QUẢN TRỊ KHOA */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px', paddingBottom: '10px', borderBottom: '1px solid #1e293b' }}>
+              {[
+                { id: 'records', label: '🏆 Kỷ lục & BXH' },
+                { id: 'rules', label: '🛡️ Luật & Tiêu đề' },
+                { id: 'vision', label: '🧪 Test AI Vision' },
+                { id: 'cloud', label: '☁️ Cloud Supabase' }
+              ].map((t) => {
+                const active = adminPanelTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    data-testid={`admin-tab-${t.id}`}
+                    onClick={() => setAdminPanelTab(t.id)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      border: active ? '1.5px solid #f59e0b' : '1px solid #334155',
+                      background: active ? 'rgba(245, 158, 11, 0.2)' : 'rgba(15, 23, 42, 0.7)',
+                      color: active ? '#fbbf24' : '#94a3b8',
+                      fontSize: '0.76rem',
+                      fontWeight: active ? '800' : '600',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {adminPanelTab === 'records' && (
+              <>
             {/* PHẦN 1: THÊM / SỬA NHANH KỶ LỤC NGƯỜI CHƠI TRỰC TIẾP (LOCAL + SUPABASE CLOUD) */}
             <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid rgba(245, 158, 11, 0.45)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
@@ -9111,8 +8681,12 @@ export default function App() {
                 )}
               </div>
             </div>
+              </>
+            )}
 
             <form onSubmit={handleSaveAdminSettings}>
+              {adminPanelTab === 'rules' && (
+                <>
               {/* PHẦN 3: CÔNG TẮC QUY TẮC THI ĐẤU, CAMERA AI & ĐẶC QUYỀN VIP CỦA KHOA */}
               <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid #4ade8044' }}>
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '0.86rem', color: '#4ade80' }}>
@@ -9370,8 +8944,10 @@ export default function App() {
                   />
                 </div>
               </div>
+                </>
+              )}
 
-              {/* PHẦN 5: KẾT NỐI CLOUD BACKEND SUPABASE + SERVER ANTI-CHEAT */}
+              {adminPanelTab === 'cloud' && (
               <div style={{ background: '#111c34', padding: '14px', borderRadius: '10px', marginBottom: '18px', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
                   <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#38bdf8' }}>
@@ -9484,8 +9060,9 @@ export default function App() {
                   </div>
                 )}
               </div>
+              )}
 
-              {/* PHẦN 6: CHẨN ĐOÁN & TEST NHẬN DIỆN AI (BEFORE / AFTER) */}
+              {adminPanelTab === 'vision' && (
               <div style={{
                 background: 'rgba(15, 23, 42, 0.72)',
                 borderRadius: '10px',
@@ -9643,6 +9220,7 @@ export default function App() {
                   </div>
                 )}
               </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                 <button
@@ -9893,91 +9471,34 @@ export default function App() {
         </div>
       )}
 
-      {/* =========================================================================
-          NÚT NỔI THÔNG MINH LƯỚT XUỐNG DƯỚI / LƯỚT LÊN TRÊN (DESKTOP & MOBILE)
-      ========================================================================= */}
-      <div style={{
-        position: 'fixed',
-        bottom: isMobile ? '78px' : '26px',
-        right: isMobile ? '14px' : '26px',
-        zIndex: 9995,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        alignItems: 'flex-end',
-        pointerEvents: 'auto'
-      }}>
-        {/* NÚT LƯỚT LÊN TRÊN (ĐẦU TRANG) */}
-        <button
-          type="button"
-          className="floating-scroll-btn"
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          title="Lướt lên đầu trang (Camera AI & Mô hình 3D)"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: isMobile ? '7px 12px' : '8px 16px',
-            borderRadius: '30px',
-            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
-            border: `1.5px solid ${currentHudTheme.color}`,
-            boxShadow: `0 4px 18px ${currentHudTheme.glowColor}, 0 2px 10px rgba(0,0,0,0.6)`,
-            color: '#ffffff',
-            fontSize: isMobile ? '0.74rem' : '0.8rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            transition: 'all 0.25s ease',
-            backdropFilter: 'blur(10px)'
-          }}
-        >
-          <span style={{ fontSize: '0.95rem' }}>⬆️</span>
-          <span>Lên đầu</span>
-        </button>
-
-        {/* NÚT LƯỚT XUỐNG DƯỚI (ĐỒNG HỒ GIẢI / BẢNG KỶ LỤC) */}
-        <button
-          type="button"
-          className="floating-scroll-btn"
-          onClick={() => {
-            const timerEl = document.getElementById('rubik-main-timer-section');
-            const recordsEl = document.getElementById('rubik-leaderboard-section');
-            const currentPos = window.scrollY || document.documentElement.scrollTop || 0;
-            const timerTop = timerEl ? (timerEl.getBoundingClientRect().top + window.scrollY) : 550;
-
-            if (currentPos < timerTop - 80) {
-              if (timerEl) {
-                timerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              } else {
-                window.scrollBy({ top: 520, behavior: 'smooth' });
-              }
-            } else if (recordsEl) {
-              recordsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else {
-              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-            }
-          }}
-          title="Lướt xuống Đồng hồ bấm giờ & Thao tác giải / Bảng kỷ lục"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: isMobile ? '8px 14px' : '9px 18px',
-            borderRadius: '30px',
-            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-            border: '1.5px solid #60a5fa',
-            boxShadow: '0 4px 22px rgba(37, 99, 235, 0.45), 0 2px 10px rgba(0,0,0,0.6)',
-            color: '#ffffff',
-            fontSize: isMobile ? '0.76rem' : '0.82rem',
-            fontWeight: '800',
-            cursor: 'pointer',
-            transition: 'all 0.25s ease',
-            backdropFilter: 'blur(10px)'
-          }}
-        >
-          <span style={{ fontSize: '1rem' }}>⬇️</span>
-          <span>Xuống dưới</span>
-        </button>
-      </div>
+      {/* NÚT NỔI LÊN ĐẦU TRANG TINH GỌN */}
+      <button
+        type="button"
+        className="floating-scroll-btn"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        title="Lên đầu trang"
+        style={{
+          position: 'fixed',
+          bottom: isMobile ? '78px' : '22px',
+          right: isMobile ? '14px' : '22px',
+          zIndex: 9995,
+          width: '38px',
+          height: '38px',
+          borderRadius: '50%',
+          background: 'rgba(15, 23, 42, 0.82)',
+          border: `1px solid ${currentHudTheme.color}88`,
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.45)',
+          color: '#e2e8f0',
+          fontSize: '0.95rem',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(8px)'
+        }}
+      >
+        ⬆️
+      </button>
     </div>
   );
 }
