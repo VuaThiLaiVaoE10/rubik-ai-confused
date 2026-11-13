@@ -8,7 +8,7 @@
     <!-- Tường lửa bảo mật trình duyệt (CSP & Anti-XSS / Anti-Malicious Origins) -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.peerjs.com wss://*.peerjs.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.peerjs.com wss://*.peerjs.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
     />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -20,6 +20,12 @@
     <meta property="og:title" content="Rubik AI Speedcube Arena" />
     <meta property="og:description" content="Trọng tài Camera AI nhận diện 6 mặt, giải thuật toán Kociemba, Mô hình 3D và Đấu Solo 1v1 / Bot AI WCA." />
     <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

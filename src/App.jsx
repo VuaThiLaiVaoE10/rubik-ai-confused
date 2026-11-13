@@ -3593,7 +3593,7 @@ export default function App() {
       height: 'auto',
       background: currentHudTheme.pageBg,
       color: '#e2e8f0',
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      fontFamily: "var(--font-ui)",
       display: 'flex',
       flexDirection: 'column',
       overflowY: 'auto',
@@ -4200,7 +4200,7 @@ export default function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ color: '#64748b', fontSize: '0.78rem' }}>#{currentSolves.length - index}</span>
                       <div>
-                        <strong style={{ color: '#f8fafc', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                        <strong style={{ color: '#f8fafc', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: '0.95rem' }}>
                           {s.time}s
                         </strong>
                         {s.penalty && (
@@ -4702,7 +4702,7 @@ export default function App() {
                           fontSize: '0.96rem',
                           fontWeight: '900',
                           color: '#22c55e',
-                          fontFamily: 'monospace',
+                          fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                           padding: '1px 7px',
                           background: 'rgba(34, 197, 94, 0.15)',
                           borderRadius: '4px',
@@ -4831,7 +4831,7 @@ export default function App() {
                     fontWeight: '700',
                     lineHeight: 1.4,
                     color: timerState === 'running' ? '#4ade80' : '#cbd5e1',
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                     padding: '8px 12px',
                     background: timerState === 'running' ? 'rgba(6, 26, 17, 0.90)' : '#090f1d',
                     borderRadius: '8px',
@@ -5873,10 +5873,12 @@ export default function App() {
             }}
           >
             <div style={{
-              fontSize: timerState === 'inspecting' ? 'clamp(4.2rem, 18vw, 8.5rem)' : 'clamp(3.8rem, 16vw, 8rem)',
-              fontWeight: '900',
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
-              letterSpacing: '-3px',
+              fontSize: timerState === 'inspecting' ? 'clamp(4.2rem, 18vw, 8.5rem)' : 'clamp(4rem, 16vw, 8.2rem)',
+              fontWeight: '800',
+              fontFamily: 'var(--font-timer)',
+              fontVariantNumeric: 'tabular-nums',
+              fontFeatureSettings: '"tnum" 1',
+              letterSpacing: '-0.025em',
               lineHeight: 1,
               color: timerState === 'inspecting' 
                 ? (inspectionSeconds <= 3 ? '#ef4444' : '#f59e0b')
@@ -6439,7 +6441,7 @@ export default function App() {
 
                   <span style={{
                     textAlign: 'right',
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                     fontWeight: '700',
                     color: '#38bdf8'
                   }}>
@@ -6448,7 +6450,7 @@ export default function App() {
 
                   <span style={{
                     textAlign: 'right',
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                     color: '#94a3b8'
                   }}>
                     {typeof item.avg === 'number' ? `${item.avg}s` : item.avg}
@@ -7117,7 +7119,7 @@ export default function App() {
 
                         {/* Chuỗi bước giải Kociemba */}
                         <div style={{
-                          fontFamily: 'monospace',
+                          fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                           fontSize: '0.84rem',
                           color: '#f8fafc',
                           background: 'rgba(0, 0, 0, 0.5)',
@@ -7318,7 +7320,7 @@ export default function App() {
                 <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', marginBottom: '3px' }}>
                   ĐỀ BÀI SCRAMBLE (3x3):
                 </div>
-                <div style={{ fontSize: '0.88rem', color: '#cbd5e1', fontFamily: 'monospace', fontWeight: '700' }}>
+                <div style={{ fontSize: '0.88rem', color: '#cbd5e1', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontWeight: '700' }}>
                   {scramble}
                 </div>
               </div>
@@ -7386,7 +7388,7 @@ export default function App() {
                     fontSize: '2.2rem',
                     fontWeight: '900',
                     color: '#22c55e',
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                     minWidth: '65px',
                     textAlign: 'center',
                     padding: '4px 10px',
@@ -7471,7 +7473,7 @@ export default function App() {
                           border: isActive ? '1px solid #ffffff' : (isPast ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid transparent'),
                           fontWeight: '800',
                           fontSize: '0.72rem',
-                          fontFamily: 'monospace',
+                          fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
                           cursor: 'pointer',
                           boxShadow: isActive ? '0 0 10px #22c55e' : 'none',
                           transition: 'all 0.15s ease'
