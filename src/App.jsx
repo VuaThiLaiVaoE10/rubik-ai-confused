@@ -1990,6 +1990,8 @@ export default function App() {
   const animFrameRef = useRef(null);
   const prevColorsRef = useRef(null);
   const lastDetectedColorUpdateRef = useRef(0);
+  const lastPreCheckUpdateRef = useRef(0);
+  const lostCubeSignalStreakRef = useRef(0);
   const lastMoveTimeRef = useRef(0);
   const trackedMovesRef = useRef([]);
   const cameraActiveRef = useRef(false);
@@ -2948,30 +2950,36 @@ export default function App() {
         const sharpAdjacentEdges = bestRegion.sharpAdjacentEdges;
         const gridSeamContrast = bestRegion.gridSeamContrast;
 
-        // TỐI ƯU HÓA RENDER: Điều tiết tần suất cập nhật màu nhận diện để triệt tiêu hiện tượng nháy giật
+        // TỐI ƯU HÓA RENDER: Điều tiết tần suất cập nhật màu nhận diện (220ms) để triệt tiêu hiện tượng nháy giật
         const colorsChanged = !prevColorsRef.current || currentNxNColors.some((c, i) => c !== prevColorsRef.current[i]);
         const nowMs = performance.now();
-        if (colorsChanged && nowMs - (lastDetectedColorUpdateRef.current || 0) >= 120) {
+        if (hasCubeSignal && colorsChanged && nowMs - (lastDetectedColorUpdateRef.current || 0) >= 220) {
           lastDetectedColorUpdateRef.current = nowMs;
           const mergedColors = currentNxNColors.map((c, i) => manualStickerOverridesRef.current[i] || c);
           setDetectedColors(mergedColors);
           prevColorsRef.current = [...currentNxNColors];
         }
 
-        // Bộ điều tiết trạng thái PreCheck & Model3D để chống giật re-render toàn component
-        const setPreCheckThrottled = (nextStatus) => {
+        // Bộ điều tiết trạng thái PreCheck (chống spam re-render < 400ms trừ khi đổi trạng thái quan trọng)
+        const setPreCheckThrottled = (nextStatus, forceImmediate = false) => {
           const cur = preCheckRef.current;
-          if (
+          const isCriticalTransition =
             !cur ||
             cur.verified !== nextStatus.verified ||
             cur.isMismatch !== nextStatus.isMismatch ||
-            cur.scannedCount !== nextStatus.scannedCount ||
+            cur.scannedCount !== nextStatus.scannedCount;
+          const hasTextOrFaceChange =
+            !cur ||
             cur.text !== nextStatus.text ||
             cur.isScrambled !== nextStatus.isScrambled ||
-            cur.centerFace !== nextStatus.centerFace
-          ) {
-            setPreCheckStatus(nextStatus);
+            cur.centerFace !== nextStatus.centerFace;
+
+          if (!isCriticalTransition && !hasTextOrFaceChange) return;
+          if (!forceImmediate && !isCriticalTransition && nowMs - (lastPreCheckUpdateRef.current || 0) < 420) {
+            return;
           }
+          lastPreCheckUpdateRef.current = nowMs;
+          setPreCheckStatus(nextStatus);
         };
 
         const setModel3DThrottled = (nextModel) => {
@@ -3026,6 +3034,14 @@ export default function App() {
         if (!hasCubeSignal || validColorsCount < minStickersRequired) {
           validCubeStreakRef.current = 0;
           solvedStreakRef.current = 0;
+          lostCubeSignalStreakRef.current += 1;
+
+          // Chống nháy giật 1-3 frame khi camera lướt nhẹ hoặc chói tạm thời: chỉ reset trạng thái sau >= 4 frame mất tín hiệu liên tiếp
+          if (lostCubeSignalStreakRef.current < 4 && preCheckRef.current) {
+            animFrameRef.current = requestAnimationFrame(processFrame);
+            return;
+          }
+
           if (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting') {
             const remainValidMs = 25000 - (now - lastCubeVerifiedAtRef.current);
             if (lastCubeVerifiedAtRef.current > 0 && remainValidMs > 0) {
@@ -3056,6 +3072,7 @@ export default function App() {
           animFrameRef.current = requestAnimationFrame(processFrame);
           return;
         }
+        lostCubeSignalStreakRef.current = 0;
 
         const isEvenCube = dim % 2 === 0;
         const centerIdx = Math.floor((dim * dim) / 2);
@@ -5001,101 +5018,73 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
               gap: '10px',
-              transition: 'all 0.2s ease'
+              transition: 'border-color 0.25s ease, box-shadow 0.25s ease'
             }}>
-              {/* Thanh tiêu đề màn hình 3D phía trên */}
+              {/* Thanh tiêu đề màn hình 3D phía trên (cố định chiều cao, triệt tiêu rớt dòng & nháy giật) */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '6px',
+                flexWrap: isMobile ? 'wrap' : 'nowrap',
+                gap: '8px',
                 borderBottom: '1px solid #16223b',
-                paddingBottom: '6px'
+                paddingBottom: '6px',
+                minHeight: '30px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: 0 }}>
                   <span style={{
-                    fontSize: '0.74rem',
+                    fontSize: '0.73rem',
                     fontWeight: '800',
                     color: preCheckStatus.verified ? '#4ade80' : '#38bdf8',
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '5px'
+                    gap: '4px',
+                    whiteSpace: 'nowrap'
                   }}>
                     {cameraActive
-                      ? (preCheckStatus.verified ? `🟢 MÀN HÌNH 3D AI: ĐÃ NHẬN DIỆN ${currentDim}×${currentDim}` : `🔍 MÀN HÌNH 3D AI ĐANG QUÉT (${currentDim}×${currentDim})`)
-                      : `🧊 MÀN HÌNH MÔ HÌNH 3D (${PUZZLE_CONFIGS[puzzleType]?.name})`}
+                      ? (preCheckStatus.verified ? `🟢 3D AI ${currentDim}×${currentDim}: Đã khóa` : `🔍 3D AI (${currentDim}×${currentDim})`)
+                      : `🧊 MÔ HÌNH 3D (${PUZZLE_CONFIGS[puzzleType]?.name})`}
                   </span>
 
                   {cameraActive && (
                     <span style={{
-                      fontSize: '0.68rem',
-                      padding: '2px 7px',
-                      borderRadius: '10px',
+                      fontSize: '0.66rem',
+                      padding: '2px 8px',
+                      borderRadius: '999px',
                       background: '#111c34',
                       border: '1px solid #1e293b',
                       color: '#cbd5e1',
-                      fontWeight: '600'
+                      fontWeight: '600',
+                      fontFamily: 'var(--font-mono)',
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                      minWidth: '140px',
+                      textAlign: 'center'
                     }}>
-                      Ô màu rõ: <strong style={{ color: '#38bdf8' }}>{detectedColors.filter(c => c !== 'invalid').length}/{currentDim * currentDim}</strong>
-                      {preCheckStatus.centerFace ? ` • Tâm: ${preCheckStatus.centerFace}` : ''}
+                      Ô rõ: <strong style={{ color: '#38bdf8' }}>{detectedColors.filter(c => c !== 'invalid').length}/{currentDim * currentDim}</strong>
+                      {preCheckStatus.centerFace ? ` • ${preCheckStatus.centerFace}` : ' • Chờ tâm'}
                     </span>
                   )}
 
-                  <span style={{
-                    fontSize: '0.64rem',
-                    padding: '2px 7px',
-                    borderRadius: '10px',
-                    background: 'rgba(56, 189, 248, 0.12)',
-                    border: '1px solid rgba(56, 189, 248, 0.35)',
-                    color: '#38bdf8',
-                    fontWeight: '700'
-                  }}>
-                    🌈 Hệ màu HSV
-                  </span>
-
                   {Object.keys(scannedFaces).length > 0 && (
                     <span style={{
-                      fontSize: '0.66rem',
+                      fontSize: '0.65rem',
                       padding: '2px 7px',
-                      borderRadius: '10px',
+                      borderRadius: '999px',
                       background: 'rgba(34, 197, 94, 0.12)',
                       border: '1px solid rgba(34, 197, 94, 0.35)',
                       color: '#4ade80',
-                      fontWeight: '700'
+                      fontWeight: '700',
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap'
                     }}>
-                      Đã lưu {Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt
+                      {Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt
                     </span>
                   )}
                 </div>
 
                 {/* Các nút điều khiển kích thước & chế độ màn hình 3D phía trên */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  {/* Nút chỉnh riêng phong cách HUD hoặc bật/tắt theme */}
-                  <button
-                    type="button"
-                    onClick={cycleHudTheme}
-                    title="Bấm để đổi nhanh phong cách HUD (8 theme tương tác)"
-                    style={{
-                      padding: '3px 9px',
-                      borderRadius: '5px',
-                      border: `1.5px solid ${currentHudTheme.color}`,
-                      background: hudThemeKey === 'sakura' ? 'rgba(244, 114, 182, 0.18)' : '#111c34',
-                      color: currentHudTheme.color,
-                      fontSize: '0.66rem',
-                      fontWeight: '800',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: hudThemeKey === 'off' ? 'none' : `0 0 10px ${currentHudTheme.glowColor}`,
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <span>{currentHudTheme.shortName}</span>
-                    <span style={{ fontSize: '0.6rem', opacity: 0.85 }}>↻</span>
-                  </button>
-
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                   <button
                     type="button"
                     onClick={() => handleChange3DMode(show3DMode === 'always' ? 'solving' : 'always')}
@@ -5106,12 +5095,12 @@ export default function App() {
                       border: '1px solid #334155',
                       background: show3DMode === 'solving' ? 'rgba(34, 197, 94, 0.2)' : '#111c34',
                       color: show3DMode === 'solving' ? '#4ade80' : '#cbd5e1',
-                      fontSize: '0.66rem',
+                      fontSize: '0.65rem',
                       fontWeight: '700',
                       cursor: 'pointer'
                     }}
                   >
-                    {show3DMode === 'solving' ? '⚡ Chỉ hiện khi giải' : '👁 Luôn hiện'}
+                    {show3DMode === 'solving' ? '⚡ Khi giải' : '👁 Luôn hiện'}
                   </button>
                   <button
                     type="button"
@@ -5122,12 +5111,12 @@ export default function App() {
                       border: '1px solid #334155',
                       background: upper3DExpanded ? '#2563eb' : '#111c34',
                       color: '#ffffff',
-                      fontSize: '0.66rem',
+                      fontSize: '0.65rem',
                       fontWeight: '700',
                       cursor: 'pointer'
                     }}
                   >
-                    {upper3DExpanded ? '🗕 Thu gọn' : '🔍 Phóng to 3D'}
+                    {upper3DExpanded ? '🗕 Thu gọn' : '🔍 Phóng to'}
                   </button>
 
                   <button
@@ -5139,12 +5128,12 @@ export default function App() {
                       border: '1px solid #1e293b',
                       background: '#111c34',
                       color: '#38bdf8',
-                      fontSize: '0.66rem',
+                      fontSize: '0.65rem',
                       fontWeight: '700',
                       cursor: 'pointer'
                     }}
                   >
-                    ⛶ Toàn màn hình
+                    ⛶ Toàn màn
                   </button>
 
                   {!cameraActive && (
