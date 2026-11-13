@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DEFAULT_FACE_KEYS, buildScrambledFaces } from '../utils/rubikSolver';
 
 const COLOR_MAP = {
   white:   0xf8fafc,
@@ -22,15 +23,6 @@ const PASTEL_COLOR_MAP = {
   invalid: 0x475569
 };
 
-const DEFAULT_FACE_KEYS = {
-  U: 'white',
-  D: 'yellow',
-  F: 'green',
-  B: 'blue',
-  R: 'red',
-  L: 'orange'
-};
-
 const CORE_HEX = 0x090d16;
 
 // Góc Euler chuẩn để xoay hướng từng mặt Rubik (U, D, F, B, L, R) trực diện ra trước camera
@@ -43,130 +35,12 @@ const FACE_EULER_ANGLES = {
   D: { x: -Math.PI / 2, y: 0, z: 0 }
 };
 
-// Xoay ma trận mặt N×N theo chiều kim đồng hồ (clockwise) hoặc ngược chiều (ccw)
-function rotateFaceMatrix(arr, dim, clockwise = true) {
-  const next = new Array(dim * dim);
-  for (let r = 0; r < dim; r++) {
-    for (let c = 0; c < dim; c++) {
-      if (clockwise) {
-        next[c * dim + (dim - 1 - r)] = arr[r * dim + c];
-      } else {
-        next[(dim - 1 - c) * dim + r] = arr[r * dim + c];
-      }
-    }
-  }
-  return next;
-}
-
-// Tạo trạng thái 6 mặt ĐÃ XÁO TRỘN (Chưa giải) dựa trên chuỗi Scramble thực tế
-export function buildScrambledFaces(dim = 3, scrambleStr = '') {
-  const total = dim * dim;
-  const faces = {
-    U: Array(total).fill(DEFAULT_FACE_KEYS.U),
-    D: Array(total).fill(DEFAULT_FACE_KEYS.D),
-    F: Array(total).fill(DEFAULT_FACE_KEYS.F),
-    B: Array(total).fill(DEFAULT_FACE_KEYS.B),
-    R: Array(total).fill(DEFAULT_FACE_KEYS.R),
-    L: Array(total).fill(DEFAULT_FACE_KEYS.L)
-  };
-
-  const getRow = (face, r) => {
-    const out = [];
-    for (let c = 0; c < dim; c++) out.push(faces[face][r * dim + c]);
-    return out;
-  };
-  const setRow = (face, r, vals) => {
-    for (let c = 0; c < dim; c++) faces[face][r * dim + c] = vals[c];
-  };
-  const getCol = (face, c) => {
-    const out = [];
-    for (let r = 0; r < dim; r++) out.push(faces[face][r * dim + c]);
-    return out;
-  };
-  const setCol = (face, c, vals) => {
-    for (let r = 0; r < dim; r++) faces[face][r * dim + c] = vals[r];
-  };
-
-  const applyLayerTurn = (baseFace, layerIdx = 0) => {
-    const inv = dim - 1 - layerIdx;
-    if (baseFace === 'U') {
-      if (layerIdx === 0) faces.U = rotateFaceMatrix(faces.U, dim, true);
-      const temp = getRow('F', layerIdx);
-      setRow('F', layerIdx, getRow('R', layerIdx));
-      setRow('R', layerIdx, getRow('B', layerIdx));
-      setRow('B', layerIdx, getRow('L', layerIdx));
-      setRow('L', layerIdx, temp);
-    } else if (baseFace === 'D') {
-      if (layerIdx === 0) faces.D = rotateFaceMatrix(faces.D, dim, true);
-      const temp = getRow('F', inv);
-      setRow('F', inv, getRow('L', inv));
-      setRow('L', inv, getRow('B', inv));
-      setRow('B', inv, getRow('R', inv));
-      setRow('R', inv, temp);
-    } else if (baseFace === 'R') {
-      if (layerIdx === 0) faces.R = rotateFaceMatrix(faces.R, dim, true);
-      const temp = getCol('U', inv);
-      setCol('U', inv, getCol('F', inv));
-      setCol('F', inv, getCol('D', inv));
-      setCol('D', inv, [...getCol('B', layerIdx)].reverse());
-      setCol('B', layerIdx, [...temp].reverse());
-    } else if (baseFace === 'L') {
-      if (layerIdx === 0) faces.L = rotateFaceMatrix(faces.L, dim, true);
-      const temp = getCol('U', layerIdx);
-      setCol('U', layerIdx, [...getCol('B', inv)].reverse());
-      setCol('B', inv, [...getCol('D', layerIdx)].reverse());
-      setCol('D', layerIdx, getCol('F', layerIdx));
-      setCol('F', layerIdx, temp);
-    } else if (baseFace === 'F') {
-      if (layerIdx === 0) faces.F = rotateFaceMatrix(faces.F, dim, true);
-      const temp = getRow('U', inv);
-      setRow('U', inv, [...getCol('L', inv)].reverse());
-      setCol('L', inv, getRow('D', layerIdx));
-      setRow('D', layerIdx, [...getCol('R', layerIdx)].reverse());
-      setCol('R', layerIdx, temp);
-    } else if (baseFace === 'B') {
-      if (layerIdx === 0) faces.B = rotateFaceMatrix(faces.B, dim, true);
-      const temp = getRow('U', layerIdx);
-      setRow('U', layerIdx, getCol('R', inv));
-      setCol('R', inv, [...getRow('D', inv)].reverse());
-      setRow('D', inv, getCol('L', layerIdx));
-      setCol('L', layerIdx, [...temp].reverse());
-    }
-  };
-
-  const tokens = (scrambleStr && scrambleStr.trim().length > 0
-    ? scrambleStr.trim().split(/\s+/)
-    : ['R', 'U', "R'", 'F2', 'D', "L'", 'U2', 'B', "R'", 'F']
-  );
-
-  for (const tk of tokens) {
-    const match = tk.match(/^([23])?([UDLRFB])(w)?(2|')?$/);
-    if (!match) continue;
-    const depthPrefix = match[1] ? Number(match[1]) : 0;
-    const face = match[2];
-    const isWide = Boolean(match[3]);
-    const mod = match[4] || '';
-    const reps = mod === '2' ? 2 : mod === "'" ? 3 : 1;
-    for (let r = 0; r < reps; r++) {
-      applyLayerTurn(face, 0);
-      if (isWide && dim >= 4) {
-        applyLayerTurn(face, 1);
-        if (depthPrefix >= 3 && dim >= 6) {
-          applyLayerTurn(face, 2);
-        }
-      }
-    }
-  }
-
-  return faces;
-}
-
 export default function Rubik3DView({
   dim = 3,
   detectedColors = [],
   scannedFaces = null,
   scramble = '',
-  lastMove = '',
+  _lastMove = '',
   trackingBox = null,
   modelVerification = null,
   surfaceProfile = 'auto',
@@ -188,7 +62,6 @@ export default function Rubik3DView({
   const frontFrameMatRef = useRef(null);
   const trackingBoxRef = useRef(trackingBox);
   const activeFaceRef = useRef(activeFace);
-  const lastValidFrontRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const cubeGroupRef = useRef(null);
@@ -456,7 +329,8 @@ export default function Rubik3DView({
 
     // Glowing frame around the Front (+Z) AI-scanned face
     const frameSize = dim * gap + 0.06;
-    const edgesGeom = new THREE.EdgesGeometry(new THREE.PlaneGeometry(frameSize, frameSize));
+    const framePlaneGeom = new THREE.PlaneGeometry(frameSize, frameSize);
+    const edgesGeom = new THREE.EdgesGeometry(framePlaneGeom);
     const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
     frontFrameMatRef.current = edgesMat;
     const frontFrame = new THREE.LineSegments(edgesGeom, edgesMat);
@@ -466,7 +340,8 @@ export default function Rubik3DView({
     faceMaterialsRef.current = matsByFace;
 
     // 6. Animation Loop: Real-time 3D Motion Tracking & Auto Low-Spec GPU Pacing
-    let animId;
+    let animId = null;
+    let isDisposed = false;
     let isDragging = false;
     let clock = 0;
     let lastRenderTs = 0;
@@ -475,8 +350,11 @@ export default function Rubik3DView({
     controls.addEventListener('end', () => { isDragging = false; });
 
     const animate = (now = 0) => {
+      if (isDisposed || (typeof document !== 'undefined' && document.hidden)) {
+        animId = null;
+        return;
+      }
       animId = requestAnimationFrame(animate);
-      if (typeof document !== 'undefined' && document.hidden) return;
       if (isLowSpecGpu && !isDragging && now - lastRenderTs < 32) return;
       lastRenderTs = now;
       clock += isLowSpecGpu ? 0.036 : 0.02;
@@ -516,18 +394,40 @@ export default function Rubik3DView({
     };
     animId = requestAnimationFrame(animate);
 
+    const handleVisibilityChange = () => {
+      if (isDisposed) return;
+      if (document.hidden) {
+        if (animId) {
+          cancelAnimationFrame(animId);
+          animId = null;
+        }
+      } else if (!animId) {
+        animId = requestAnimationFrame(animate);
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
     return () => {
-      cancelAnimationFrame(animId);
+      isDisposed = true;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      if (animId) cancelAnimationFrame(animId);
       controls.dispose();
       coreGeom.dispose();
       stickerGeom.dispose();
+      framePlaneGeom.dispose();
       edgesGeom.dispose();
       coreMat.dispose();
       edgesMat.dispose();
       Object.values(matsByFace).forEach((arr) => {
         arr.forEach((m) => m && m.dispose());
       });
+      scene.clear();
       renderer.dispose();
+      renderer.forceContextLoss?.();
       if (container) container.innerHTML = '';
     };
   }, [dim, width, height, surfaceProfile]);

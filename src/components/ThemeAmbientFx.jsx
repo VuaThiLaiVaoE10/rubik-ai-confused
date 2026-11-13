@@ -350,7 +350,6 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     const trailPoints = [];
     const bolts = [];
     const shockwaves = [];
-    const frostFractals = [];
     const dataPackets = [];
 
     // Khởi tạo đối tượng nền theo từng Theme
@@ -668,8 +667,8 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
           const d = Math.hypot(dx, dy);
           if (d > 1 && d < 220) {
             const impulse = (220 - d) / 26;
-            n.vx += (dx / d) * impulse;
-            n.vy += (dy / d) * impulse;
+            n.vx = Math.max(-14, Math.min(14, n.vx + (dx / d) * impulse));
+            n.vy = Math.max(-14, Math.min(14, n.vy + (dy / d) * impulse));
           }
         }
       } else if (hudThemeKey === 'thunder') {
@@ -785,9 +784,10 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
     let startTs = performance.now();
     let nextAutoBoltTs = startTs + 1600;
 
+    let isDisposed = false;
     const render = (now) => {
-      if (document.hidden) {
-        animId = requestAnimationFrame(render);
+      if (isDisposed || document.hidden) {
+        animId = null;
         return;
       }
       if (isLowSpecFx && now - lastRenderTs < 32) {
@@ -1451,8 +1451,23 @@ const ThemeAmbientFx = React.memo(function ThemeAmbientFx({ isFxEnabled, hudThem
 
     animId = requestAnimationFrame(render);
 
+    const onVisibilityChange = () => {
+      if (isDisposed) return;
+      if (document.hidden) {
+        if (animId) {
+          cancelAnimationFrame(animId);
+          animId = null;
+        }
+      } else if (!animId) {
+        animId = requestAnimationFrame(render);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
-      cancelAnimationFrame(animId);
+      isDisposed = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (animId) cancelAnimationFrame(animId);
       window.removeEventListener('resize', resize);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerDown);

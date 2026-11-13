@@ -4,10 +4,10 @@ import { validateP2PPacket, sanitizeText } from '../utils/securityShield';
 import { playSoundEffect } from '../utils/soundEngine';
 
 const BOT_LEVELS = [
-  { id: 'noob', name: '🥉 Bot Tân Binh', desc: 'Trung bình ~32s (Dành cho người mới)', targetSec: 32, varianceSec: 6, avatar: '🤖' },
-  { id: 'pro', name: '🥈 Bot Bán Chuyên', desc: 'Trung bình ~19s (Sub-20)', targetSec: 19, varianceSec: 3.5, avatar: '⚡' },
-  { id: 'master', name: '🥇 Bot Kiện Tướng', desc: 'Trung bình ~13s (Sub-15 WCA)', targetSec: 13, varianceSec: 2, avatar: '🔥' },
-  { id: 'alien', name: '👑 Bot Siêu Cấp WCA', desc: 'Thần tốc ~7.5s (Kỷ lục thế giới)', targetSec: 7.5, varianceSec: 1.2, avatar: '👾' }
+  { id: 'noob', name: '🥉 Bot Tân Binh', desc: 'Trung bình ~32s (Dành cho người mới)', targetSec: 32, varianceSec: 6, avatar: '🤖', badge: 'Tân binh' },
+  { id: 'pro', name: '🥈 Bot Bán Chuyên', desc: 'Trung bình ~19s (Sub-20)', targetSec: 19, varianceSec: 3.5, avatar: '⚡', badge: 'Sub-20' },
+  { id: 'master', name: '🥇 Bot Kiện Tướng', desc: 'Trung bình ~13s (Sub-15 WCA)', targetSec: 13, varianceSec: 2, avatar: '🔥', badge: 'Kiện tướng' },
+  { id: 'alien', name: '👑 Bot Siêu Cấp WCA', desc: 'Thần tốc ~7.5s (Kỷ lục thế giới)', targetSec: 7.5, varianceSec: 1.2, avatar: '👾', badge: 'WCA Elite' }
 ];
 
 export default function Solo1v1Arena({
@@ -20,11 +20,12 @@ export default function Solo1v1Arena({
   onExitSolo
 }) {
   // Connection & Room state
-  const [peerId, setPeerId] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('idle'); // 'idle' | 'creating' | 'waiting' | 'connecting' | 'connected' | 'disconnected'
+  const connectionStatusRef = useRef('idle');
+  useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
   const [connectionError, setConnectionError] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -63,6 +64,10 @@ export default function Solo1v1Arena({
   const timerIntervalRef = useRef(null);
   const timerStartTimestampRef = useRef(0);
   const holdTimeoutRef = useRef(null);
+  const joinTimeoutRef = useRef(null);
+  const botStartTimeoutRef = useRef(null);
+  const copiedTimeoutRef = useRef(null);
+  const reactionTimeoutsRef = useRef([]);
   const spacePressedRef = useRef(false);
   const lastTickSentRef = useRef(0);
 
@@ -72,16 +77,17 @@ export default function Solo1v1Arena({
   }, []);
 
   // Broadcast reaction toast
-  const addReactionToast = (emoji, text, fromMe = false) => {
+  const addReactionToast = useCallback((emoji, text, fromMe = false) => {
     const id = Date.now() + Math.random();
     setReactions(prev => [...prev.slice(-4), { id, emoji, text, fromMe }]);
-    setTimeout(() => {
+    const tid = setTimeout(() => {
       setReactions(prev => prev.filter(r => r.id !== id));
     }, 3500);
-  };
+    reactionTimeoutsRef.current.push(tid);
+  }, []);
 
   // Safe message sender over WebRTC DataChannel
-  const sendP2P = (data) => {
+  const sendP2P = useCallback((data) => {
     if (isBotMode) return;
     if (connRef.current && connRef.current.open) {
       try {
@@ -90,13 +96,18 @@ export default function Solo1v1Arena({
         console.error('Lỗi gửi P2P:', err);
       }
     }
-  };
+  }, [isBotMode]);
 
   // Cleanup helper
   const disconnectAll = useCallback(() => {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     if (botTimerIntervalRef.current) clearInterval(botTimerIntervalRef.current);
     if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+    if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+    if (botStartTimeoutRef.current) clearTimeout(botStartTimeoutRef.current);
+    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    reactionTimeoutsRef.current.forEach(clearTimeout);
+    reactionTimeoutsRef.current = [];
     if (connRef.current) {
       try { connRef.current.close(); } catch {}
       connRef.current = null;
@@ -360,13 +371,13 @@ export default function Solo1v1Arena({
 
       peerRef.current = peer;
 
-      peer.on('open', (id) => {
-        setPeerId(id);
+      peer.on('open', () => {
         const conn = peer.connect(targetPeerId, { reliable: true });
         setupConnection(conn, false);
 
-        setTimeout(() => {
-          if (connRef.current && !connRef.current.open && connectionStatus !== 'connected') {
+        if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+        joinTimeoutRef.current = setTimeout(() => {
+          if (connRef.current && !connRef.current.open && connectionStatusRef.current !== 'connected') {
             setConnectionError(`Không tìm thấy phòng "${code}". Hãy kiểm tra lại mã hoặc nhờ Host tạo lại phòng!`);
             setConnectionStatus('idle');
           }
@@ -384,14 +395,15 @@ export default function Solo1v1Arena({
     }
   };
 
-  // Broadcast camera state updates
+  // Broadcast camera state updates only when P2P connected
   useEffect(() => {
+    if (connectionStatus !== 'connected') return;
     sendP2P({
       type: 'CAMERA_UPDATE',
       cameraActive,
       isHealthy: cameraHealth.isHealthy
     });
-  }, [cameraActive, cameraHealth.isHealthy]);
+  }, [connectionStatus, cameraActive, cameraHealth.isHealthy, sendP2P]);
 
   // VÁN TIẾP THEO (NEXT ROUND)
   const handleNextRound = () => {
@@ -445,13 +457,22 @@ export default function Solo1v1Arena({
         setOpponentScore(s => s + 1);
         playSound('tick');
         if (isBotMode) {
-          setTimeout(() => {
+          const tid = setTimeout(() => {
             addReactionToast('😎', `${opponent?.name}: "Ván này tôi về đích trước rồi nhé!"`, false);
           }, 600);
+          reactionTimeoutsRef.current.push(tid);
+        }
+      } else {
+        playSound('tick');
+        if (isBotMode) {
+          const tid = setTimeout(() => {
+            addReactionToast('🤝', `${opponent?.name}: "Hòa nhau sát nút luôn!"`, false);
+          }, 600);
+          reactionTimeoutsRef.current.push(tid);
         }
       }
     }
-  }, [myFinalTime, oppFinalTime, matchState, isBotMode, opponent, playSound]);
+  }, [myFinalTime, oppFinalTime, matchState, isBotMode, opponent, playSound, addReactionToast]);
 
   // ==========================================
   // SPACEBAR & MOBILE TOUCHPAD TIMER LOGIC
@@ -480,9 +501,10 @@ export default function Solo1v1Arena({
     // KÍCH HOẠT BOT AI GIẢI SONG SONG KHI BẠN BẮT ĐẦU
     if (isBotMode) {
       if (botTimerIntervalRef.current) clearInterval(botTimerIntervalRef.current);
+      if (botStartTimeoutRef.current) clearTimeout(botStartTimeoutRef.current);
       setOppTimerState('holding');
       // Mô phỏng phản xạ quan sát 0.4s của Bot
-      setTimeout(() => {
+      botStartTimeoutRef.current = setTimeout(() => {
         setOppTimerState('running');
         const botStart = performance.now();
         const target = botTargetTimeMsRef.current;
@@ -502,7 +524,7 @@ export default function Solo1v1Arena({
         }, 16);
       }, 400);
     }
-  }, [isBotMode, playSound]);
+  }, [isBotMode, playSound, sendP2P]);
 
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
@@ -522,7 +544,7 @@ export default function Solo1v1Arena({
     });
 
     playSound('tick');
-  }, [cameraActive, cameraHealth.isHealthy, formatTime, playSound]);
+  }, [cameraActive, cameraHealth.isHealthy, formatTime, playSound, sendP2P]);
 
   // Unified Hold & Release Handlers (Both Spacebar & Mobile Touch)
   const handleHoldStart = useCallback(() => {
@@ -531,7 +553,7 @@ export default function Solo1v1Arena({
       return;
     }
 
-    if (myTimerState === 'idle' || myTimerState === 'done') {
+    if (myTimerState === 'idle') {
       if (!spacePressedRef.current) {
         spacePressedRef.current = true;
         setMyTimerState('holding');
@@ -544,7 +566,7 @@ export default function Solo1v1Arena({
         }, 280);
       }
     }
-  }, [myTimerState, stopTimer, playSound]);
+  }, [myTimerState, stopTimer, playSound, sendP2P]);
 
   const handleHoldEnd = useCallback(() => {
     spacePressedRef.current = false;
@@ -559,7 +581,7 @@ export default function Solo1v1Arena({
       setMyTimerState('idle');
       sendP2P({ type: 'TIMER_STATE', state: 'idle' });
     }
-  }, [myTimerState, startTimer]);
+  }, [myTimerState, startTimer, sendP2P]);
 
   // Spacebar listeners
   useEffect(() => {
@@ -596,11 +618,16 @@ export default function Solo1v1Arena({
     });
   };
 
-  // Copy room link / code
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(roomCode);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+  // Copy room link / code safely
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard?.writeText(roomCode);
+      setCopiedLink(true);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      setConnectionError(`Mã phòng của bạn: ${roomCode}`);
+    }
   };
 
   // Render Win/Loss Result Banner

@@ -8,13 +8,12 @@ import {
   calculateScrambleMatch,
   EVEN_CUBE_SCAN_SEQUENCE,
   EVEN_CUBE_ROTATION_GUIDES,
-  COLOR_TO_FACE_CODE,
   getInnerCenterIndices,
   computeFaceMatrixSimilarity,
   getNextScanTargetFace,
   resolveCubeFaceAssignment
 } from './utils/rubikSolver';
-import { solveWithKociemba, initKociembaSolver, verifyCubeStateWithKociemba, solveScannedFacesWithKociemba, getMoveExplanationVi } from './kociemba';
+import { solveWithKociemba, solveScannedFacesWithKociemba, getMoveExplanationVi } from './kociemba';
 import {
   detectAutomation,
   isHumanSessionValid,
@@ -39,8 +38,7 @@ import {
   sanitizeText,
   sanitizeEmail,
   checkRateLimit,
-  hasMaliciousPayload,
-  getSecurityStats
+  hasMaliciousPayload
 } from './utils/securityShield';
 
 import {
@@ -54,16 +52,12 @@ import {
 } from './config/rubikConfig';
 import {
   OPENCV_MAT,
-  OPENCV_TEN_MAU,
-  rgbToHsv,
-  rgbToOpenCvHsv,
   nhanDienMauOpenCv,
   layMauTrungViOpenCv,
   demMauOpenCv,
   kiemTraHopLeOpenCv,
   timMatTiepTheoOpenCv,
   getColorTextHex,
-  classifyRubikStickerCell,
   classifyCenterStickerFallback,
   evaluateCenteredRubikWithOffset,
   locateDynamicRubikBox,
@@ -147,17 +141,8 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(detectMobileDevice);
   const [mobileTab, setMobileTab] = useState('timer'); // 'timer' | 'stats' | 'leaderboard' | '3d'
   const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' | 'environment'
-  const [scrollY, setScrollY] = useState(0);
   const touchHoldTimerRef = useRef(null);
   const pointerStartPosRef = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrollY(window.scrollY || document.documentElement.scrollTop || 0);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -464,9 +449,6 @@ export default function App() {
   const [editRequiredFaces, setEditRequiredFaces] = useState(
     adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3) ? 6 : 3
   );
-  const [editRequireAll6Faces, setEditRequireAll6Faces] = useState(
-    adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3)
-  );
   const [editRequireMove, setEditRequireMove] = useState(adminSettings.requireCubeMoveDuringSolve !== false);
   const [editAutoStop, setEditAutoStop] = useState(adminSettings.autoStopWhenSolved !== false);
   const [editAdminVipBypass, setEditAdminVipBypass] = useState(adminSettings.adminVipBypass !== false);
@@ -613,6 +595,10 @@ export default function App() {
   // Các state phát hiện & nhận diện mặt Rubik (Khai báo trước để tránh Temporal Dead Zone)
   const currentDim = PUZZLE_CONFIGS[puzzleType]?.dim || 3;
   const [detectedColors, setDetectedColors] = useState(() => Array(currentDim * currentDim).fill('invalid'));
+  const detectedColorsRef = useRef(detectedColors);
+  useEffect(() => {
+    detectedColorsRef.current = detectedColors;
+  }, [detectedColors]);
   const [preCheckStatus, setPreCheckStatus] = useState({
     verified: false,
     text: 'Camera AI đang tắt (Chế độ thủ công chuẩn WCA)',
@@ -641,9 +627,38 @@ export default function App() {
     evenAutoHoldStreakRef.current = 0;
     evenPrevPreviewColorsRef.current = null;
     lastEvenCapturedRef.current = null;
+    manualStickerOverridesRef.current = {};
+    temporalBufferRef.current = [];
+    prevColorsRef.current = null;
+    trackerStateRef.current = { cx: 0, cy: 0, size: 0, vx: 0, vy: 0 };
+    validCubeStreakRef.current = 0;
+    solvedStreakRef.current = 0;
+    lastCubeVerifiedAtRef.current = 0;
+    startScrambledRef.current = false;
+    cubeMovesSeenRef.current = 0;
+    cubeStateChangedRef.current = false;
+    initialCubeColorsRef.current = null;
+    lastValidCubeColorsRef.current = null;
     const defaultFace = targetDim % 2 === 0 ? EVEN_CUBE_SCAN_SEQUENCE[0] : 'F';
     setCurrentActiveFace(defaultFace);
     currentActiveFaceRef.current = defaultFace;
+  }, []);
+
+  // Helper dùng chung để chọn / quét lại một mặt trên khối chẵn (Stepper & thẻ 2D)
+  const handleSelectEvenFace = useCallback((faceKey, isAlreadyScanned) => {
+    if ((PUZZLE_CONFIGS[puzzleTypeRef.current]?.dim || 3) % 2 === 0 && isAlreadyScanned) {
+      const nextFaces = { ...scannedFacesRef.current };
+      delete nextFaces[faceKey];
+      scannedFacesRef.current = nextFaces;
+      setScannedFaces(nextFaces);
+    }
+    setCurrentActiveFace(faceKey);
+    currentActiveFaceRef.current = faceKey;
+    evenAutoHoldStreakRef.current = 0;
+    evenPrevPreviewColorsRef.current = null;
+    if (lastEvenCapturedRef.current?.face === faceKey) {
+      lastEvenCapturedRef.current = null;
+    }
   }, []);
 
   // =========================================================================
@@ -655,8 +670,6 @@ export default function App() {
   const [solveStep, setSolveStep] = useState('step1_check_scb');
   const solveStepRef = useRef('step1_check_scb');
   useEffect(() => { solveStepRef.current = solveStep; }, [solveStep]);
-
-  const [completedSolveInfo, setCompletedSolveInfo] = useState(null);
 
   // Xác nhận đúng SCB và chuyển sang Bước 2 (Mở khóa đồng hồ)
   const confirmScrambleAndReady = useCallback(() => {
@@ -708,21 +721,39 @@ export default function App() {
     const nextDim = PUZZLE_CONFIGS[nextP]?.dim || 3;
     setScramble(generateScramble(nextP));
     resetScanMemory(nextDim);
+    setDetectedColors(Array(nextDim * nextDim).fill('invalid'));
     setAllowFreestyleScramble(false);
     allowFreestyleScrambleRef.current = false;
     setTimeMs(0);
+    setPenaltyText('');
+    setLastTargetResult(null);
     setTrackedMoves([]);
     setLastMoveDetected('');
-    setCompletedSolveInfo(null);
+    solveStepRef.current = 'step1_check_scb';
     setSolveStep('step1_check_scb');
-    setPreCheckStatus({
+    const resetAudit = { matchRate: 100, isMatch: true, isMismatch: false, isPending: true };
+    scrambleAuditRef.current = resetAudit;
+    setScrambleAudit(resetAudit);
+    const resetModel = {
+      verified: false,
+      badgeText: '🔍 ĐANG QUÉT 3D',
+      statusTitle: 'Chưa khóa khối Rubik trên Mô hình 3D',
+      detailText: 'Di chuyển khối Rubik vào trước Camera để AI tự động bám theo & phân tích lên mô hình 3D.',
+      facesCount: 0,
+      validStickers: 0
+    };
+    model3DVerificationRef.current = resetModel;
+    setModel3DVerification(resetModel);
+    const resetPre = {
       verified: false,
       text: `🔍 Đưa khối Rubik ${PUZZLE_CONFIGS[nextP]?.name} đã xáo trộn vào khung ngắm để kiểm tra Scramble...`,
       isScrambled: false,
       centerFace: null
-    });
+    };
+    preCheckRef.current = resetPre;
+    setPreCheckStatus(resetPre);
     setLastNotice(null);
-  }, []);
+  }, [resetScanMemory]);
   const startNextSolveRoundRef = useRef(startNextSolveRound);
   useEffect(() => { startNextSolveRoundRef.current = startNextSolveRound; }, [startNextSolveRound]);
 
@@ -764,22 +795,6 @@ export default function App() {
       return false;
     }
   });
-
-  const toggleZenMode = useCallback(() => {
-    setIsZenMode(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('rubik_zen_mode', String(next));
-      } catch {}
-      setLastNotice({
-        type: 'info',
-        text: next
-          ? '🧘 Đã bật Chế độ Tập Trung (Zen Mode) — Giao diện 1 màn hình chuẩn Speedcubing!'
-          : '🌐 Đã tắt Chế độ Tập Trung.'
-      });
-      return next;
-    });
-  }, []);
 
   // BẬT / TẮT HIỆU ỨNG ĐỒ HỌA TOÀN TRANG (FX ANIMATIONS TOGGLE)
   const [isFxEnabled, setIsFxEnabled] = useState(() => {
@@ -901,7 +916,7 @@ export default function App() {
     const curDim = PUZZLE_CONFIGS[puzzleTypeRef.current]?.dim || 3;
     const totalCells = curDim * curDim;
     const minValidReq = Math.max(3, Math.ceil(totalCells * 0.65));
-    const colors = detectedColors;
+    const colors = detectedColorsRef.current;
     const validCount = colors.filter(c => c && c !== 'invalid').length;
     if (validCount < minValidReq) {
       setLastNotice({
@@ -954,13 +969,35 @@ export default function App() {
     }
 
     if (currentKeys.length >= targetCount) {
-      setPreCheckStatus(prev => ({
-        ...prev,
+      const auditRes = calculateScrambleMatch(scrambleRef.current, nextFaces, curDim, targetCount);
+      scrambleAuditRef.current = auditRes;
+      setScrambleAudit(auditRes);
+      const nextPre = {
         verified: true,
-        text: `🟢 ĐÃ CHỤP ĐỦ ${currentKeys.length}/${targetCount} MẶT (${currentKeys.join(', ')}) — Đã mở khóa đồng hồ!`
-      }));
+        text: `🟢 ĐÃ CHỤP ĐỦ ${currentKeys.length}/${targetCount} MẶT (${currentKeys.join(', ')}) — Đã mở khóa đồng hồ!`,
+        isScrambled: true,
+        centerFace: `${mappedFace} (${currentKeys.length}/${targetCount})`,
+        scannedCount: currentKeys.length,
+        missingFaces: ['U', 'D', 'F', 'B', 'L', 'R'].filter(f => !currentKeys.includes(f)),
+        scrambleMatchRate: auditRes.matchRate,
+        isMismatch: Boolean(auditRes.isMismatch)
+      };
+      preCheckRef.current = nextPre;
+      setPreCheckStatus(nextPre);
+      const doneModel = {
+        verified: true,
+        badgeText: `🟢 ĐỦ ${targetCount}/${targetCount} MẶT`,
+        statusTitle: `🟢 Đã quét đủ ${targetCount} mặt lên Mô hình 3D — Sẵn sàng bấm giờ!`,
+        detailText: `AI đã phân tích ${targetCount} mặt (${currentKeys.join(', ')}). Giữ Space hoặc chạm để bấm giờ ngay!`,
+        facesCount: currentKeys.length,
+        validStickers: validCount
+      };
+      model3DVerificationRef.current = doneModel;
+      lastModel3DChangeTimeRef.current = performance.now();
+      setModel3DVerification(doneModel);
       lastCubeVerifiedAtRef.current = performance.now();
       startScrambledRef.current = true;
+      solveStepRef.current = 'step2_ready_solve';
       setSolveStep('step2_ready_solve');
       setKociembaSolverSource('camera');
       setKociembaCurrentStep(0);
@@ -980,7 +1017,7 @@ export default function App() {
         text: `📸 ĐÃ LƯU MẶT ${mappedFace}! Tiếp theo: Hãy xoay sang mặt ${nextTarget} - ${faceNameMap[nextTarget] || ''}`
       });
     }
-  }, [detectedColors, playAppSound]);
+  }, [playAppSound]);
   const captureCurrentFaceRef = useRef(captureCurrentFace);
   useEffect(() => { captureCurrentFaceRef.current = captureCurrentFace; }, [captureCurrentFace]);
 
@@ -1115,7 +1152,7 @@ export default function App() {
   const downloadOpenCvJsonRef = useRef(downloadOpenCvJson);
   useEffect(() => { downloadOpenCvJsonRef.current = downloadOpenCvJson; }, [downloadOpenCvJson]);
 
-  // Áp dụng dữ liệu 6 mặt vừa quét sang Đồng hồ giải (Bước 2)
+  // Áp dụng dữ liệu 6 mặt vừa quét sang Đồng hồ giải (Bước 2 — Chuẩn 3x3 OpenCV)
   const applyOpenCvToTimer = useCallback(() => {
     const viToInternal = {
       'Đỏ': 'red',
@@ -1134,10 +1171,35 @@ export default function App() {
       }
     }
 
+    if (puzzleTypeRef.current !== '3x3') {
+      setPuzzleType('3x3');
+      puzzleTypeRef.current = '3x3';
+      localStorage.setItem('rubik_puzzle_type', '3x3');
+    }
+
     scannedFacesRef.current = convertedScannedFaces;
     setScannedFaces(convertedScannedFaces);
     lastCubeVerifiedAtRef.current = performance.now();
     startScrambledRef.current = true;
+
+    const auditRes = calculateScrambleMatch(scrambleRef.current, convertedScannedFaces, 3, 6);
+    scrambleAuditRef.current = auditRes;
+    setScrambleAudit(auditRes);
+    const useFreestyleFallback = !auditRes.isMatch;
+    setAllowFreestyleScramble(useFreestyleFallback);
+    allowFreestyleScrambleRef.current = useFreestyleFallback;
+
+    const nextModelState = {
+      verified: true,
+      badgeText: '🟢 ĐÃ QUÉT 6/6 OPENCV',
+      statusTitle: '🟢 ĐÃ NẠP ĐỦ 6 MẶT TỪ MÁY QUÉT OPENCV',
+      detailText: 'Mô hình 3D & Đồng hồ đã mở khóa Bước 2 — Sẵn sàng bấm giờ giải ngay!',
+      facesCount: Object.keys(convertedScannedFaces).length,
+      validStickers: 9
+    };
+    model3DVerificationRef.current = nextModelState;
+    lastModel3DChangeTimeRef.current = performance.now();
+    setModel3DVerification(nextModelState);
 
     // Mở khóa Bước 2 ngay lập tức
     setSolveStep('step2_ready_solve');
@@ -1147,7 +1209,9 @@ export default function App() {
       verified: true,
       text: '🟢 ĐÃ XÁC MINH ĐỦ CẢ 6 MẶT TỪ MÁY QUÉT OPENCV — Đã sẵn sàng bấm giờ giải!',
       isScrambled: true,
-      centerFace: 'U (Trên)'
+      centerFace: 'U (Trên)',
+      scannedCount: Object.keys(convertedScannedFaces).length,
+      missingFaces: []
     };
     preCheckRef.current = nextPreCheck;
     setPreCheckStatus(nextPreCheck);
@@ -1296,6 +1360,7 @@ export default function App() {
     if (isCloudConfigured()) {
       syncLeaderboardFromCloud(activeBoardId);
       const interval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         syncLeaderboardFromCloud(activeBoardId);
       }, 25000);
       return () => clearInterval(interval);
@@ -1332,14 +1397,43 @@ export default function App() {
   };
 
   const handleSelectPuzzle = (type) => {
+    const nextDim = PUZZLE_CONFIGS[type]?.dim || 3;
+    puzzleTypeRef.current = type;
     setPuzzleType(type);
     localStorage.setItem('rubik_puzzle_type', type);
     setScramble(generateScramble(type));
-    resetScanMemory(PUZZLE_CONFIGS[type]?.dim || 3);
+    resetScanMemory(nextDim);
+    setDetectedColors(Array(nextDim * nextDim).fill('invalid'));
     setAllowFreestyleScramble(false);
-    setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
+    allowFreestyleScrambleRef.current = false;
+    const resetAudit = { matchRate: 100, isMatch: true, isMismatch: false, isPending: true };
+    scrambleAuditRef.current = resetAudit;
+    setScrambleAudit(resetAudit);
+    solveStepRef.current = 'step1_check_scb';
+    setSolveStep('step1_check_scb');
+    setTimeMs(0);
+    setPenaltyText('');
+    setLastTargetResult(null);
     setTrackedMoves([]);
     setLastMoveDetected('');
+    const resetModel = {
+      verified: false,
+      badgeText: '🔍 ĐANG QUÉT 3D',
+      statusTitle: 'Chưa khóa khối Rubik trên Mô hình 3D',
+      detailText: 'Di chuyển khối Rubik vào trước Camera để AI tự động bám theo & phân tích lên mô hình 3D.',
+      facesCount: 0,
+      validStickers: 0
+    };
+    model3DVerificationRef.current = resetModel;
+    setModel3DVerification(resetModel);
+    const resetPre = {
+      verified: false,
+      text: `🔍 Đã chuyển sang ${PUZZLE_CONFIGS[type]?.name || type}. Hãy đưa khối Rubik vào khung ngắm!`,
+      isScrambled: false,
+      centerFace: null
+    };
+    preCheckRef.current = resetPre;
+    setPreCheckStatus(resetPre);
   };
 
   const handleSelectGameMode = (mode) => {
@@ -1371,25 +1465,8 @@ export default function App() {
     setShowNewBoardModal(false);
   };
 
-  const handleDeleteCurrentBoard = () => {
-    const boardKeys = Object.keys(leaderboards);
-    if (boardKeys.length <= 1) {
-      const reset = {
-        'board_1': { id: 'board_1', title: 'Bảng Xếp Hạng Mới', entries: [] }
-      };
-      saveLeaderboards(reset, 'board_1');
-      return;
-    }
-    if (window.confirm(`Bạn có chắc muốn xóa bảng "${currentBoard.title}"?`)) {
-      const remaining = { ...leaderboards };
-      delete remaining[activeBoardId];
-      const nextKey = Object.keys(remaining)[0];
-      saveLeaderboards(remaining, nextKey);
-    }
-  };
-
   const handleDeleteEntry = async (entryId) => {
-    if (!currentBoard) return;
+    if (!isKhoaAdmin || !currentBoard) return;
     const targetEntry = currentBoard.entries.find(e => e.id === entryId);
     const filtered = currentBoard.entries.filter(e => e.id !== entryId);
     const updated = {
@@ -1511,8 +1588,8 @@ export default function App() {
       return;
     }
 
-    if (userFound.password && userFound.password !== password) {
-      setAuthErrorMsg('Sai mật khẩu! Vui lòng kiểm tra lại.');
+    if (!userFound.password || userFound.password !== password) {
+      setAuthErrorMsg(userFound.password ? 'Sai mật khẩu! Vui lòng kiểm tra lại.' : 'Tài khoản này liên kết Google, vui lòng đăng nhập bằng Google!');
       return;
     }
 
@@ -1651,6 +1728,7 @@ export default function App() {
       adminVipBypass: Boolean(editAdminVipBypass)
     };
     setAdminSettings(newSettings);
+    adminSettingsRef.current = newSettings;
     localStorage.setItem('rubik_admin_settings', JSON.stringify(newSettings));
     setShowAdminPanelModal(false);
     setLastNotice({
@@ -1855,7 +1933,6 @@ export default function App() {
     contrast: 0
   });
 
-  const [cubeVisualMode, setCubeVisualMode] = useState('3d'); // '3d' hoặc '2d'
   const [show3DPreviewModal, setShow3DPreviewModal] = useState(false);
   const [upper3DExpanded, setUpper3DExpanded] = useState(false);
   const [showUpper3DWhenCamOff, setShowUpper3DWhenCamOff] = useState(false);
@@ -1894,16 +1971,6 @@ export default function App() {
     setHudThemeKey(nextKey);
     localStorage.setItem('rubik_hud_theme', nextKey);
     setShowThemeMenu(false);
-  };
-
-  const toggleThemeOff = () => {
-    if (hudThemeKey === 'off') {
-      const savedLast = localStorage.getItem('rubik_last_active_theme');
-      const restoreKey = (savedLast && savedLast !== 'off' && HUD_THEMES[savedLast]) ? savedLast : 'sakura';
-      selectHudTheme(restoreKey);
-    } else {
-      selectHudTheme('off');
-    }
   };
 
   const cycleHudTheme = () => {
@@ -2024,9 +2091,8 @@ export default function App() {
   useEffect(() => { trackedMovesRef.current = trackedMoves; }, [trackedMoves]);
   useEffect(() => {
     puzzleTypeRef.current = puzzleType;
-    setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
-    resetScanMemory(currentDim);
-  }, [puzzleType, currentDim, resetScanMemory]);
+    setDetectedColors(prev => (prev.length === currentDim * currentDim ? prev : Array(currentDim * currentDim).fill('invalid')));
+  }, [puzzleType, currentDim]);
   useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
   useEffect(() => { adminSettingsRef.current = adminSettings; }, [adminSettings]);
   useEffect(() => { leaderboardsRef.current = leaderboards; }, [leaderboards]);
@@ -2157,14 +2223,16 @@ export default function App() {
         );
 
         let wasUpdated = false;
+        let syncedAvgSec = finalSec;
         if (existingIdx !== -1) {
           const oldEntry = boardEntries[existingIdx];
           if (finalSec < oldEntry.best) {
+            syncedAvgSec = parseFloat(((oldEntry.best + finalSec) / 2).toFixed(2));
             // Lập kỷ lục cá nhân mới (Personal Best)
             boardEntries[existingIdx] = {
               ...oldEntry,
               best: finalSec,
-              avg: parseFloat(((oldEntry.best + finalSec) / 2).toFixed(2)),
+              avg: syncedAvgSec,
               verified: true,
               date: new Date().toLocaleDateString('vi-VN')
             };
@@ -2216,8 +2284,8 @@ export default function App() {
             playerEmail: cUser?.email || 'guest@cuber.vn',
             puzzleType: currentP,
             bestTime: finalSec,
-            avgTime: finalSec,
-            scramble,
+            avgTime: syncedAvgSec,
+            scramble: scrambleRef.current,
             cameraVerified: true,
             startedScrambled: startScrambledRef.current
           }).then((cloudRes) => {
@@ -2241,15 +2309,8 @@ export default function App() {
     }
 
     // Hoàn thành lượt giải -> Chuyển sang Bước 3 (Hoàn thành)
+    solveStepRef.current = 'step3_completed';
     setSolveStep('step3_completed');
-    setCompletedSolveInfo({
-      time: finalSec,
-      scramble: scrambleRef.current,
-      moves: movesRecorded,
-      movesCount: cubeMovesSeenRef.current,
-      kociemba: kociembaOptimal,
-      verified: isRecordEligible
-    });
 
     // Reset cờ kiểm soát trong lượt giải
     startScrambledRef.current = false;
@@ -2268,7 +2329,7 @@ export default function App() {
         centerFace: null
       });
     }
-  }, [penaltyText, targetSeconds, kociembaOptimal]);
+  }, [penaltyText, targetSeconds]);
 
   // Start Solve Timer
   const startTimer = useCallback(() => {
@@ -2366,12 +2427,17 @@ export default function App() {
         }
       }
 
+      if (isBlockingModalOpenRef.current) {
+        if (e.key === 'Escape') {
+          setShowThemeMenu(false);
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         setIsZenMode(false);
         setShowThemeMenu(false);
       }
-
-      if (isBlockingModalOpenRef.current) return;
 
       // Phím C: Chụp lưu mặt Rubik hiện tại trên camera (giống file quet_rubik_6_mat.py)
       if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C') && cameraActiveRef.current && currentState === 'idle') {
@@ -2447,12 +2513,22 @@ export default function App() {
       }
     };
 
+    const handleWindowBlur = () => {
+      clearTimeout(holdTimeout);
+      holdStartTsRef.current = 0;
+      if (timerStateRef.current === 'holding' || timerStateRef.current === 'ready') {
+        setTimerState(gameModeRef.current === 'wca' ? 'inspecting' : 'idle');
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
     return () => {
       clearTimeout(holdTimeout);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
     };
   }, []);
 
@@ -2535,7 +2611,7 @@ export default function App() {
       if (!isRunningLoop) return;
 
       if (typeof document !== 'undefined' && document.hidden) {
-        animFrameRef.current = requestAnimationFrame(processFrame);
+        animFrameRef.current = null;
         return;
       }
 
@@ -3572,15 +3648,40 @@ export default function App() {
 
     animFrameRef.current = requestAnimationFrame(processFrame);
 
+    const handleVisibilityResume = () => {
+      if (!isRunningLoop) return;
+      if (document.hidden) {
+        if (animFrameRef.current) {
+          cancelAnimationFrame(animFrameRef.current);
+          animFrameRef.current = null;
+        }
+      } else if (!animFrameRef.current) {
+        animFrameRef.current = requestAnimationFrame(processFrame);
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityResume);
+    }
+
     return () => {
       isRunningLoop = false;
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityResume);
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
     };
   }, [cameraActive, currentDim]);
 
   useEffect(() => {
     return () => {
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      if (touchHoldTimerRef.current) clearTimeout(touchHoldTimerRef.current);
+      if (linger3DTimerRef.current) clearTimeout(linger3DTimerRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (inspectionIntervalRef.current) clearInterval(inspectionIntervalRef.current);
     };
   }, []);
 
@@ -3623,7 +3724,6 @@ export default function App() {
     setEditRequire3DPreCheck(adminSettings.require3DCubePreCheck !== false);
     const facesMode = adminSettings.requiredPreCheckFaces === 6 || (adminSettings.requireAll6FacesPreCheck === true && adminSettings.requiredPreCheckFaces !== 3) ? 6 : 3;
     setEditRequiredFaces(facesMode);
-    setEditRequireAll6Faces(facesMode === 6);
     setEditRequireMove(adminSettings.requireCubeMoveDuringSolve !== false);
     setEditAutoStop(adminSettings.autoStopWhenSolved !== false);
     setEditAdminVipBypass(adminSettings.adminVipBypass !== false);
@@ -4677,22 +4777,7 @@ export default function App() {
                               <button
                                 key={face.key}
                                 type="button"
-                                onClick={() => {
-                                  if (currentDim % 2 === 0 && ok) {
-                                    const nextFaces = { ...scannedFacesRef.current };
-                                    delete nextFaces[face.key];
-                                    scannedFacesRef.current = nextFaces;
-                                    setScannedFaces(nextFaces);
-                                    updateVirtualCubeFromScans(nextFaces);
-                                  }
-                                  setCurrentActiveFace(face.key);
-                                  currentActiveFaceRef.current = face.key;
-                                  evenAutoHoldStreakRef.current = 0;
-                                  evenPrevPreviewColorsRef.current = null;
-                                  if (lastEvenCapturedRef.current?.face === face.key) {
-                                    lastEvenCapturedRef.current = null;
-                                  }
-                                }}
+                                onClick={() => handleSelectEvenFace(face.key, ok)}
                                 title={currentDim % 2 === 0
                                   ? `${EVEN_CUBE_ROTATION_GUIDES[face.key]?.short}: Click để ${ok ? 'quét lại' : 'chọn quét'} mặt ${face.key}`
                                   : `Mặt ${face.key} (${face.colorName})`}
@@ -5516,20 +5601,7 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             if (currentDim % 2 !== 0) return;
-                            if (isScanned) {
-                              const nextFaces = { ...scannedFacesRef.current };
-                              delete nextFaces[fKey];
-                              scannedFacesRef.current = nextFaces;
-                              setScannedFaces(nextFaces);
-                              updateVirtualCubeFromScans(nextFaces);
-                            }
-                            setCurrentActiveFace(fKey);
-                            currentActiveFaceRef.current = fKey;
-                            evenAutoHoldStreakRef.current = 0;
-                            evenPrevPreviewColorsRef.current = null;
-                            if (lastEvenCapturedRef.current?.face === fKey) {
-                              lastEvenCapturedRef.current = null;
-                            }
+                            handleSelectEvenFace(fKey, isScanned);
                           }}
                           title={
                             isScanned
@@ -6924,7 +6996,9 @@ export default function App() {
                       <span style={{ fontSize: '0.82rem', fontWeight: '700' }}>Camera đang tắt</span>
                       <button
                         type="button"
-                        onClick={() => setCameraActive(true)}
+                        onClick={() => {
+                          if (!cameraActiveRef.current) toggleCamera();
+                        }}
                         style={{
                           padding: '6px 14px',
                           borderRadius: '8px',
@@ -8827,10 +8901,7 @@ export default function App() {
                           type="radio"
                           name="requiredFacesRadio"
                           checked={editRequiredFaces === 3}
-                          onChange={() => {
-                            setEditRequiredFaces(3);
-                            setEditRequireAll6Faces(false);
-                          }}
+                          onChange={() => setEditRequiredFaces(3)}
                         />
                         <span>⚡ <strong>Chỉ xác minh 3 mặt (Mặc định - Nhanh gọn & Tiện lợi cho Cuber)</strong> — Quét nhanh 3 mặt là mở khóa đồng hồ ngay</span>
                       </label>
@@ -8848,10 +8919,7 @@ export default function App() {
                           type="radio"
                           name="requiredFacesRadio"
                           checked={editRequiredFaces === 6}
-                          onChange={() => {
-                            setEditRequiredFaces(6);
-                            setEditRequireAll6Faces(true);
-                          }}
+                          onChange={() => setEditRequiredFaces(6)}
                         />
                         <span>🔒 <strong>Bắt buộc quét đủ cả 6 mặt (Bản gốc của Admin Khoa - Chuẩn WCA nghiêm ngặt)</strong> — Giữ riêng trong quản trị viên để Khoa kiểm định & cải thiện tiếp</span>
                       </label>
@@ -8863,7 +8931,7 @@ export default function App() {
                         onClick={() => {
                           setShowAdminPanelModal(false);
                           setShowOpenCvScannerModal(true);
-                          if (!cameraActive) setCameraActive(true);
+                          if (!cameraActiveRef.current) toggleCamera();
                         }}
                         style={{
                           padding: '6px 12px',

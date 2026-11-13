@@ -77,10 +77,10 @@ export function buildCameraConstraintFallbacks(facingMode = 'user', lowSpecMode 
   ];
 }
 
-// Buffer histogram tĩnh dùng chung (Zero-GC Allocation cho CPU máy đời cũ)
-const _histR = new Uint16Array(256);
-const _histG = new Uint16Array(256);
-const _histB = new Uint16Array(256);
+// Buffer histogram tĩnh dùng chung (Uint32Array chống tràn ROI lớn, Zero-GC cho CPU máy đời cũ)
+const _histR = new Uint32Array(256);
+const _histG = new Uint32Array(256);
+const _histB = new Uint32Array(256);
 const _lutR = new Uint8ClampedArray(256);
 const _lutG = new Uint8ClampedArray(256);
 const _lutB = new Uint8ClampedArray(256);
@@ -506,8 +506,11 @@ export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTol
     return 'invalid';
   }
 
-  // 6. MÀU ĐỎ vs MÀU CAM (phân giải vùng ranh giới H=7..12 bằng tỷ lệ kênh G/R vật lý)
-  if (h <= 6 || h >= 168) {
+  // 6. MÀU ĐỎ vs MÀU CAM (phân giải vùng ranh giới H=7..12 bằng tỷ lệ kênh G/R vật lý, bao phủ đỏ hồng/tím 156..179)
+  if (h <= 6 || h >= 165) {
+    return 'red';
+  }
+  if (h >= 152 && effR > effG * 1.35 && effR > effB * 1.15) {
     return 'red';
   }
   if (h >= 7 && h <= 11) {
@@ -536,8 +539,11 @@ export function classifyRubikStickerCell(avgR, avgG, avgB, cellStdDev, motionTol
     return 'green';
   }
 
-  // 9. MÀU XANH DƯƠNG: 86 <= h <= 132
-  if (h >= 86 && h <= 132) {
+  // 9. MÀU XANH DƯƠNG: 86 <= h <= 135 (hoặc tím xanh nhẹ 136..146 khi kênh B chiếm ưu thế rõ)
+  if (h >= 86 && h <= 135) {
+    return 'blue';
+  }
+  if (h >= 136 && h <= 146 && effB > effR * 1.15 && effB > effG) {
     return 'blue';
   }
 
@@ -855,7 +861,8 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
       colorTransitions: 0,
       gridSeamContrast: geom.seamScore,
       isGeometricallyVerifiedCube: false,
-      isMostlySkinOrWood: true,
+      isMostlySkinOrWood: isHumanFaceOrSkin,
+      rejectionReason: isHumanFaceOrSkin ? 'skin_or_wood' : 'too_few_stickers',
       score: -99999
     };
   }
@@ -905,7 +912,8 @@ export function evaluateRubikGridCandidate(frameImg, w, h, dim, startX, startY, 
       colorTransitions: 0,
       gridSeamContrast: geom.seamScore,
       isGeometricallyVerifiedCube: false,
-      isMostlySkinOrWood: true,
+      isMostlySkinOrWood: false,
+      rejectionReason: 'flat_single_color_surface',
       score: -99999
     };
   }

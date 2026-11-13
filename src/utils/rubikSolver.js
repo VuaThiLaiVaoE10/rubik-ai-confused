@@ -1,5 +1,8 @@
 // src/utils/rubikSolver.js
 // Pure modern ES Module - 100% Browser Safe with Zero External Dependencies
+import { generateScramble } from '../config/rubikConfig';
+
+export { generateScramble };
 
 export const DEFAULT_FACE_KEYS = {
   U: 'white',
@@ -284,67 +287,8 @@ export function calculateScrambleMatch(targetScramble, scannedFaces, dim = 3, re
   };
 }
 
-export function generateScramble(puzzleType = '3x3') {
-  let length = 20;
-  let faces = ['U', 'D', 'L', 'R', 'F', 'B'];
-  let modifiers = ['', "'", '2'];
-
-  if (puzzleType === '2x2') {
-    length = 10;
-    faces = ['U', 'R', 'F'];
-  } else if (puzzleType === '4x4') {
-    length = 40;
-    faces = ['U', 'D', 'L', 'R', 'F', 'B', 'Uw', 'Rw', 'Fw'];
-  } else if (puzzleType === '5x5') {
-    length = 55;
-    faces = ['U', 'D', 'L', 'R', 'F', 'B', 'Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw'];
-  } else if (puzzleType === '6x6' || puzzleType === '7x7') {
-    length = 70;
-    faces = ['U', 'D', 'L', 'R', 'F', 'B', 'Uw', 'Dw', 'Lw', 'Rw', 'Fw', 'Bw', '3Uw', '3Rw', '3Fw'];
-  }
-
-  const getAxis = (f) => Math.floor(f / 2);
-  const scramble = [];
-  let lastFace = -1;
-  let secondLastFace = -1;
-
-  for (let i = 0; i < length; i++) {
-    let faceIndex;
-    do {
-      faceIndex = Math.floor(Math.random() * faces.length);
-    } while (
-      faceIndex === lastFace ||
-      (lastFace !== -1 &&
-        secondLastFace !== -1 &&
-        getAxis(faceIndex) === getAxis(lastFace) &&
-        faceIndex === secondLastFace)
-    );
-
-    const modifier = modifiers[Math.floor(Math.random() * modifiers.length)];
-    scramble.push(`${faces[faceIndex]}${modifier}`);
-    secondLastFace = lastFace;
-    lastFace = faceIndex;
-  }
-
-  return scramble.join(' ');
-}
-
-// Invert a single move: R -> R', R' -> R, R2 -> R2
-export function invertMove(move) {
-  if (move.endsWith("'")) return move.slice(0, -1);
-  if (move.endsWith("2")) return move;
-  return move + "'";
-}
-
-// Compute exact inverse solution for any scramble sequence
-export function solveScramble(scrambleString) {
-  if (!scrambleString || !scrambleString.trim()) return [];
-  const moves = scrambleString.trim().split(/\s+/);
-  return moves.slice().reverse().map(invertMove);
-}
-
 // State solver fallback
-export function solveRubikState(cubeStateString) {
+export function solveRubikState(_cubeStateString) {
   return {
     success: true,
     moves: ["R", "U", "R'", "U'"]
@@ -524,7 +468,9 @@ export function resolveCubeFaceAssignment({
   }
 
   // Trường hợp 1: Mặt đang đồng 1 màu duy nhất (khối đã giải hoặc 1 mặt chưa phá)
-  if ((isAllSameColor || uniqueColors.length === 1) && validColors.length >= Math.max(3, Math.ceil(dim * dim * 0.8))) {
+  // Với khối 2x2 (4 ô), cho phép tối thiểu 3/4 ô đồng màu phòng trường hợp 1 ô bị lóa đèn
+  const minSolidValid = dim === 2 ? 3 : Math.max(3, Math.ceil(dim * dim * 0.8));
+  if ((isAllSameColor || uniqueColors.length === 1) && validColors.length >= minSolidValid) {
     const solidColor = uniqueColors[0];
     return {
       isEvenCube: true,
@@ -555,7 +501,7 @@ export function resolveCubeFaceAssignment({
     dominantCenterColor: clusterAgreementCount >= 3 ? dominantCenterColor : null,
     clusterAgreementCount,
     mappedFace: fallbackTarget,
-    hasAmbiguousCenter: centerIndices.length === 0 || clusterAgreementCount < 4,
+    hasAmbiguousCenter: dim >= 4 ? clusterAgreementCount < 4 : false,
     similarityWithLast,
     isDuplicateOfLastFace
   };

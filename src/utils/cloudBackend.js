@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.rubik_leaderboards (
   board_id TEXT NOT NULL DEFAULT 'board_1',
   player_name TEXT NOT NULL,
   player_email TEXT DEFAULT 'guest@cuber.vn',
-  puzzle_type TEXT NOT NULL DEFAULT '3x3' CHECK (puzzle_type IN ('2x2', '3x3', '4x4', '5x5')),
+  puzzle_type TEXT NOT NULL DEFAULT '3x3' CHECK (puzzle_type IN ('2x2', '3x3', '4x4', '5x5', '6x6', '7x7')),
   best_time NUMERIC(8, 2) NOT NULL,
   avg_time NUMERIC(8, 2) NOT NULL,
   scramble TEXT NOT NULL,
@@ -62,6 +62,8 @@ BEGIN
     WHEN '3x3' THEN min_human_time := 2.80;
     WHEN '4x4' THEN min_human_time := 15.00;
     WHEN '5x5' THEN min_human_time := 30.00;
+    WHEN '6x6' THEN min_human_time := 65.00;
+    WHEN '7x7' THEN min_human_time := 95.00;
     ELSE min_human_time := 2.00;
   END CASE;
   IF NEW.best_time < min_human_time OR NEW.best_time > 3600 THEN
@@ -206,14 +208,19 @@ export async function testCloudConnection(customUrl, customAnonKey) {
     return { ok: false, reason: 'Chưa nhập Supabase URL hoặc Anon Key.' };
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const res = await fetch(
       `${cfg.url}/rest/v1/rubik_leaderboards?select=id&limit=1`,
       {
         method: 'GET',
-        headers: buildSupabaseHeaders(cfg.anonKey)
+        headers: buildSupabaseHeaders(cfg.anonKey),
+        signal: controller.signal
       }
     );
+    clearTimeout(timeoutId);
 
     if (res.ok) {
       return { ok: true, message: 'Kết nối Supabase Cloud & Bảng Kỷ Lục thành công!' };
@@ -233,6 +240,7 @@ export async function testCloudConnection(customUrl, customAnonKey) {
       reason: `Supabase trả về mã lỗi ${res.status}: ${errText.slice(0, 120)}`
     };
   } catch (err) {
+    clearTimeout(timeoutId);
     return {
       ok: false,
       reason: `Không thể kết nối tới Supabase URL (${err?.message || 'Lỗi mạng'}).`
@@ -357,6 +365,12 @@ export async function submitVerifiedSolveToCloud({
     return { ok: false, unconfigured: true, proofHash };
   }
 
+  const numericBest = Number(bestTime);
+  const numericAvg = Number(avgTime ?? bestTime);
+  if (!Number.isFinite(numericBest) || numericBest <= 0) {
+    return { ok: false, reason: 'Thời gian giải không hợp lệ.' };
+  }
+
   const { url, anonKey } = getCloudConfig();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -367,8 +381,8 @@ export async function submitVerifiedSolveToCloud({
       player_name: cleanName,
       player_email: cleanEmail,
       puzzle_type: puzzleType,
-      best_time: Number(bestTime.toFixed(2)),
-      avg_time: Number((avgTime || bestTime).toFixed(2)),
+      best_time: Number(numericBest.toFixed(2)),
+      avg_time: Number((Number.isFinite(numericAvg) && numericAvg > 0 ? numericAvg : numericBest).toFixed(2)),
       scramble: cleanScramble,
       camera_verified: true,
       started_scrambled: Boolean(startedScrambled),
@@ -391,7 +405,7 @@ export async function submitVerifiedSolveToCloud({
 
     if (!res.ok) {
       const errText = await res.text();
-      return { ok: false, reason: errText, proofHash };
+      return { ok: false, reason: `HTTP ${res.status}: ${errText.slice(0, 120)}`, proofHash };
     }
 
     const data = await res.json();
@@ -408,6 +422,8 @@ export async function submitVerifiedSolveToCloud({
 export async function deleteCloudEntryAdmin({ boardId = 'board_1', playerName, puzzleType }) {
   if (!isCloudConfigured()) return { ok: false, unconfigured: true };
   const { url, anonKey } = getCloudConfig();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
     const query = new URLSearchParams({
       board_id: `eq.${boardId}`,
@@ -416,11 +432,14 @@ export async function deleteCloudEntryAdmin({ boardId = 'board_1', playerName, p
     });
     const res = await fetch(`${url}/rest/v1/rubik_leaderboards?${query.toString()}`, {
       method: 'DELETE',
-      headers: buildSupabaseHeaders(anonKey)
+      headers: buildSupabaseHeaders(anonKey),
+      signal: controller.signal
     });
-    return { ok: res.ok };
-  } catch {
-    return { ok: false };
+    clearTimeout(timeoutId);
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return { ok: false, reason: err?.message };
   }
 }
 
@@ -430,17 +449,22 @@ export async function deleteCloudEntryAdmin({ boardId = 'board_1', playerName, p
 export async function clearCloudBoardAdmin(boardId = 'board_1') {
   if (!isCloudConfigured()) return { ok: false, unconfigured: true };
   const { url, anonKey } = getCloudConfig();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
   try {
     const query = new URLSearchParams({
       board_id: `eq.${boardId}`
     });
     const res = await fetch(`${url}/rest/v1/rubik_leaderboards?${query.toString()}`, {
       method: 'DELETE',
-      headers: buildSupabaseHeaders(anonKey)
+      headers: buildSupabaseHeaders(anonKey),
+      signal: controller.signal
     });
-    return { ok: res.ok };
-  } catch {
-    return { ok: false };
+    clearTimeout(timeoutId);
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return { ok: false, reason: err?.message };
   }
 }
 

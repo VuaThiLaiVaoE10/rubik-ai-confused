@@ -27,11 +27,12 @@ import {
 } from '../utils/securityShield';
 import {
   calculateEloDelta,
-  getRankTier
+  getRankTier,
+  SUPABASE_SCHEMA_SQL,
+  submitVerifiedSolveToCloud
 } from '../utils/cloudBackend';
 import { calculateAo } from '../utils/timerStats';
 import { isSoundMuted, setSoundMuted, playSoundEffect } from '../utils/soundEngine';
-import { buildScrambledFaces } from '../components/Rubik3DView';
 import {
   EVEN_CUBE_SCAN_SEQUENCE,
   getInnerCenterIndices,
@@ -39,6 +40,7 @@ import {
   getNextScanTargetFace,
   resolveCubeFaceAssignment,
   rotateFaceMatrix,
+  buildScrambledFaces,
   calculateScrambleMatch
 } from '../utils/rubikSolver';
 
@@ -369,5 +371,41 @@ describe('Security Shield & ELO Ranking', () => {
     const audit = calculateScrambleMatch(scram, cube4, 4, 6);
     expect(audit.isMatch).toBe(true);
     expect(audit.matchRate).toBe(100);
+  });
+
+  it('handles 2x2 glare tolerance, LED red/blue hue edge cases, and 6x6/7x7 cloud schema safety', async () => {
+    // 2x2 with 1 glared invalid cell should still resolve solid color & never report ambiguous inner center
+    const res2x2Solid = resolveCubeFaceAssignment({
+      colors: ['blue', 'blue', 'invalid', 'blue'],
+      dim: 2,
+      activeTargetFace: 'F'
+    });
+    expect(res2x2Solid.strategy).toBe('even_solid_face');
+    expect(res2x2Solid.mappedFace).toBe('B');
+
+    const res2x2Mixed = resolveCubeFaceAssignment({
+      colors: ['red', 'white', 'green', 'blue'],
+      dim: 2,
+      activeTargetFace: 'R'
+    });
+    expect(res2x2Mixed.strategy).toBe('even_sequential_wca');
+    expect(res2x2Mixed.hasAmbiguousCenter).toBe(false);
+
+    // Pink-red under cold LED & violet-blue edge hues
+    expect(classifyRubikStickerCell(230, 75, 115, 0, 0, 'auto', null, false)).toBe('red');
+    expect(classifyRubikStickerCell(70, 85, 225, 0, 0, 'auto', null, false)).toBe('blue');
+
+    // Schema must include 6x6 and 7x7 puzzle types
+    expect(SUPABASE_SCHEMA_SQL).toContain("'6x6'");
+    expect(SUPABASE_SCHEMA_SQL).toContain("'7x7'");
+
+    // Non-finite bestTime must be safely rejected without crashing .toFixed(2)
+    const badCloudRes = await submitVerifiedSolveToCloud({
+      playerName: 'Tester',
+      puzzleType: '4x4',
+      bestTime: NaN,
+      cameraVerified: true
+    });
+    expect(badCloudRes.ok).toBe(false);
   });
 });
