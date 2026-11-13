@@ -2992,20 +2992,21 @@ export default function App() {
             setModel3DVerification(nextModel);
             return;
           }
-          // Chống nháy giật: Nếu badge thay đổi, yêu cầu giữ nguyên tối thiểu 500ms
-          const isBadgeDifferent = cur.badgeText !== nextModel.badgeText;
-          if (isBadgeDifferent && nowMs - (lastModel3DChangeTimeRef.current || 0) < 500) {
-            return; // Khóa giữ badge cũ để triệt tiêu hiện tượng nhấp nháy
-          }
-          if (
-            isBadgeDifferent ||
+          // Chống nháy giật: Chỉ cho phép cập nhật ngay khi đổi trạng thái xác minh/số mặt; mọi đổi text khác giữ cooldown 550ms
+          const isCriticalChange =
             cur.verified !== nextModel.verified ||
-            cur.statusTitle !== nextModel.statusTitle
-          ) {
-            model3DVerificationRef.current = nextModel;
-            lastModel3DChangeTimeRef.current = nowMs;
-            setModel3DVerification(nextModel);
+            cur.facesCount !== nextModel.facesCount;
+          const isTextDifferent =
+            cur.badgeText !== nextModel.badgeText ||
+            cur.statusTitle !== nextModel.statusTitle ||
+            cur.detailText !== nextModel.detailText;
+          if (!isCriticalChange && !isTextDifferent) return;
+          if (!isCriticalChange && nowMs - (lastModel3DChangeTimeRef.current || 0) < 550) {
+            return;
           }
+          model3DVerificationRef.current = nextModel;
+          lastModel3DChangeTimeRef.current = nowMs;
+          setModel3DVerification(nextModel);
         };
 
         // Tối ưu nhận diện MẶT CHƯA GIẢI (nhiều màu lộn xộn): chỉ cần >= 65% số ô rõ nét (VD: 6/9 ô với 3x3, 3/4 ô với 2x2)
@@ -3134,7 +3135,8 @@ export default function App() {
         // HỢP NHẤT NGUYÊN LÝ ĐỊNH DANH MẶT (LẺ: Tâm đơn cố định | CHẴN: Tuần tự WCA F->R->B->L->U->D + Anti-Duplicate Hamming)
         const evenOrder = isEvenCube ? EVEN_CUBE_SCAN_SEQUENCE : ['U', 'R', 'F', 'D', 'L', 'B'];
         const activeTargetFace = isEvenCube
-          ? (EVEN_CUBE_SCAN_SEQUENCE.includes(currentActiveFaceRef.current)
+          ? (EVEN_CUBE_SCAN_SEQUENCE.includes(currentActiveFaceRef.current) &&
+              !scannedFacesRef.current?.[currentActiveFaceRef.current]
               ? currentActiveFaceRef.current
               : getNextScanTargetFace(scannedFacesRef.current, EVEN_CUBE_SCAN_SEQUENCE))
           : 'F';
@@ -3253,23 +3255,25 @@ export default function App() {
                 updatedFacesCount = Object.keys(nextFaces).length;
                 setScannedFaces(nextFaces);
 
-                if (isEvenCube && isGenuineScrambledCube && !isAllSameColor) {
+                if (isEvenCube) {
                   lastEvenCapturedRef.current = { face: mappedFace, matrix: [...validatedFaceColors] };
                   evenAutoHoldStreakRef.current = 0;
                   evenPrevPreviewColorsRef.current = null;
                   const nextTarget = getNextScanTargetFace(nextFaces, evenOrder);
                   setCurrentActiveFace(nextTarget);
                   currentActiveFaceRef.current = nextTarget;
-                  playAppSound('ready');
+                  if (isGenuineScrambledCube && !isAllSameColor) {
+                    playAppSound('ready');
+                  }
                 } else {
                   setCurrentActiveFace(mappedFace);
                   currentActiveFaceRef.current = mappedFace;
                 }
               }
             }
-          } else if (isEvenCube && currentActiveFaceRef.current !== mappedFace) {
-            setCurrentActiveFace(mappedFace);
-            currentActiveFaceRef.current = mappedFace;
+          } else if (isEvenCube && currentActiveFaceRef.current !== activeTargetFace) {
+            setCurrentActiveFace(activeTargetFace);
+            currentActiveFaceRef.current = activeTargetFace;
           }
         }
 
@@ -3349,15 +3353,15 @@ export default function App() {
           } else if (isEvenCube) {
             const rotGuide = EVEN_CUBE_ROTATION_GUIDES[mappedFace];
             const evenTip = evenWaitingNextTurn
-              ? `🔄 Đã khóa mặt ${lastEvenCapturedRef.current?.face} — ${rotGuide?.turnTip || `Xoay sang mặt ${mappedFace}`}`
+              ? `🔄 Đã khóa ${lastEvenCapturedRef.current?.face} • ${rotGuide?.turnTip || `Xoay sang ${mappedFace}`}`
               : (evenHoldPct > 0
-                  ? `⏳ Đang giữ mặt ${mappedFace} (${evenHoldPct}%) — Giữ yên ~1s tự chốt hoặc bấm [C]`
-                  : (rotGuide?.turnTip || `Đang quét mặt ${mappedFace}`));
+                  ? `⏳ Đang giữ mặt ${mappedFace} ổn định — Tự lưu sau ~1s hoặc bấm [C]`
+                  : (rotGuide?.turnTip || `Đưa mặt ${mappedFace} vào khung ngắm`));
             resolvedModel3D = {
               verified: !reqPreCheck,
               badgeText: evenWaitingNextTurn ? `🔄 XOAY SANG ${mappedFace}` : `📐 MẶT ${mappedFace} (${updatedFacesCount}/${targetFaceCount})`,
-              statusTitle: `🧩 Khối ${dim}×${dim} theo trục WCA — Đang chờ ${rotGuide?.short || mappedFace} (${centerName})`,
-              detailText: `${evenTip} • Đã lưu: [${currentScannedKeys.join(', ') || 'Chưa có'}]`,
+              statusTitle: `🧩 Khối ${dim}×${dim} (WCA) — Đang quét ${rotGuide?.short || mappedFace}`,
+              detailText: `${evenTip} • Đã lưu: ${currentScannedKeys.join(', ') || 'Chưa có'}`,
               facesCount: updatedFacesCount,
               validStickers: validColorsCount
             };
@@ -3365,8 +3369,8 @@ export default function App() {
             resolvedModel3D = {
               verified: !reqPreCheck,
               badgeText: `🔍 ĐÃ QUÉT ${updatedFacesCount}/${targetFaceCount} MẶT`,
-              statusTitle: `🧩 Đã nhận diện ${stateLabel}: Mặt ${mappedFace} (${centerName}) có ${uniqueColorsCount} màu`,
-              detailText: `Đã quét ${updatedFacesCount}/${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) • Còn thiếu: [${missingFaceKeys.join(', ')}] • Xoay tiếp các mặt còn lại trước Camera.`,
+              statusTitle: `🧩 Mặt ${mappedFace} (${centerName}) — ${stateLabel}`,
+              detailText: `Đã quét ${updatedFacesCount}/${targetFaceCount} mặt (${currentScannedKeys.join(', ')}) • Thiếu: ${missingFaceKeys.join(', ')}`,
               facesCount: updatedFacesCount,
               validStickers: validColorsCount
             };
@@ -3387,7 +3391,7 @@ export default function App() {
               const evenGuideText = isEvenCube
                 ? (evenWaitingNextTurn
                     ? `🔄 Đã lưu mặt ${lastEvenCapturedRef.current?.face} (${currentScannedKeys.length}/${targetFaceCount}) — ${EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip || ''}`
-                    : `📐 Khối ${dim}×${dim} • Mặt ${mappedFace} (${currentScannedKeys.length}/${targetFaceCount}): ${evenHoldPct > 0 ? `Giữ yên ${evenHoldPct}% để tự chốt` : EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip} (hoặc bấm [C])`)
+                    : `📐 Khối ${dim}×${dim} • Mặt ${mappedFace} (${currentScannedKeys.length}/${targetFaceCount}): ${evenHoldPct > 0 ? 'Giữ yên ~1s để tự chốt (hoặc bấm [C])' : EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip}`)
                 : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`;
               // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> HƯỚNG DẪN QUÉT TIẾP
               setPreCheckThrottled({
@@ -4649,6 +4653,13 @@ export default function App() {
                                 key={face.key}
                                 type="button"
                                 onClick={() => {
+                                  if (currentDim % 2 === 0 && ok) {
+                                    const nextFaces = { ...scannedFacesRef.current };
+                                    delete nextFaces[face.key];
+                                    scannedFacesRef.current = nextFaces;
+                                    setScannedFaces(nextFaces);
+                                    updateVirtualCubeFromScans(nextFaces);
+                                  }
                                   setCurrentActiveFace(face.key);
                                   currentActiveFaceRef.current = face.key;
                                   evenAutoHoldStreakRef.current = 0;
@@ -4658,7 +4669,7 @@ export default function App() {
                                   }
                                 }}
                                 title={currentDim % 2 === 0
-                                  ? `${EVEN_CUBE_ROTATION_GUIDES[face.key]?.short}: Click để chọn quét mặt ${face.key}`
+                                  ? `${EVEN_CUBE_ROTATION_GUIDES[face.key]?.short}: Click để ${ok ? 'quét lại' : 'chọn quét'} mặt ${face.key}`
                                   : `Mặt ${face.key} (${face.colorName})`}
                                 style={{
                                   fontSize: '0.62rem',
@@ -5391,14 +5402,15 @@ export default function App() {
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  gap: '6px',
-                  maxWidth: isMobile ? '100%' : '215px',
+                  gap: '7px',
+                  width: '100%',
+                  maxWidth: isMobile ? '100%' : (upper3DExpanded ? '660px' : '580px'),
                   background: '#090f1d',
-                  padding: '8px 10px',
+                  padding: '9px 12px',
                   borderRadius: '10px',
                   border: model3DVerification.verified ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid #16223b'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {/* Lưới 2D đối chiếu nhanh - Cho phép click từng ô để sửa màu trực quan */}
                     <div style={{
                       display: 'grid',
@@ -5429,59 +5441,107 @@ export default function App() {
                       ))}
                     </div>
 
-                    <div style={{ fontSize: '0.68rem', lineHeight: '1.35', color: preCheckStatus.verified ? '#4ade80' : '#e2e8f0' }}>
-                      <div style={{ fontWeight: '800', marginBottom: '2px', color: model3DVerification.verified ? '#4ade80' : '#38bdf8' }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '0.7rem', lineHeight: '1.38', color: preCheckStatus.verified ? '#4ade80' : '#e2e8f0' }}>
+                      <div style={{
+                        fontWeight: '800',
+                        marginBottom: '2px',
+                        color: model3DVerification.verified ? '#4ade80' : '#38bdf8',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
                         {cameraActive ? model3DVerification.statusTitle : '🧊 CHẾ ĐỘ XEM 3D'}
                       </div>
-                      <div style={{ color: '#94a3b8', fontSize: '0.64rem' }}>
+                      <div style={{
+                        color: '#94a3b8',
+                        fontSize: '0.66rem',
+                        minHeight: '36px',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden'
+                      }}>
                         {cameraActive ? model3DVerification.detailText : 'Bật Cam để AI bám theo khối Rubik & phân tích lên mô hình 3D.'}
                       </div>
-                      <div style={{ color: '#38bdf8', fontSize: '0.58rem', marginTop: '2px', fontStyle: 'italic' }}>
-                        💡 Click trực tiếp vào ô để sửa màu nếu bị lóa đèn
+                      <div style={{
+                        color: '#38bdf8',
+                        fontSize: '0.6rem',
+                        marginTop: '2px',
+                        fontStyle: 'italic',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
+                        💡 Click trực tiếp vào ô màu để sửa nếu bị lóa đèn
                       </div>
                     </div>
                   </div>
 
                   {/* Dải trạng thái 6 mặt trên Mô hình 3D (Hiển thị rõ mặt nào chưa giải / đã giải) */}
-                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                    {['U', 'D', 'F', 'B', 'L', 'R'].map((fKey) => {
+                  <div style={{ display: 'flex', gap: '4px', justifyContent: 'space-between' }}>
+                    {(currentDim % 2 === 0 ? EVEN_CUBE_SCAN_SEQUENCE : ['U', 'D', 'F', 'B', 'L', 'R']).map((fKey) => {
                       const fArr = scannedFaces[fKey];
                       const isScanned = Array.isArray(fArr) && fArr.length > 0;
                       const uniq = isScanned ? new Set(fArr.filter(c => c !== 'invalid')).size : 0;
                       const isUnsolvedFace = isScanned && uniq >= 2;
+                      const isCurrentTarget = currentDim % 2 === 0 && !isScanned && currentActiveFace === fKey;
                       return (
-                        <span
+                        <button
                           key={fKey}
+                          type="button"
+                          onClick={() => {
+                            if (currentDim % 2 !== 0) return;
+                            if (isScanned) {
+                              const nextFaces = { ...scannedFacesRef.current };
+                              delete nextFaces[fKey];
+                              scannedFacesRef.current = nextFaces;
+                              setScannedFaces(nextFaces);
+                              updateVirtualCubeFromScans(nextFaces);
+                            }
+                            setCurrentActiveFace(fKey);
+                            currentActiveFaceRef.current = fKey;
+                            evenAutoHoldStreakRef.current = 0;
+                            evenPrevPreviewColorsRef.current = null;
+                            if (lastEvenCapturedRef.current?.face === fKey) {
+                              lastEvenCapturedRef.current = null;
+                            }
+                          }}
                           title={
                             isScanned
-                              ? (isUnsolvedFace ? `Mặt ${fKey}: Chưa giải (${uniq} màu)` : `Mặt ${fKey}: Đã giải (1 màu)`)
-                              : `Mặt ${fKey}: Đang hiển thị trạng thái xáo trộn theo Scramble`
+                              ? (currentDim % 2 === 0
+                                  ? `Mặt ${fKey} (${uniq} màu) — Click để quét lại`
+                                  : (isUnsolvedFace ? `Mặt ${fKey}: Chưa giải (${uniq} màu)` : `Mặt ${fKey}: Đã giải (1 màu)`))
+                              : (currentDim % 2 === 0
+                                  ? `Mặt ${fKey}: Click để chọn quét mặt này`
+                                  : `Mặt ${fKey}: Đang hiển thị trạng thái xáo trộn theo Scramble`)
                           }
                           style={{
                             flex: 1,
                             textAlign: 'center',
-                            padding: '2px 3px',
-                            borderRadius: '4px',
-                            fontSize: '0.58rem',
+                            padding: '3px 4px',
+                            borderRadius: '5px',
+                            fontSize: '0.62rem',
                             fontWeight: '800',
+                            fontFamily: 'var(--font-mono)',
+                            cursor: currentDim % 2 === 0 ? 'pointer' : 'default',
                             background: isScanned
                               ? (isUnsolvedFace ? 'rgba(245, 158, 11, 0.2)' : 'rgba(34, 197, 94, 0.2)')
-                              : '#111c34',
+                              : (isCurrentTarget ? 'rgba(56, 189, 248, 0.16)' : '#111c34'),
                             border: isScanned
                               ? (isUnsolvedFace ? '1px solid #f59e0b' : '1px solid #22c55e')
-                              : '1px solid #1e293b',
+                              : (isCurrentTarget ? '1px solid #38bdf8' : '1px solid #1e293b'),
                             color: isScanned
                               ? (isUnsolvedFace ? '#fbbf24' : '#4ade80')
-                              : '#64748b'
+                              : (isCurrentTarget ? '#7dd3fc' : '#64748b')
                           }}
                         >
                           {fKey}{isScanned ? (isUnsolvedFace ? `:${uniq}m` : ':✓') : ''}
-                        </span>
+                        </button>
                       );
                     })}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '2px', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center' }}>
                     {/* NÚT CHỤP LƯU MẶT HIỆN TẠI (GIỐNG FILE quet_rubik_6_mat.py) */}
                     {cameraActive && (
                       <button
@@ -5489,20 +5549,23 @@ export default function App() {
                         onClick={captureCurrentFace}
                         title="Chụp lưu mặt Rubik đang hiển thị trên camera (phím tắt: C)"
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
                           border: '1px solid #22c55e',
                           background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(22, 163, 74, 0.2))',
                           color: '#4ade80',
-                          fontSize: '0.64rem',
+                          fontSize: '0.66rem',
                           fontWeight: '800',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px'
+                          justifyContent: 'center',
+                          gap: '4px',
+                          whiteSpace: 'nowrap',
+                          flex: 1
                         }}
                       >
-                        <span>📸 Chụp lưu mặt (C)</span>
+                        <span>📸 Chụp lưu (C)</span>
                       </button>
                     )}
 
@@ -5523,17 +5586,18 @@ export default function App() {
                           });
                         }}
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
                           border: '1px solid #1e293b',
                           background: '#111c34',
                           color: '#94a3b8',
-                          fontSize: '0.64rem',
+                          fontSize: '0.66rem',
                           cursor: 'pointer',
+                          whiteSpace: 'nowrap',
                           flex: 1
                         }}
                       >
-                        🔄 Quét lại ({Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)} mặt)
+                        🔄 Quét lại ({Object.keys(scannedFaces).length}/{(adminSettings.requiredPreCheckFaces === 6 ? 6 : 3)})
                       </button>
                     )}
 
@@ -5553,14 +5617,15 @@ export default function App() {
                         }}
                         title={`Bấm để mở khóa đồng hồ ngay mà không cần xoay quét đủ cả ${adminSettings.requiredPreCheckFaces === 6 ? 6 : 3} mặt`}
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
                           border: '1px solid #f59e0b',
                           background: 'rgba(245, 158, 11, 0.15)',
                           color: '#fbbf24',
-                          fontSize: '0.64rem',
+                          fontSize: '0.66rem',
                           fontWeight: '700',
                           cursor: 'pointer',
+                          whiteSpace: 'nowrap',
                           flex: 1
                         }}
                       >
