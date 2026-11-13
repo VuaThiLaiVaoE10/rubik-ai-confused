@@ -350,3 +350,213 @@ export function solveRubikState(cubeStateString) {
     moves: ["R", "U", "R'", "U'"]
   };
 }
+
+// ============================================================================
+// NGUYÊN LÝ ĐỊNH DANH MẶT CHO CẢ KHỐI LẺ (3x3, 5x5, 7x7) VÀ KHỐI CHẴN (2x2, 4x4, 6x6)
+// - Khối lẻ: Có lõi 6 nhánh (Core Spider) giữ viên tâm đơn cố định tại (dim² - 1) / 2.
+// - Khối chẵn: Không có lõi tâm cố định (2x2 chỉ có góc; 4x4/6x6 cụm tâm 2x2 bị hoán vị
+//   khi có phép xoay lớp kép Uw/Rw/Fw). Vì vậy định danh mặt dựa trên 3 nguyên lý:
+//   (1) Bất biến Cụm tâm 2x2 (khi mặt đồng màu hoặc cụm lõi chưa tách/trùng)
+//   (2) Hệ quy chiếu Quét tuần tự trực giao WCA: F -> R -> B -> L -> U -> D
+//   (3) Ngưỡng Sai khác Ma trận màu (Hamming Distance 4 góc 2D) chống chốt trùng mặt cũ
+// ============================================================================
+
+export const COLOR_TO_FACE_CODE = {
+  white: 'U',
+  yellow: 'D',
+  red: 'R',
+  orange: 'L',
+  green: 'F',
+  blue: 'B'
+};
+
+export const EVEN_CUBE_SCAN_SEQUENCE = ['F', 'R', 'B', 'L', 'U', 'D'];
+
+export const EVEN_CUBE_ROTATION_GUIDES = {
+  F: {
+    key: 'F',
+    short: 'Trước (F)',
+    turnTip: 'Đưa mặt Trước (F) vào khung — Khuyến nghị cầm chuẩn WCA (Trắng trên, Xanh lá trước)'
+  },
+  R: {
+    key: 'R',
+    short: 'Phải (R)',
+    turnTip: 'Xoay ngang toàn khối 90° sang TRÁI (y) để đưa mặt Phải (R) ra trước Camera'
+  },
+  B: {
+    key: 'B',
+    short: 'Sau (B)',
+    turnTip: 'Xoay ngang tiếp 90° sang TRÁI (y) để đưa mặt Sau (B) ra trước Camera'
+  },
+  L: {
+    key: 'L',
+    short: 'Trái (L)',
+    turnTip: 'Xoay ngang tiếp 90° sang TRÁI (y) để đưa mặt Trái (L) ra trước Camera'
+  },
+  U: {
+    key: 'U',
+    short: 'Trên (U)',
+    turnTip: "Xoay về mặt F rồi lật ngửa 90° xuống (x') để đưa mặt Trên (U) ra trước Camera"
+  },
+  D: {
+    key: 'D',
+    short: 'Dưới (D)',
+    turnTip: 'Lật ngược 180° theo trục dọc (x2) để đưa mặt Dưới (D) ra trước Camera'
+  }
+};
+
+/**
+ * Trả về danh sách index của viên tâm lõi dùng để hiển thị / suy luận:
+ * - Khối lẻ (3, 5, 7): 1 ô chính giữa duy nhất
+ * - Khối chẵn >= 4 (4, 6): cụm 4 ô tâm 2x2 chính giữa ([5,6,9,10] cho 4x4; [14,15,20,21] cho 6x6)
+ * - Khối 2x2: [] (toàn bộ là góc, không có viên tâm)
+ */
+export function getInnerCenterIndices(dim = 3) {
+  if (!Number.isFinite(dim) || dim < 2) return [4];
+  if (dim % 2 === 1) {
+    return [Math.floor((dim * dim) / 2)];
+  }
+  if (dim === 2) return [];
+  const r1 = dim / 2 - 1;
+  const r2 = dim / 2;
+  return [
+    r1 * dim + r1,
+    r1 * dim + r2,
+    r2 * dim + r1,
+    r2 * dim + r2
+  ];
+}
+
+/**
+ * Tính độ tương đồng cực đại giữa hai ma trận mặt (dim x dim) qua cả 4 phép xoay 2D (0°, 90°, 180°, 270°).
+ * Dùng để phát hiện Camera vẫn đang soi cùng một mặt (chống tự chốt trùng mặt kế tiếp trên khối chẵn).
+ */
+export function computeFaceMatrixSimilarity(faceA, faceB, dim = 3) {
+  const total = dim * dim;
+  if (!Array.isArray(faceA) || !Array.isArray(faceB) || faceA.length < total || faceB.length < total) {
+    return 0;
+  }
+  let bestRate = 0;
+  let cur = faceA.slice(0, total);
+  for (let rot = 0; rot < 4; rot++) {
+    let compared = 0;
+    let matched = 0;
+    for (let i = 0; i < total; i++) {
+      const a = cur[i];
+      const b = faceB[i];
+      if (a && a !== 'invalid' && b && b !== 'invalid') {
+        compared++;
+        if (a === b) matched++;
+      }
+    }
+    if (compared >= Math.max(2, Math.ceil(total * 0.45))) {
+      const rate = matched / compared;
+      if (rate > bestRate) bestRate = rate;
+    }
+    cur = rotateFaceMatrix(cur, dim, true);
+  }
+  return bestRate;
+}
+
+/**
+ * Chọn mặt còn thiếu tiếp theo theo đúng thứ tự chuẩn quay WCA (F -> R -> B -> L -> U -> D).
+ */
+export function getNextScanTargetFace(scannedFaces = {}, preferredOrder = EVEN_CUBE_SCAN_SEQUENCE) {
+  for (const key of preferredOrder) {
+    if (!scannedFaces || !Array.isArray(scannedFaces[key]) || scannedFaces[key].length === 0) {
+      return key;
+    }
+  }
+  return preferredOrder[0] || 'F';
+}
+
+/**
+ * Hợp nhất Nguyên lý Định danh mặt cho cả khối Lẻ (Fixed Core) và khối Chẵn (2x2, 4x4, 6x6):
+ * - Khối lẻ: Ánh xạ đơn trị qua màu ô tâm duy nhất.
+ * - Khối chẵn:
+ *   + Nếu mặt đồng màu (1 màu duy nhất trên toàn mặt): ánh xạ thẳng sang mặt chuẩn (COLOR_TO_FACE_CODE).
+ *   + Nếu mặt đã xáo trộn (>= 2 màu): gán theo Hệ quy chiếu tuần tự WCA (`activeTargetFace`) kết hợp
+ *     đo đồng thuận cụm tâm 2x2 (chẩn đoán) & kiểm tra sai khác với mặt vừa chốt (`isDuplicateOfLastFace`).
+ */
+export function resolveCubeFaceAssignment({
+  colors = [],
+  dim = 3,
+  scannedFaces = {},
+  activeTargetFace = 'F',
+  lastCapturedMatrix = null,
+  isAllSameColor = false
+} = {}) {
+  const isEvenCube = dim % 2 === 0;
+  const centerIndices = getInnerCenterIndices(dim);
+  const validColors = colors.filter((c) => c && c !== 'invalid');
+  const uniqueColors = [...new Set(validColors)];
+
+  if (!isEvenCube) {
+    const cIdx = centerIndices[0];
+    const centerColor = colors[cIdx] && colors[cIdx] !== 'invalid' ? colors[cIdx] : null;
+    const mappedFace = centerColor ? (COLOR_TO_FACE_CODE[centerColor] || null) : null;
+    return {
+      isEvenCube: false,
+      strategy: 'fixed_core_center',
+      centerIndices,
+      dominantCenterColor: centerColor,
+      clusterAgreementCount: centerColor ? 1 : 0,
+      mappedFace,
+      hasAmbiguousCenter: !centerColor,
+      similarityWithLast: 0,
+      isDuplicateOfLastFace: false
+    };
+  }
+
+  // Đo đồng thuận cụm tâm 2x2 (4x4, 6x6) để chẩn đoán/hiển thị
+  const clusterCounts = {};
+  let dominantCenterColor = null;
+  let clusterAgreementCount = 0;
+  for (const idx of centerIndices) {
+    const col = colors[idx];
+    if (col && col !== 'invalid') {
+      clusterCounts[col] = (clusterCounts[col] || 0) + 1;
+      if (clusterCounts[col] > clusterAgreementCount) {
+        clusterAgreementCount = clusterCounts[col];
+        dominantCenterColor = col;
+      }
+    }
+  }
+
+  // Trường hợp 1: Mặt đang đồng 1 màu duy nhất (khối đã giải hoặc 1 mặt chưa phá)
+  if ((isAllSameColor || uniqueColors.length === 1) && validColors.length >= Math.max(3, Math.ceil(dim * dim * 0.8))) {
+    const solidColor = uniqueColors[0];
+    return {
+      isEvenCube: true,
+      strategy: 'even_solid_face',
+      centerIndices,
+      dominantCenterColor: solidColor,
+      clusterAgreementCount: centerIndices.length,
+      mappedFace: COLOR_TO_FACE_CODE[solidColor] || activeTargetFace || 'F',
+      hasAmbiguousCenter: false,
+      similarityWithLast: 0,
+      isDuplicateOfLastFace: false
+    };
+  }
+
+  // Trường hợp 2: Khối chẵn đang xáo trộn -> Hệ quy chiếu tuần tự 3D + Anti-Duplicate Hamming Guard
+  const similarityWithLast = lastCapturedMatrix
+    ? computeFaceMatrixSimilarity(colors, lastCapturedMatrix, dim)
+    : 0;
+  const isDuplicateOfLastFace = Boolean(lastCapturedMatrix) && similarityWithLast >= 0.78;
+  const fallbackTarget = activeTargetFace && EVEN_CUBE_SCAN_SEQUENCE.includes(activeTargetFace)
+    ? activeTargetFace
+    : getNextScanTargetFace(scannedFaces, EVEN_CUBE_SCAN_SEQUENCE);
+
+  return {
+    isEvenCube: true,
+    strategy: 'even_sequential_wca',
+    centerIndices,
+    dominantCenterColor: clusterAgreementCount >= 3 ? dominantCenterColor : null,
+    clusterAgreementCount,
+    mappedFace: fallbackTarget,
+    hasAmbiguousCenter: centerIndices.length === 0 || clusterAgreementCount < 4,
+    similarityWithLast,
+    isDuplicateOfLastFace
+  };
+}

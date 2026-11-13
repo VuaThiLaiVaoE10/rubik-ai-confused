@@ -32,6 +32,15 @@ import {
 import { calculateAo } from '../utils/timerStats';
 import { isSoundMuted, setSoundMuted, playSoundEffect } from '../utils/soundEngine';
 import { buildScrambledFaces } from '../components/Rubik3DView';
+import {
+  EVEN_CUBE_SCAN_SEQUENCE,
+  getInnerCenterIndices,
+  computeFaceMatrixSimilarity,
+  getNextScanTargetFace,
+  resolveCubeFaceAssignment,
+  rotateFaceMatrix,
+  calculateScrambleMatch
+} from '../utils/rubikSolver';
 
 describe('WCA Scramble Generator & Config', () => {
   it('generates valid scrambles for 2x2 through 7x7 without consecutive same-face moves', () => {
@@ -306,5 +315,59 @@ describe('Security Shield & ELO Ranking', () => {
       for (const col of faces[f]) counts[col]++;
     }
     expect(counts).toEqual({ white: 9, yellow: 9, red: 9, orange: 9, green: 9, blue: 9 });
+  });
+
+  it('applies Even-Cube (2x2, 4x4, 6x6) center cluster, 2D rotation-invariant duplicate guard, and sequential WCA orientation invariants', () => {
+    // 1. Inner center index geometry
+    expect(getInnerCenterIndices(2)).toEqual([]);
+    expect(getInnerCenterIndices(3)).toEqual([4]);
+    expect(getInnerCenterIndices(4)).toEqual([5, 6, 9, 10]);
+    expect(getInnerCenterIndices(5)).toEqual([12]);
+    expect(getInnerCenterIndices(6)).toEqual([14, 15, 20, 21]);
+
+    // 2. 4x4 WCA scramble including wide moves splits center blocks & preserves 16-per-color conservation
+    const scram = "Uw Rw' F2 U R' Fw2 L D' Bw R2";
+    const cube4 = buildScrambledFaces(4, scram);
+    expect(cube4.F.length).toBe(16);
+
+    // Same face held in front of camera even rotated 90 deg must trigger Anti-Duplicate Hamming Guard
+    const fRot90 = rotateFaceMatrix(cube4.F, 4, true);
+    expect(computeFaceMatrixSimilarity(fRot90, cube4.F, 4)).toBe(1);
+    const dupCheck = resolveCubeFaceAssignment({
+      colors: fRot90,
+      dim: 4,
+      scannedFaces: { F: cube4.F },
+      activeTargetFace: 'R',
+      lastCapturedMatrix: cube4.F
+    });
+    expect(dupCheck.strategy).toBe('even_sequential_wca');
+    expect(dupCheck.mappedFace).toBe('R');
+    expect(dupCheck.isDuplicateOfLastFace).toBe(true);
+
+    // Actually rotating 90 deg to face R clears the duplicate guard
+    const newFaceCheck = resolveCubeFaceAssignment({
+      colors: cube4.R,
+      dim: 4,
+      scannedFaces: { F: cube4.F },
+      activeTargetFace: 'R',
+      lastCapturedMatrix: cube4.F
+    });
+    expect(newFaceCheck.mappedFace).toBe('R');
+    expect(newFaceCheck.isDuplicateOfLastFace).toBe(false);
+
+    // Next missing target follows F -> R -> B -> L -> U -> D
+    expect(EVEN_CUBE_SCAN_SEQUENCE).toEqual(['F', 'R', 'B', 'L', 'U', 'D']);
+    expect(getNextScanTargetFace({ F: cube4.F, R: cube4.R }, EVEN_CUBE_SCAN_SEQUENCE)).toBe('B');
+
+    // Solved 4x4 face resolves solidly by color
+    const solvedWhite = Array(16).fill('white');
+    const solidCheck = resolveCubeFaceAssignment({ colors: solvedWhite, dim: 4, isAllSameColor: true });
+    expect(solidCheck.strategy).toBe('even_solid_face');
+    expect(solidCheck.mappedFace).toBe('U');
+
+    // Scanning all 6 faces under WCA sequential order verifies 100% against scramble
+    const audit = calculateScrambleMatch(scram, cube4, 4, 6);
+    expect(audit.isMatch).toBe(true);
+    expect(audit.matchRate).toBe(100);
   });
 });

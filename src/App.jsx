@@ -4,7 +4,16 @@ import ThemeAmbientFx from './components/ThemeAmbientFx';
 const Rubik3DView = lazy(() => import('./components/Rubik3DView'));
 const Solo1v1Arena = lazy(() => import('./components/Solo1v1Arena'));
 const HumanCheckModal = lazy(() => import('./components/HumanCheckModal'));
-import { calculateScrambleMatch } from './utils/rubikSolver';
+import {
+  calculateScrambleMatch,
+  EVEN_CUBE_SCAN_SEQUENCE,
+  EVEN_CUBE_ROTATION_GUIDES,
+  COLOR_TO_FACE_CODE,
+  getInnerCenterIndices,
+  computeFaceMatrixSimilarity,
+  getNextScanTargetFace,
+  resolveCubeFaceAssignment
+} from './utils/rubikSolver';
 import { solveWithKociemba, initKociembaSolver, verifyCubeStateWithKociemba, solveScannedFacesWithKociemba, getMoveExplanationVi } from './kociemba';
 import {
   detectAutomation,
@@ -639,6 +648,24 @@ export default function App() {
     scannedFacesRef.current = scannedFaces;
   }, [scannedFaces]);
 
+  // Bộ nhớ chuyên biệt cho Khối Chẵn (2x2, 4x4, 6x6):
+  // Đếm frame giữ ổn định, chống chốt trùng mặt liền trước bằng Hamming Distance
+  const evenAutoHoldStreakRef = useRef(0);
+  const evenPrevPreviewColorsRef = useRef(null);
+  const lastEvenCapturedRef = useRef(null);
+
+  const resetScanMemory = useCallback((nextDimOverride) => {
+    const targetDim = nextDimOverride ?? (PUZZLE_CONFIGS[puzzleTypeRef.current]?.dim || 3);
+    setScannedFaces({});
+    scannedFacesRef.current = {};
+    evenAutoHoldStreakRef.current = 0;
+    evenPrevPreviewColorsRef.current = null;
+    lastEvenCapturedRef.current = null;
+    const defaultFace = targetDim % 2 === 0 ? EVEN_CUBE_SCAN_SEQUENCE[0] : 'F';
+    setCurrentActiveFace(defaultFace);
+    currentActiveFaceRef.current = defaultFace;
+  }, []);
+
   // =========================================================================
   // QUY TRÌNH 3 BƯỚC SPEEDCUBING WCA (THEO YÊU CẦU NGƯỜI DÙNG):
   // 1. 'step1_check_scb': Kiểm tra Scramble (quét 6 mặt mặc định hoặc 3 mặt)
@@ -698,9 +725,9 @@ export default function App() {
   // Chuyển sang lượt giải tiếp theo (Tạo Scramble mới & quay về Bước 1)
   const startNextSolveRound = useCallback(() => {
     const nextP = puzzleTypeRef.current;
+    const nextDim = PUZZLE_CONFIGS[nextP]?.dim || 3;
     setScramble(generateScramble(nextP));
-    setScannedFaces({});
-    scannedFacesRef.current = {};
+    resetScanMemory(nextDim);
     setAllowFreestyleScramble(false);
     allowFreestyleScrambleRef.current = false;
     setTimeMs(0);
@@ -816,10 +843,15 @@ export default function App() {
       // Khóa ô này trong bộ nhớ override để camera không ghi đè lại
       manualStickerOverridesRef.current[stickerIndex] = nextColor;
 
-      // Đồng bộ ngay vào mặt hiện tại nếu đang quét
-      const centerColor = next[4] && RUBIK_COLOR_CYCLE.includes(next[4]) ? next[4] : 'white';
-      const faceCodeMap = { white: 'U', yellow: 'D', red: 'R', orange: 'L', green: 'F', blue: 'B' };
-      const currentFace = faceCodeMap[centerColor] || currentActiveFaceRef.current || 'F';
+      // Đồng bộ ngay vào mặt hiện tại nếu đang quét (hỗ trợ cả khối lẻ lẫn khối chẵn)
+      const curDim = PUZZLE_CONFIGS[puzzleTypeRef.current]?.dim || 3;
+      const resolution = resolveCubeFaceAssignment({
+        colors: next,
+        dim: curDim,
+        scannedFaces: scannedFacesRef.current,
+        activeTargetFace: currentActiveFaceRef.current || 'F'
+      });
+      const currentFace = resolution.mappedFace || currentActiveFaceRef.current || 'F';
       if (scannedFacesRef.current && scannedFacesRef.current[currentFace]) {
         const updatedFace = [...scannedFacesRef.current[currentFace]];
         updatedFace[stickerIndex] = nextColor;
@@ -880,43 +912,50 @@ export default function App() {
     return () => clearInterval(interval);
   }, [kociembaIsPlaying, activeMovesList]);
 
-  // Chụp & Lưu mặt Rubik đang hiện trên Camera (Tương đương phím Space trong file quet_rubik_6_mat.py)
+  // Chụp & Lưu mặt Rubik đang hiện trên Camera (hỗ trợ cả khối lẻ 3/5/7 lẫn khối chẵn 2/4/6)
   const captureCurrentFace = useCallback(() => {
     if (!cameraActiveRef.current) {
       setLastNotice({ type: 'warning', text: '📷 Hãy nhấn "Bật Cam" trước khi chụp mặt Rubik!' });
       return;
     }
+    const curDim = PUZZLE_CONFIGS[puzzleTypeRef.current]?.dim || 3;
+    const totalCells = curDim * curDim;
+    const minValidReq = Math.max(3, Math.ceil(totalCells * 0.65));
     const colors = detectedColors;
     const validCount = colors.filter(c => c && c !== 'invalid').length;
-    if (validCount < 7) {
+    if (validCount < minValidReq) {
       setLastNotice({
         type: 'warning',
-        text: `⚠️ Chưa nhận diện rõ các ô (${validCount}/9 ô). Căn chỉnh khối vuông góc vào giữa khung ngắm!`
+        text: `⚠️ Chưa nhận diện rõ các ô (${validCount}/${totalCells} ô). Căn chỉnh khối vuông góc vào giữa khung ngắm!`
       });
       return;
     }
-    const faceCodeMap = {
-      white: 'U',
-      yellow: 'D',
-      red: 'R',
-      orange: 'L',
-      green: 'F',
-      blue: 'B'
-    };
-    const centerColor = colors[4];
-    const mappedFace = faceCodeMap[centerColor] || currentActiveFaceRef.current || 'F';
+    const resolution = resolveCubeFaceAssignment({
+      colors,
+      dim: curDim,
+      scannedFaces: scannedFacesRef.current,
+      activeTargetFace: currentActiveFaceRef.current || (curDim % 2 === 0 ? EVEN_CUBE_SCAN_SEQUENCE[0] : 'F')
+    });
+    const mappedFace = resolution.mappedFace || currentActiveFaceRef.current || 'F';
     const nextFaces = {
       ...(scannedFacesRef.current || {}),
       [mappedFace]: [...colors]
     };
     scannedFacesRef.current = nextFaces;
     setScannedFaces(nextFaces);
+    if (curDim % 2 === 0) {
+      lastEvenCapturedRef.current = { face: mappedFace, matrix: [...colors] };
+      evenAutoHoldStreakRef.current = 0;
+      evenPrevPreviewColorsRef.current = null;
+    }
     manualStickerOverridesRef.current = {};
     playAppSound('ready');
 
-    const order = ['U', 'R', 'F', 'D', 'L', 'B'];
+    const order = curDim % 2 === 0 ? EVEN_CUBE_SCAN_SEQUENCE : ['U', 'R', 'F', 'D', 'L', 'B'];
     const currentKeys = Object.keys(nextFaces);
-    const missing = order.filter(f => !currentKeys.includes(f));
+    const nextTarget = getNextScanTargetFace(nextFaces, order);
+    setCurrentActiveFace(nextTarget);
+    currentActiveFaceRef.current = nextTarget;
     const targetCount = adminSettingsRef.current?.requiredPreCheckFaces === 6 ? 6 : 3;
 
     if (currentKeys.length >= targetCount) {
@@ -932,14 +971,18 @@ export default function App() {
       setKociembaCurrentStep(0);
       setLastNotice({
         type: 'success',
-        text: `🎉 ĐÃ QUÉT ĐỦ ${targetCount} MẶT! Chuyển sang Bước 2: Kociemba đã sẵn sàng, hãy bấm giờ để giải!`
+        text: `🎉 ĐÃ QUÉT ĐỦ ${targetCount} MẶT! Chuyển sang Bước 2: Hãy bấm giờ để giải!`
+      });
+    } else if (curDim % 2 === 0) {
+      setLastNotice({
+        type: 'success',
+        text: `📸 ĐÃ LƯU MẶT ${mappedFace} (${currentKeys.length}/${targetCount})! ${EVEN_CUBE_ROTATION_GUIDES[nextTarget]?.turnTip || ''}`
       });
     } else {
-      const nextFacePrompt = missing[0] || 'tiếp theo';
       const faceNameMap = { U: 'Trên (Trắng)', R: 'Phải (Đỏ)', F: 'Trước (Xanh lá)', D: 'Dưới (Vàng)', L: 'Trái (Cam)', B: 'Sau (Xanh dương)' };
       setLastNotice({
         type: 'success',
-        text: `📸 ĐÃ LƯU MẶT ${mappedFace}! Tiếp theo: Hãy xoay sang mặt ${nextFacePrompt} - ${faceNameMap[nextFacePrompt] || ''}`
+        text: `📸 ĐÃ LƯU MẶT ${mappedFace}! Tiếp theo: Hãy xoay sang mặt ${nextTarget} - ${faceNameMap[nextTarget] || ''}`
       });
     }
   }, [detectedColors, playAppSound]);
@@ -1297,8 +1340,7 @@ export default function App() {
     setPuzzleType(type);
     localStorage.setItem('rubik_puzzle_type', type);
     setScramble(generateScramble(type));
-    setScannedFaces({});
-    scannedFacesRef.current = {};
+    resetScanMemory(PUZZLE_CONFIGS[type]?.dim || 3);
     setAllowFreestyleScramble(false);
     setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
     setTrackedMoves([]);
@@ -1986,8 +2028,8 @@ export default function App() {
   useEffect(() => {
     puzzleTypeRef.current = puzzleType;
     setDetectedColors(Array(currentDim * currentDim).fill('invalid'));
-    setScannedFaces({});
-  }, [puzzleType, currentDim]);
+    resetScanMemory(currentDim);
+  }, [puzzleType, currentDim, resetScanMemory]);
   useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
   useEffect(() => { adminSettingsRef.current = adminSettings; }, [adminSettings]);
   useEffect(() => { leaderboardsRef.current = leaderboards; }, [leaderboards]);
@@ -3035,37 +3077,42 @@ export default function App() {
           return;
         }
 
-        const centerIdx = dim % 2 === 1 ? Math.floor((dim * dim) / 2) : 0;
-        let rawCenterColor = currentNxNColors[centerIdx];
+        const isEvenCube = dim % 2 === 0;
+        const centerIdx = Math.floor((dim * dim) / 2);
+        let rawCenterColor = !isEvenCube ? currentNxNColors[centerIdx] : 'invalid';
 
-        // TỰ ĐỘNG KHÔI PHỤC MÀU Ô SỐ 5 (TÂM) NẾU BỊ LÓA SÁNG/CHÓI (AI TỰ NHẬN DIỆN 100%)
-        if (rawCenterColor === 'invalid' && bestRegion.cellStats && bestRegion.cellStats[centerIdx]) {
-          const centerStat = bestRegion.cellStats[centerIdx];
-          const autoFallback = classifyCenterStickerFallback(centerStat.avgR, centerStat.avgG, centerStat.avgB);
-          if (autoFallback !== 'invalid') {
-            rawCenterColor = autoFallback;
-            currentNxNColors[centerIdx] = autoFallback;
+        if (!isEvenCube) {
+          // KHỐI LẺ (3x3, 5x5, 7x7): TỰ ĐỘNG KHÔI PHỤC MÀU Ô TÂM ĐƠN NẾU BỊ LÓA SÁNG/CHÓI
+          if (rawCenterColor === 'invalid' && bestRegion.cellStats && bestRegion.cellStats[centerIdx]) {
+            const centerStat = bestRegion.cellStats[centerIdx];
+            const autoFallback = classifyCenterStickerFallback(centerStat.avgR, centerStat.avgG, centerStat.avgB);
+            if (autoFallback !== 'invalid') {
+              rawCenterColor = autoFallback;
+              currentNxNColors[centerIdx] = autoFallback;
+            }
           }
-        }
-        if (rawCenterColor === 'invalid' && temporalBufferRef.current.length > 0) {
-          for (let b = temporalBufferRef.current.length - 1; b >= 0; b--) {
-            const pastCol = temporalBufferRef.current[b]?.[centerIdx];
-            if (pastCol && pastCol !== 'invalid') {
-              rawCenterColor = pastCol;
-              currentNxNColors[centerIdx] = pastCol;
-              break;
+          if (rawCenterColor === 'invalid' && temporalBufferRef.current.length > 0) {
+            for (let b = temporalBufferRef.current.length - 1; b >= 0; b--) {
+              const pastCol = temporalBufferRef.current[b]?.[centerIdx];
+              if (pastCol && pastCol !== 'invalid') {
+                rawCenterColor = pastCol;
+                currentNxNColors[centerIdx] = pastCol;
+                break;
+              }
             }
           }
         }
 
         const validColorsOnly = currentNxNColors.filter(c => c !== 'invalid');
-        const manualCenter = manualStickerOverridesRef.current[centerIdx];
-        const effectiveCenterColor = (manualCenter && RUBIK_COLOR_CYCLE.includes(manualCenter))
-          ? manualCenter
-          : (rawCenterColor !== 'invalid' ? rawCenterColor : null);
-        const centerDef = effectiveCenterColor ? COLOR_DEFINITIONS[effectiveCenterColor] : null;
-        const centerName = centerDef ? centerDef.name : 'Chưa rõ (lóa sáng)';
         const uniqueColorsCount = new Set(validColorsOnly).size;
+        const solidColorCandidate = uniqueColorsCount === 1 ? validColorsOnly[0] : null;
+        const manualCenter = !isEvenCube ? manualStickerOverridesRef.current[centerIdx] : null;
+        const effectiveCenterColor = isEvenCube
+          ? solidColorCandidate
+          : ((manualCenter && RUBIK_COLOR_CYCLE.includes(manualCenter))
+              ? manualCenter
+              : (rawCenterColor !== 'invalid' ? rawCenterColor : null));
+
         const isAllSameColor =
           hasCubeSignal &&
           Boolean(bestRegion.isGeometricallyVerifiedCube) &&
@@ -3083,77 +3130,149 @@ export default function App() {
           !bestRegion.isMostlySkinOrWood &&
           bestRegion.score > 25 &&
           validColorsCount >= minStickersRequired &&
-          vividColorsCount >= minVividRequired &&
+          vividColorsCount >= Math.max(2, Math.floor(dim * dim * 0.25)) &&
           uniqueColorsCount >= minUniqueForScramble &&
           (sharpAdjacentEdges >= 1 || bestRegion.colorTransitions >= 2);
 
-        // Ánh xạ màu mặt đang quét vào bộ nhớ 6 mặt của khối 3D (hỗ trợ lưu cả các mặt CHƯA GIẢI lẫn mặt đã giải)
-        const faceCodeMap = {
-          white: 'U',
-          yellow: 'D',
-          red: 'R',
-          orange: 'L',
-          green: 'F',
-          blue: 'B'
-        };
-        const mappedFace = effectiveCenterColor ? faceCodeMap[effectiveCenterColor] : null;
+        // HỢP NHẤT NGUYÊN LÝ ĐỊNH DANH MẶT (LẺ: Tâm đơn cố định | CHẴN: Tuần tự WCA F->R->B->L->U->D + Anti-Duplicate Hamming)
+        const evenOrder = isEvenCube ? EVEN_CUBE_SCAN_SEQUENCE : ['U', 'R', 'F', 'D', 'L', 'B'];
+        const activeTargetFace = isEvenCube
+          ? (EVEN_CUBE_SCAN_SEQUENCE.includes(currentActiveFaceRef.current)
+              ? currentActiveFaceRef.current
+              : getNextScanTargetFace(scannedFacesRef.current, EVEN_CUBE_SCAN_SEQUENCE))
+          : 'F';
+        const faceAssignment = resolveCubeFaceAssignment({
+          colors: currentNxNColors,
+          dim,
+          scannedFaces: scannedFacesRef.current,
+          activeTargetFace,
+          lastCapturedMatrix: isEvenCube ? (lastEvenCapturedRef.current?.matrix || null) : null,
+          isAllSameColor
+        });
+
+        const centerDef = faceAssignment.dominantCenterColor
+          ? COLOR_DEFINITIONS[faceAssignment.dominantCenterColor]
+          : null;
+        const centerName = isEvenCube
+          ? (faceAssignment.strategy === 'even_solid_face' && centerDef
+              ? `Đồng màu ${centerDef.name}`
+              : (faceAssignment.dominantCenterColor && dim >= 4
+                  ? `Tâm 2×2: ${COLOR_DEFINITIONS[faceAssignment.dominantCenterColor]?.name} (${faceAssignment.clusterAgreementCount}/4)`
+                  : `Quy chiếu WCA ${faceAssignment.mappedFace}`))
+          : (centerDef ? centerDef.name : 'Chưa rõ (lóa sáng)');
+
+        const mappedFace = faceAssignment.mappedFace;
         let updatedFacesCount = Object.keys(scannedFacesRef.current || {}).length;
         let colorOverflowDetected = false;
         let overflowColorName = '';
         let faceChanged = false;
+        let evenHoldPct = 0;
+        let evenWaitingNextTurn = false;
 
         if (mappedFace && (isGenuineScrambledCube || isAllSameColor)) {
-          const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
-          // TUYỆT ĐỐI không điền màu tâm vào các ô invalid, giữ nguyên 'invalid' để báo cho người dùng biết ô chưa quét được
-          const cleanedFaceColors = currentNxNColors.map((col, idx) =>
-            col !== 'invalid' ? col : (prevFaceColors[idx] || 'invalid')
-          );
+          let shouldCommitFace = true;
 
-          // KIỂM ĐỊNH BẢO TOÀN ĐỊNH LUẬT MÀU RUBIK TỪ 2x2 ĐẾN 7x7:
-          // Mỗi màu chỉ được xuất hiện tối đa dim * dim ô trên toàn bộ 6 mặt (2x2: 4, 3x3: 9, 4x4: 16, 5x5: 25, 6x6: 36, 7x7: 49)
-          const maxAllowedPerColor = dim * dim;
-          const otherFaceUsage = { white: 0, yellow: 0, red: 0, orange: 0, green: 0, blue: 0 };
-          const otherFaces = { ...(scannedFacesRef.current || {}) };
-          delete otherFaces[mappedFace];
-          Object.values(otherFaces).forEach(fArr => {
-            if (Array.isArray(fArr)) {
-              fArr.forEach(c => {
-                if (otherFaceUsage.hasOwnProperty(c)) otherFaceUsage[c]++;
-              });
-            }
-          });
+          // Với KHỐI CHẴN đang xáo trộn: chỉ tự chốt khi ĐÃ xoay sang mặt khác (không trùng mặt vừa chốt)
+          // VÀ giữ ổn định liên tục >= 7 khung hình (~0.9s) để tránh ghi đè nhầm mặt
+          if (isEvenCube && isGenuineScrambledCube && !isAllSameColor) {
+            const isSameAsLastCommitted =
+              Boolean(lastEvenCapturedRef.current) &&
+              lastEvenCapturedRef.current.face !== mappedFace &&
+              faceAssignment.isDuplicateOfLastFace;
 
-          const currentTally = { ...otherFaceUsage };
-          const validatedFaceColors = cleanedFaceColors.map(c => {
-            if (!c || c === 'invalid' || !currentTally.hasOwnProperty(c)) return 'invalid';
-            if (currentTally[c] < maxAllowedPerColor) {
-              currentTally[c]++;
-              return c;
+            if (isSameAsLastCommitted) {
+              shouldCommitFace = false;
+              evenAutoHoldStreakRef.current = 0;
+              evenWaitingNextTurn = true;
+            } else if (scannedFacesRef.current?.[mappedFace] && lastEvenCapturedRef.current?.face === mappedFace) {
+              // Mặt đang nhắm đã được chốt ở phiên gần nhất -> không ghi đè liên tục
+              shouldCommitFace = false;
             } else {
-              colorOverflowDetected = true;
-              overflowColorName = COLOR_DEFINITIONS[c]?.name || c;
-              return 'invalid'; // Chặn đứng việc có 10 ô màu xanh trên 3x3 hoặc thừa màu trên 4x4..7x7!
+              const prevPreview = evenPrevPreviewColorsRef.current;
+              const simWithPrevFrame = prevPreview
+                ? computeFaceMatrixSimilarity(currentNxNColors, prevPreview, dim)
+                : 0;
+              if (!isMovingNow && simWithPrevFrame >= 0.84) {
+                evenAutoHoldStreakRef.current += 1;
+              } else {
+                evenAutoHoldStreakRef.current = 1;
+                evenPrevPreviewColorsRef.current = [...currentNxNColors];
+              }
+              const EVEN_HOLD_THRESHOLD = 7;
+              evenHoldPct = Math.min(100, Math.round((evenAutoHoldStreakRef.current / EVEN_HOLD_THRESHOLD) * 100));
+              if (evenAutoHoldStreakRef.current < EVEN_HOLD_THRESHOLD) {
+                shouldCommitFace = false;
+              }
             }
-          });
+          }
 
-          // Nếu có quá nhiều ô bị xung đột thừa màu (> 45% số ô) -> Khối đang bị nhìn nghiêng dính mặt bên
-          const invalidInThisFace = validatedFaceColors.filter(c => c === 'invalid').length;
-          const isTiltedSideFace = invalidInThisFace > Math.floor(dim * dim * 0.45);
+          if (shouldCommitFace) {
+            const prevFaceColors = scannedFacesRef.current?.[mappedFace] || [];
+            // TUYỆT ĐỐI không điền màu tâm vào các ô invalid, giữ nguyên 'invalid' để báo cho người dùng biết ô chưa quét được
+            const cleanedFaceColors = currentNxNColors.map((col, idx) =>
+              col !== 'invalid' ? col : (prevFaceColors[idx] || 'invalid')
+            );
 
-          if (!isTiltedSideFace) {
-            const prevFace = scannedFacesRef.current?.[mappedFace];
-            faceChanged = !prevFace || validatedFaceColors.some((c, i) => c !== prevFace[i]);
-            if (faceChanged) {
-              const nextFaces = {
-                ...(scannedFacesRef.current || {}),
-                [mappedFace]: validatedFaceColors
-              };
-              scannedFacesRef.current = nextFaces;
-              updatedFacesCount = Object.keys(nextFaces).length;
-              setScannedFaces(nextFaces);
-              setCurrentActiveFace(mappedFace);
-              currentActiveFaceRef.current = mappedFace;
+            // KIỂM ĐỊNH BẢO TOÀN ĐỊNH LUẬT MÀU RUBIK TỪ 2x2 ĐẾN 7x7:
+            // Mỗi màu chỉ được xuất hiện tối đa dim * dim ô trên toàn bộ 6 mặt (2x2: 4, 3x3: 9, 4x4: 16, 5x5: 25, 6x6: 36, 7x7: 49)
+            const maxAllowedPerColor = dim * dim;
+            const otherFaceUsage = { white: 0, yellow: 0, red: 0, orange: 0, green: 0, blue: 0 };
+            const otherFaces = { ...(scannedFacesRef.current || {}) };
+            delete otherFaces[mappedFace];
+            Object.values(otherFaces).forEach(fArr => {
+              if (Array.isArray(fArr)) {
+                fArr.forEach(c => {
+                  if (otherFaceUsage.hasOwnProperty(c)) otherFaceUsage[c]++;
+                });
+              }
+            });
+
+            const currentTally = { ...otherFaceUsage };
+            const validatedFaceColors = cleanedFaceColors.map(c => {
+              if (!c || c === 'invalid' || !currentTally.hasOwnProperty(c)) return 'invalid';
+              if (currentTally[c] < maxAllowedPerColor) {
+                currentTally[c]++;
+                return c;
+              } else {
+                colorOverflowDetected = true;
+                overflowColorName = COLOR_DEFINITIONS[c]?.name || c;
+                return 'invalid'; // Chặn đứng việc có 10 ô màu xanh trên 3x3 hoặc thừa màu trên 4x4..7x7!
+              }
+            });
+
+            // Nếu có quá nhiều ô bị xung đột thừa màu (> 45% số ô) -> Khối đang bị nhìn nghiêng dính mặt bên
+            const invalidInThisFace = validatedFaceColors.filter(c => c === 'invalid').length;
+            const isTiltedSideFace = invalidInThisFace > Math.floor(dim * dim * 0.45);
+
+            if (!isTiltedSideFace) {
+              const prevFace = scannedFacesRef.current?.[mappedFace];
+              faceChanged = !prevFace || validatedFaceColors.some((c, i) => c !== prevFace[i]);
+              if (faceChanged || (isEvenCube && isGenuineScrambledCube)) {
+                const nextFaces = {
+                  ...(scannedFacesRef.current || {}),
+                  [mappedFace]: validatedFaceColors
+                };
+                scannedFacesRef.current = nextFaces;
+                updatedFacesCount = Object.keys(nextFaces).length;
+                setScannedFaces(nextFaces);
+
+                if (isEvenCube && isGenuineScrambledCube && !isAllSameColor) {
+                  lastEvenCapturedRef.current = { face: mappedFace, matrix: [...validatedFaceColors] };
+                  evenAutoHoldStreakRef.current = 0;
+                  evenPrevPreviewColorsRef.current = null;
+                  const nextTarget = getNextScanTargetFace(nextFaces, evenOrder);
+                  setCurrentActiveFace(nextTarget);
+                  currentActiveFaceRef.current = nextTarget;
+                  playAppSound('ready');
+                } else {
+                  setCurrentActiveFace(mappedFace);
+                  currentActiveFaceRef.current = mappedFace;
+                }
+              }
             }
+          } else if (isEvenCube && currentActiveFaceRef.current !== mappedFace) {
+            setCurrentActiveFace(mappedFace);
+            currentActiveFaceRef.current = mappedFace;
           }
         }
 
@@ -3187,15 +3306,19 @@ export default function App() {
           resolvedModel3D = {
             verified: false,
             badgeText: '🔍 ĐANG QUÉT TÂM',
-            statusTitle: '🔍 AI đang định vị Ô số 5 (Tâm)...',
-            detailText: 'Hướng mặt Rubik thẳng vào khung ngắm để AI tự động nhận diện màu tâm.',
+            statusTitle: isEvenCube ? `🔍 AI đang định vị khối ${dim}×${dim}...` : '🔍 AI đang định vị Ô tâm...',
+            detailText: isEvenCube
+              ? (EVEN_CUBE_ROTATION_GUIDES[activeTargetFace]?.turnTip || 'Hướng thẳng mặt Rubik vào khung ngắm.')
+              : 'Hướng mặt Rubik thẳng vào khung ngắm để AI tự động nhận diện màu tâm.',
             facesCount: updatedFacesCount,
             validStickers: validColorsCount
           };
           if (cameraActive && (timerStateRef.current === 'idle' || timerStateRef.current === 'inspecting')) {
             setPreCheckThrottled({
               verified: false,
-              text: '🎯 HƯỚNG MẶT VÀO KHUNG NGẮM: AI đang tự động nhận diện màu Ô số 5 (tâm)...',
+              text: isEvenCube
+                ? `📐 QUY CHIẾU KHỐI CHẴN (${dim}×${dim}): ${EVEN_CUBE_ROTATION_GUIDES[activeTargetFace]?.turnTip || ''}`
+                : '🎯 HƯỚNG MẶT VÀO KHUNG NGẮM: AI đang tự động nhận diện màu ô tâm...',
               isScrambled: false,
               centerFace: null,
               scannedCount: currentScannedKeys.length,
@@ -3226,6 +3349,21 @@ export default function App() {
               facesCount: updatedFacesCount,
               validStickers: validColorsCount
             };
+          } else if (isEvenCube) {
+            const rotGuide = EVEN_CUBE_ROTATION_GUIDES[mappedFace];
+            const evenTip = evenWaitingNextTurn
+              ? `🔄 Đã khóa mặt ${lastEvenCapturedRef.current?.face} — ${rotGuide?.turnTip || `Xoay sang mặt ${mappedFace}`}`
+              : (evenHoldPct > 0
+                  ? `⏳ Đang giữ mặt ${mappedFace} (${evenHoldPct}%) — Giữ yên ~1s tự chốt hoặc bấm [C]`
+                  : (rotGuide?.turnTip || `Đang quét mặt ${mappedFace}`));
+            resolvedModel3D = {
+              verified: !reqPreCheck,
+              badgeText: evenWaitingNextTurn ? `🔄 XOAY SANG ${mappedFace}` : `📐 MẶT ${mappedFace} (${updatedFacesCount}/${targetFaceCount})`,
+              statusTitle: `🧩 Khối ${dim}×${dim} theo trục WCA — Đang chờ ${rotGuide?.short || mappedFace} (${centerName})`,
+              detailText: `${evenTip} • Đã lưu: [${currentScannedKeys.join(', ') || 'Chưa có'}]`,
+              facesCount: updatedFacesCount,
+              validStickers: validColorsCount
+            };
           } else {
             resolvedModel3D = {
               verified: !reqPreCheck,
@@ -3249,10 +3387,15 @@ export default function App() {
             lastValidCubeColorsRef.current = [...currentNxNColors];
 
             if (reqPreCheck && !hasScannedTargetFaces) {
+              const evenGuideText = isEvenCube
+                ? (evenWaitingNextTurn
+                    ? `🔄 Đã lưu mặt ${lastEvenCapturedRef.current?.face} (${currentScannedKeys.length}/${targetFaceCount}) — ${EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip || ''}`
+                    : `📐 Khối ${dim}×${dim} • Mặt ${mappedFace} (${currentScannedKeys.length}/${targetFaceCount}): ${evenHoldPct > 0 ? `Giữ yên ${evenHoldPct}% để tự chốt` : EVEN_CUBE_ROTATION_GUIDES[mappedFace]?.turnTip} (hoặc bấm [C])`)
+                : `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`;
               // CHƯA QUÉT ĐỦ SỐ MẶT YÊU CẦU (3 MẶT HOẶC 6 MẶT) -> HƯỚNG DẪN QUÉT TIẾP
               setPreCheckThrottled({
                 verified: false,
-                text: `🔍 ĐÃ QUÉT ${currentScannedKeys.length}/${targetFaceCount} MẶT (${currentScannedKeys.join(', ')}) — Hãy xoay khối để AI quét tiếp ${Math.max(1, targetFaceCount - currentScannedKeys.length)} mặt nữa`,
+                text: evenGuideText,
                 isScrambled: true,
                 centerFace: `${mappedFace} (${centerName})`,
                 scannedCount: currentScannedKeys.length,
@@ -4644,25 +4787,47 @@ export default function App() {
 
                     {solveStep === 'step1_check_scb' && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'inline-flex', gap: '3px', alignItems: 'center' }} title="Tiến độ các mặt U R F D L B (đưa từng mặt vào Camera)">
-                          {FACE_SCAN_ORDER.map((face) => {
+                        <div
+                          style={{ display: 'inline-flex', gap: '3px', alignItems: 'center' }}
+                          title={currentDim % 2 === 0
+                            ? `Quy chiếu tuần tự WCA cho khối ${currentDim}×${currentDim}: F → R → B → L → U → D (Click mặt bất kỳ để quét lại)`
+                            : 'Tiến độ các mặt U R F D L B (đưa từng mặt vào Camera)'}
+                        >
+                          {(currentDim % 2 === 0
+                            ? EVEN_CUBE_SCAN_SEQUENCE.map((k) => FACE_SCAN_ORDER.find((f) => f.key === k)).filter(Boolean)
+                            : FACE_SCAN_ORDER
+                          ).map((face) => {
                             const ok = Boolean(scannedFaces[face.key]);
+                            const isTarget = currentDim % 2 === 0 && currentActiveFace === face.key && !ok;
                             return (
-                              <span
+                              <button
                                 key={face.key}
-                                title={`Mặt ${face.key} (${face.colorName})`}
+                                type="button"
+                                onClick={() => {
+                                  setCurrentActiveFace(face.key);
+                                  currentActiveFaceRef.current = face.key;
+                                  evenAutoHoldStreakRef.current = 0;
+                                  evenPrevPreviewColorsRef.current = null;
+                                  if (lastEvenCapturedRef.current?.face === face.key) {
+                                    lastEvenCapturedRef.current = null;
+                                  }
+                                }}
+                                title={currentDim % 2 === 0
+                                  ? `${EVEN_CUBE_ROTATION_GUIDES[face.key]?.short}: Click để chọn quét mặt ${face.key}`
+                                  : `Mặt ${face.key} (${face.colorName})`}
                                 style={{
                                   fontSize: '0.62rem',
                                   fontWeight: '800',
-                                  padding: '1px 5px',
+                                  padding: '1px 6px',
                                   borderRadius: '4px',
-                                  background: ok ? '#15803d' : 'rgba(255,255,255,0.06)',
-                                  color: ok ? '#ffffff' : '#64748b',
-                                  border: ok ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.08)'
+                                  cursor: 'pointer',
+                                  background: ok ? '#15803d' : (isTarget ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255,255,255,0.06)'),
+                                  color: ok ? '#ffffff' : (isTarget ? '#7dd3fc' : '#64748b'),
+                                  border: ok ? '1px solid #4ade80' : (isTarget ? '1.5px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)')
                                 }}
                               >
                                 {face.key}
-                              </span>
+                              </button>
                             );
                           })}
                         </div>
@@ -4792,8 +4957,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           setScramble(generateScramble(puzzleType));
-                          setScannedFaces({});
-                          scannedFacesRef.current = {};
+                          resetScanMemory(currentDim);
                           setAllowFreestyleScramble(false);
                           setScrambleAudit({ matchRate: 100, isMatch: true, isMismatch: false, isPending: true });
                         }}
@@ -4901,8 +5065,7 @@ export default function App() {
                               type="button"
                               onClick={() => {
                                 setScramble(generateScramble(puzzleType));
-                                setScannedFaces({});
-                                scannedFacesRef.current = {};
+                                resetScanMemory(currentDim);
                                 setAllowFreestyleScramble(false);
                               }}
                               style={{
@@ -5308,12 +5471,16 @@ export default function App() {
                         <div style={{ position: 'absolute', bottom: '-3px', right: '-3px', width: '8px', height: '8px', borderBottom: `2.5px solid ${currentHudTheme.bracketColor}`, borderRight: `2.5px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 4px ${currentHudTheme.glowColor})` }} />
 
                         {detectedColors.map((colorKey, idx) => {
-                          const centerStickerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
-                          const isCenter = idx === centerStickerIdx;
+                          const centerIndices = getInnerCenterIndices(currentDim);
+                          const isCenter = centerIndices.includes(idx);
                           return (
                             <div
                               key={idx}
-                              title={isCenter ? `Ô số 5 (Tâm): ${colorKey !== 'invalid' ? COLOR_DEFINITIONS[colorKey]?.name : 'AI đang tự động nhận diện'}` : undefined}
+                              title={isCenter
+                                ? (currentDim % 2 === 0
+                                    ? `Cụm tâm 2×2 — Khối ${currentDim}×${currentDim} quét theo chuẩn WCA (${EVEN_CUBE_SCAN_SEQUENCE.join('→')})`
+                                    : `Ô tâm: ${colorKey !== 'invalid' ? COLOR_DEFINITIONS[colorKey]?.name : 'AI đang tự động nhận diện'}`)
+                                : undefined}
                               style={{
                                 border: isCenter ? '1.5px solid #38bdf8' : '0.5px solid rgba(255,255,255,0.22)',
                                 display: 'flex',
@@ -5526,12 +5693,14 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          setScannedFaces({});
+                          resetScanMemory(currentDim);
                           manualStickerOverridesRef.current = {};
                           const targetCount = (adminSettingsRef.current?.requiredPreCheckFaces === 6 || adminSettingsRef.current?.requireAll6FacesPreCheck === true) ? 6 : 3;
                           setPreCheckStatus({
                             verified: false,
-                            text: `Đã đặt lại bộ nhớ quét. Hãy xoay khối Rubik trước Camera để AI quét ${targetCount} mặt.`,
+                            text: currentDim % 2 === 0
+                              ? `Đã đặt lại bộ nhớ quét ${currentDim}×${currentDim}. ${EVEN_CUBE_ROTATION_GUIDES.F.turnTip}`
+                              : `Đã đặt lại bộ nhớ quét. Hãy xoay khối Rubik trước Camera để AI quét ${targetCount} mặt.`,
                             isScrambled: false,
                             centerFace: null
                           });
@@ -5682,8 +5851,8 @@ export default function App() {
                   <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '6px', height: '6px', borderBottom: `2px solid ${currentHudTheme.bracketColor}`, borderRight: `2px solid ${currentHudTheme.bracketColor}`, filter: `drop-shadow(0 0 3px ${currentHudTheme.glowColor})` }} />
 
                   {detectedColors.map((colorKey, idx) => {
-                    const centerStickerIdx = currentDim % 2 === 1 ? Math.floor((currentDim * currentDim) / 2) : 4;
-                    const isCenter = idx === centerStickerIdx;
+                    const centerIndices = getInnerCenterIndices(currentDim);
+                    const isCenter = centerIndices.includes(idx);
                     const isInvalidCenter = isCenter && (colorKey === 'invalid');
                     const colorDef = COLOR_DEFINITIONS[colorKey] || { name: '?', bg: 'transparent' };
                     const viName =
@@ -5697,7 +5866,11 @@ export default function App() {
                     return (
                       <div
                         key={idx}
-                        title={isCenter ? 'Ô số 5 (Tâm): AI đang tự động nhận diện màu' : undefined}
+                        title={isCenter
+                          ? (currentDim % 2 === 0
+                              ? `Cụm tâm 2×2 — Khối ${currentDim}×${currentDim} quét theo chuẩn WCA`
+                              : 'Ô tâm: AI đang tự động nhận diện màu')
+                          : undefined}
                         style={{
                           position: 'relative',
                           border: isCenter ? '1.5px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.35)',
@@ -5795,8 +5968,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setScramble(generateScramble(puzzleType));
-                        setScannedFaces({});
-                        scannedFacesRef.current = {};
+                        resetScanMemory(currentDim);
                         setAllowFreestyleScramble(false);
                       }}
                       style={{
@@ -7529,9 +7701,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setScramble(generateScramble('3x3'));
-                  setScannedFaces({});
-                  scannedFacesRef.current = {};
+                  setScramble(generateScramble(puzzleType));
+                  resetScanMemory(currentDim);
                 }}
                 style={{
                   padding: '8px 16px',
