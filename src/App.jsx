@@ -4252,18 +4252,20 @@ export default function App() {
       ========================================== */}
       <div style={{
         flex: 1,
+        width: '100%',
+        boxSizing: 'border-box',
         display: isMobile ? 'flex' : 'grid',
         flexDirection: isMobile ? 'column' : undefined,
-        gridTemplateColumns: isMobile ? undefined : (isZenMode ? '1fr' : (gameMode === 'solo' ? '280px 1fr' : '270px 1fr 380px')),
+        gridTemplateColumns: isMobile ? undefined : (isZenMode ? 'minmax(0, 1fr)' : (gameMode === 'solo' ? 'minmax(230px, 270px) minmax(0, 1fr)' : 'minmax(220px, 255px) minmax(0, 1fr) minmax(290px, 345px)')),
         alignItems: isMobile ? undefined : 'start',
-        padding: isMobile ? '8px 10px 88px 10px' : (isZenMode ? '8px 16px 20px 16px' : '12px 20px 60px 20px'),
-        gap: '12px',
+        padding: isMobile ? '8px 10px calc(112px + env(safe-area-inset-bottom, 12px)) 10px' : (isZenMode ? '8px 16px 20px 16px' : '12px 16px 60px 16px'),
+        gap: '10px',
         overflowY: 'visible',
         overflowX: 'hidden'
       }}>
         {/* === CỘT TRÁI: THÀNH TÍCH & LỊCH SỬ (ẨN KHI BẬT ZEN MODE) === */}
         {!isZenMode && (!isMobile || mobileTab === 'stats') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: isMobile ? 'visible' : 'hidden', width: isMobile ? '100%' : undefined }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0, overflow: isMobile ? 'visible' : 'hidden', width: '100%', boxSizing: 'border-box' }}>
           <div style={{
             backgroundColor: currentHudTheme.cardBg,
             border: currentHudTheme.cardBorder,
@@ -4386,29 +4388,31 @@ export default function App() {
           border: currentHudTheme.cardBorder,
           boxShadow: currentHudTheme.cardShadow,
           borderRadius: '16px',
-          padding: isMobile ? '12px 14px' : '16px 22px',
+          padding: isMobile ? '12px 12px' : '14px 18px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'space-between',
           position: 'relative',
-          width: isMobile ? '100%' : undefined,
+          minWidth: 0,
+          width: '100%',
+          boxSizing: 'border-box',
           minHeight: isMobile ? '450px' : undefined
         }}>
           {/* Top Bar: GAME MODES + PUZZLE SELECTOR */}
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <div style={{
               display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
               background: currentHudTheme.innerCardBg,
               padding: '3px',
               borderRadius: '8px',
               border: currentHudTheme.innerCardBorder,
               gap: '4px',
               maxWidth: '100%',
-              overflowX: 'auto',
-              WebkitOverflowScrolling: 'touch',
-              touchAction: 'pan-x pan-y'
-            }} className="no-scrollbar">
+              boxSizing: 'border-box'
+            }}>
               {GAME_MODES.map((m) => {
                 const isSelected = gameMode === m.id;
                 return (
@@ -4417,7 +4421,7 @@ export default function App() {
                     onClick={() => handleSelectGameMode(m.id)}
                     title={m.desc}
                     style={{
-                      padding: '5px 12px',
+                      padding: isMobile ? '5px 9px' : '5px 11px',
                       borderRadius: '6px',
                       border: 'none',
                       background: isSelected ? `linear-gradient(135deg, ${currentHudTheme.primaryAccent}, #1d4ed8)` : 'transparent',
@@ -4571,16 +4575,17 @@ export default function App() {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap', maxWidth: '100%' }}>
               <div style={{
-                display: 'inline-flex',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
                 background: currentHudTheme.innerCardBg,
                 padding: '3px',
                 borderRadius: '8px',
                 border: currentHudTheme.innerCardBorder,
                 gap: '4px',
                 maxWidth: '100%',
-                overflowX: 'auto',
-                WebkitOverflowScrolling: 'touch'
-              }} className="no-scrollbar">
+                boxSizing: 'border-box'
+              }}>
                 {Object.values(PUZZLE_CONFIGS).map((p) => {
                   const isSelected = puzzleType === p.id;
                   return (
@@ -4588,7 +4593,7 @@ export default function App() {
                       key={p.id}
                       onClick={() => handleSelectPuzzle(p.id)}
                       style={{
-                        padding: '4px 12px',
+                        padding: isMobile ? '4px 10px' : '4px 11px',
                         borderRadius: '6px',
                         border: 'none',
                         background: isSelected ? currentHudTheme.cardBg : 'transparent',
@@ -4596,6 +4601,7 @@ export default function App() {
                         fontWeight: isSelected ? '800' : '600',
                         fontSize: '0.78rem',
                         cursor: 'pointer',
+                        whiteSpace: 'nowrap',
                         borderBottom: isSelected ? `2px solid ${currentHudTheme.primaryAccent}` : '2px solid transparent'
                       }}
                     >
@@ -6334,18 +6340,20 @@ export default function App() {
           id="rubik-leaderboard-section"
           style={{
           backgroundColor: currentHudTheme.cardBg,
-          width: isMobile ? '100%' : undefined,
+          width: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
           border: currentHudTheme.cardBorder,
           boxShadow: currentHudTheme.cardShadow,
           borderRadius: '16px',
-          padding: '16px 18px',
+          padding: '14px 16px',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           position: 'relative'
         }}>
           {/* Header Bảng Xếp Hạng & Chọn Bảng */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
             <select
               value={activeBoardId}
               onChange={(e) => {
@@ -6356,13 +6364,14 @@ export default function App() {
                 background: currentHudTheme.innerCardBg,
                 border: currentHudTheme.innerCardBorder,
                 color: currentHudTheme.textColor,
-                fontSize: '0.9rem',
+                fontSize: '0.86rem',
                 fontWeight: '700',
-                padding: '5px 10px',
+                padding: '5px 8px',
                 borderRadius: '6px',
                 cursor: 'pointer',
                 outline: 'none',
-                maxWidth: '190px'
+                flex: '1 1 140px',
+                minWidth: 0
               }}
             >
               {Object.values(leaderboards).map(b => (
@@ -6376,11 +6385,13 @@ export default function App() {
                 background: `linear-gradient(135deg, ${currentHudTheme.primaryAccent}, #1d4ed8)`,
                 border: 'none',
                 color: '#ffffff',
-                fontSize: '0.75rem',
+                fontSize: '0.73rem',
                 fontWeight: '700',
-                padding: '6px 10px',
+                padding: '6px 9px',
                 borderRadius: '6px',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
               }}
             >
               ➕ Lập bảng mới
@@ -6388,7 +6399,7 @@ export default function App() {
           </div>
 
           {/* Trạng thái Chống Gian Lận (Anti-Cheat) & Bộ Lọc */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', margin: '4px 0 6px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', margin: '4px 0 6px 0' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -6660,9 +6671,12 @@ export default function App() {
               borderRadius: '12px',
               border: '1px solid #1e293b',
               overflow: 'hidden',
-              position: 'relative'
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
-              <Suspense fallback={<div style={{ width: 330, height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>🧊 Đang tải 3D...</div>}>
+              <Suspense fallback={<div style={{ width: 320, height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>🧊 Đang tải 3D...</div>}>
                 <Rubik3DView
                   dim={currentDim}
                   detectedColors={detectedColors}
@@ -6673,24 +6687,21 @@ export default function App() {
                   modelVerification={model3DVerification}
                   surfaceProfile={surfaceProfile}
                   activeFace={currentActiveFace}
-                  width={330}
+                  width={320}
                   height={240}
                 />
               </Suspense>
-              <div style={{
-                position: 'absolute',
-                bottom: '8px',
-                left: '8px',
-                right: '8px',
-                textAlign: 'center',
-                fontSize: '0.72rem',
-                color: '#64748b',
-                background: 'rgba(15, 23, 42, 0.75)',
-                padding: '4px 8px',
-                borderRadius: '6px'
-              }}>
-                👆 Dùng 1 ngón tay xoay 360° • Dùng 2 ngón tay thu phóng
-              </div>
+            </div>
+            <div style={{
+              textAlign: 'center',
+              fontSize: '0.72rem',
+              color: '#94a3b8',
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: '1px solid #1e293b',
+              padding: '5px 8px',
+              borderRadius: '8px'
+            }}>
+              👆 Dùng 1 ngón tay xoay 360° • Dùng 2 ngón tay thu phóng
             </div>
 
             {/* Điều khiển Camera trên mobile */}
@@ -9627,11 +9638,11 @@ export default function App() {
         title="Lên đầu trang"
         style={{
           position: 'fixed',
-          bottom: isMobile ? '78px' : '22px',
-          right: isMobile ? '14px' : '22px',
+          bottom: isMobile ? 'calc(78px + env(safe-area-inset-bottom, 0px))' : '22px',
+          right: isMobile ? '12px' : '22px',
           zIndex: 9995,
-          width: '38px',
-          height: '38px',
+          width: isMobile ? '34px' : '38px',
+          height: isMobile ? '34px' : '38px',
           borderRadius: '50%',
           background: 'rgba(15, 23, 42, 0.82)',
           border: `1px solid ${currentHudTheme.color}88`,
